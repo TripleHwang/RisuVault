@@ -15,7 +15,7 @@ const CRC32_TABLE = (() => {
 const DEFAULT_CHARX_LIMITS = Object.freeze({
   decompressedBytes: 2 * 1024 * 1024 * 1024,
   expansionRatio: 1000,
-  entries: 10000,
+  entries: 50000,
   cardBytes: 4 * 1024 * 1024,
   moduleBytes: 16 * 1024 * 1024,
   queuedWriteBytes: 8 * 1024 * 1024,
