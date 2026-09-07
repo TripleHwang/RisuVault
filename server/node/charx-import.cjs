@@ -32,7 +32,13 @@ const CRC32_TABLE = (() => {
 const DEFAULT_CHARX_LIMITS = Object.freeze({
   compressedBytes: 2 * 1024 * 1024 * 1024,
   decompressedBytes: 8 * 1024 * 1024 * 1024,
-  entries: 10000,
+  // Not a size cap: this one bounds how many separate files the import stages
+  // and publishes, so it is the zip-bomb guard that does not scale with the
+  // archive's bytes. Raised from 10,000 after a real 587 MB character was
+  // refused at 14,174 entries -- images plus their metadata sidecars, not an
+  // attack. What actually bounds the damage is unchanged: the decompressed
+  // total, the per-entry caps, and the disk-headroom check.
+  entries: 50000,
   cardBytes: 16 * 1024 * 1024,
   moduleBytes: 64 * 1024 * 1024,
   assetBytes: 512 * 1024 * 1024,

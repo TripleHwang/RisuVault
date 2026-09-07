@@ -521,3 +521,23 @@ describe('importCharXStream', () => {
     } finally { await rm(stagingRoot, { recursive: true, force: true }); }
   }, 120_000);
 });
+
+describe('the entry-count guard', () => {
+  test('refuses one entry past the limit and accepts the limit itself', async () => {
+    const stagingRoot = await mkdtemp(join(tmpdir(), 'charx-entries-'));
+    const build = (count: number) => {
+      const files: Record<string, Uint8Array> = { 'card.json': strToU8('{"spec":"chara_card_v3"}') };
+      for (let index = 0; index < count; index++) files[`a${index}.png`] = strToU8('p');
+      return zipSync(files);
+    };
+    const run = (count: number, entries: number) => importCharXStream(
+      chunks(build(count)),
+      { stagingRoot, publishAssets: async () => {}, limits: { entries } },
+    );
+
+    await expect(run(4, 5)).resolves.toBeDefined();
+    await expect(run(5, 5)).rejects.toMatchObject({ code: 'CHARX_LIMIT_EXCEEDED' });
+    // The shipped value, so raising or lowering it cannot go unnoticed.
+    expect(DEFAULT_CHARX_LIMITS.entries).toBe(50000);
+  });
+});
