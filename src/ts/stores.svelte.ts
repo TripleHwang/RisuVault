@@ -271,6 +271,45 @@ $effect.root(() => {
         DBState?.db?.characters?.[selIdState.selId]?.hideChatIcon
         DBState?.db?.characters?.[selIdState.selId]?.backgroundHTML
         DBState?.db?.moduleIntergration
+        // This effect runs synchronously inside the `$effect.root` above, during
+        // this module's own body -- before boot, before any test, and before
+        // anything has installed a database. `DBState.db` is still the `{}`
+        // placeholder declared above at that point, and `moduleUpdate()` reaches
+        // it only through `database.svelte`'s accessors. Two separate problems
+        // come out of that, and the marker below covers both.
+        //
+        // Under Vite's SSR transform -- what vitest runs, and only vitest -- a
+        // module graph that reaches `database.svelte` before this module leaves
+        // it suspended at its hoisted `await __vite_ssr_import__` for
+        // `stores.svelte`. The transform gives each importer its own
+        // `const __vite_ssr_import_N__` for that edge, so while `database.svelte`
+        // is parked mid-await its const is in TDZ and `getDatabase()` throws
+        // `ReferenceError: Cannot access '__vite_ssr_import_35__' before
+        // initialization`. Nothing catches it: `getModules()` calls
+        // `getCurrentChat()` and `getCurrentCharacter()` unguarded. 17 test files
+        // entered the cycle in that order and each raised one unhandled error,
+        // failing the run at exit code 1 with every test passing. The browser
+        // build has no such intermediate const -- `DBState` and this effect share
+        // a module body, so the same cycle resolves without a TDZ in any bundle
+        // order, which is why the application never saw this.
+        //
+        // Independently of module systems, running on the placeholder is not
+        // inert. `getCurrentCharacter()` fills in `db.characters = []` on
+        // whatever object it is handed, so an early run stamps the placeholder
+        // with the very field `resolveLiveDatabase()` reads to tell an installed
+        // graph apart from the placeholder (see `storage/sql/liveDatabase.ts`).
+        //
+        // `characters` is therefore the marker here too, and `setDatabase`
+        // guarantees it -- it is the first field that function fills in -- so the
+        // guard opens for every installed database and closes for nothing else.
+        // Every dependency this effect needs is read above, before the return,
+        // and `setDatabaseLite` replaces `DBState.db` wholesale, so the effect
+        // re-runs and `moduleUpdate()` fires the moment there is a database to
+        // read -- and on every later change to modules, the enabled set, the
+        // chat's module list or `moduleIntergration`, exactly as before.
+        if(!Array.isArray(DBState?.db?.characters)){
+            return
+        }
         moduleUpdate()
     })
 })
