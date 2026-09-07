@@ -14,4 +14,4 @@ RisuVault tracks HaejeokRisuAI `b6320` (`1260c9be`, 2026-08-25) as the current c
 
 ## Deliberate boundaries
 
-Haejeok's Tauri installers, PostgreSQL deployment scripts, settings/persona visual redesign, and binary release channel are not copied wholesale. RisuVault is a standalone Node portable application with its own SQL lifecycle, branding, PageFold integration, release artifacts, and verified patch channel. UI changes are adopted only where they do not replace RisuBard-specific workspaces or break existing save/plugin compatibility.
+Haejeok's Tauri installers, PostgreSQL deployment scripts, settings/persona visual redesign, and binary release channel are not copied wholesale. RisuVault is a standalone Node portable application with its own SQL lifecycle, branding, PageFold integration, release artifacts, and verified patch channel. UI changes are adopted only where they do not replace this project's own workspaces or break existing save/plugin compatibility.

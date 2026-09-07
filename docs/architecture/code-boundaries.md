@@ -1,6 +1,6 @@
 # Code boundaries
 
-RisuBard keeps inherited GPLv3 application code and future independently authored core code structurally distinct.
+RisuVault keeps inherited GPLv3 application code and future independently authored core code structurally distinct.
 
 ## Existing application
 
@@ -8,7 +8,7 @@ The repository root contains the inherited GPLv3 application. Its license, origi
 
 ## Independent core
 
-`packages/risubard-core/` is reserved for a future UI-independent engine authored specifically for RisuBard.
+`packages/risubard-core/` is reserved for a future UI-independent engine authored specifically for this project. The directory keeps its inherited name; the path is live and referenced by the build.
 
 Inherited application code must not be copied or mechanically translated into this package. Shared behavior must be designed from independent contracts and implemented without transplanting inherited application code.
 
