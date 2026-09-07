@@ -6,7 +6,7 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/install.md) oder [koreanische](../ko/install.md) Version.
 
-RisuBard kann auf vier Arten installiert werden.
+RisuVault kann auf vier Arten installiert werden.
 
 - [1. Portable-Paket](#1-portable-paket) — Vorkompilierte Binärdatei. Kein Node.js erforderlich.
 - [2. Docker](#2-docker) — Container-Umgebung.
@@ -34,27 +34,27 @@ Laden Sie eine vorkompilierte Binärdatei herunter und führen Sie sie aus. Kein
 
 ### Download
 
-Holen Sie die Datei für Ihr OS von der [Releases-Seite](https://github.com/rpaddict/RisuBard/releases).
+Holen Sie die Datei für Ihr OS von der [Releases-Seite](https://github.com/TripleHwang/RisuVault/releases).
 
 | OS                      | Datei                                     |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `RisuBard-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `RisuBard-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `RisuBard-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `RisuBard-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `RisuVault-vX.X.X-win-x64.zip`           |
+| macOS (Apple Silicon)   | `RisuVault-vX.X.X-macos-arm64.tar.gz`    |
+| Linux (x64)             | `RisuVault-vX.X.X-linux-x64.tar.gz`      |
+| Linux (ARM)             | `RisuVault-vX.X.X-linux-arm64.tar.gz`    |
 
 ### Ausführen
 
 **Windows**
 
-Entpacken Sie die zip und doppelklicken Sie auf `RisuBard.exe`. Ein Browser öffnet sich automatisch unter `http://localhost:6001`.
+Entpacken Sie die zip und doppelklicken Sie auf `RisuVault.exe`. Ein Browser öffnet sich automatisch unter `http://localhost:6001`.
 
 **macOS**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-macos-arm64.tar.gz
-xattr -cr RisuBard-vX.X.X-macos-arm64
-open RisuBard-vX.X.X-macos-arm64/RisuBard.app
+tar -xzf RisuVault-vX.X.X-macos-arm64.tar.gz
+xattr -cr RisuVault-vX.X.X-macos-arm64
+open RisuVault-vX.X.X-macos-arm64/RisuVault.app
 ```
 
 Der `xattr`-Befehl ist ein einmaliger Schritt, um die "Apple kann nicht verifizieren"-Warnung zu umgehen.
@@ -62,8 +62,8 @@ Der `xattr`-Befehl ist ein einmaliger Schritt, um die "Apple kann nicht verifizi
 **Linux**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-linux-*.tar.gz
-cd RisuBard-vX.X.X-linux-*
+tar -xzf RisuVault-vX.X.X-linux-*.tar.gz
+cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -76,10 +76,10 @@ Für Linux/macOS-Server ohne GUI: Neueste Version in einem Befehl herunterladen 
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-linux-x64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-cd RisuBard-${VERSION}-linux-x64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-linux-x64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+cd RisuVault-${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -88,11 +88,11 @@ cd RisuBard-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-macos-arm64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-xattr -cr RisuBard-${VERSION}-macos-arm64
-cd RisuBard-${VERSION}-macos-arm64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-macos-arm64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+xattr -cr RisuVault-${VERSION}-macos-arm64
+cd RisuVault-${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -123,7 +123,7 @@ Läuft auf einem System mit installiertem Docker oder Docker Desktop.
 ### Ausführen
 
 ```bash
-curl -L https://raw.githubusercontent.com/rpaddict/RisuBard/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -137,7 +137,7 @@ docker compose pull && docker compose up -d
 
 ### Datenstandort
 
-Alle Daten (Chats, Charaktere usw.) werden im Docker-Volume `risuai-save` gespeichert. Daten bleiben bei Updates erhalten.
+Alle Daten (Chats, Charaktere usw.) werden im Docker-Volume `risuvault-save` gespeichert. Daten bleiben bei Updates erhalten.
 
 
 ---
@@ -160,7 +160,7 @@ Installieren Sie von der [offiziellen Node.js-Website](https://nodejs.org/), fal
 ### Installieren
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/install.sh | bash
 ```
 
 Eine Statusmeldung wird angezeigt, wenn die Installation abgeschlossen ist.
@@ -181,10 +181,10 @@ cd ~/risubard
 ./update.sh
 ```
 
-> **Einmaliger Hinweis für v1.5.x → v1.6.0**: Wenn Sie während der Risuai-NodeOnly-Ära (v1.5.x oder früher) über `install.sh` installiert haben, ersetzen Sie `update.sh` einmal mit der neuen Version vor Ihrem ersten v1.6.0-Update. (Das Repository wurde in RisuBard umbenannt, und das alte `update.sh` kann das neue Quellverzeichnis nicht finden.)
+> **Einmaliger Hinweis für v1.5.x → v1.6.0**: Wenn Sie während der Risuai-NodeOnly-Ära (v1.5.x oder früher) über `install.sh` installiert haben, ersetzen Sie `update.sh` einmal mit der neuen Version vor Ihrem ersten v1.6.0-Update. (Das Repository wurde zwischenzeitlich umbenannt — Risuai-NodeOnly → RisuBard → RisuVault —, sodass das alte `update.sh` das neue Quellverzeichnis nicht finden kann.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -198,8 +198,8 @@ cd ~/risubard
 Manuelles Klonen und Bauen des Quellcodes. Für Entwickler, die Code ändern oder debuggen müssen.
 
 ```bash
-git clone https://github.com/rpaddict/RisuBard.git
-cd RisuBard
+git clone https://github.com/TripleHwang/RisuVault.git
+cd RisuVault
 pnpm install
 pnpm build
 pnpm runserver

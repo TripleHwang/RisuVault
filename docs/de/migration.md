@@ -6,7 +6,7 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/migration.md) oder [koreanische](../ko/migration.md) Version.
 
-Es gibt drei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (Web-RisuAI, Lokales RisuAI) zu RisuBard zu migrieren. Wählen Sie je nach Quellumgebung und Datenmenge.
+Es gibt drei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (Web-RisuAI, Lokales RisuAI) zu RisuVault zu migrieren. Wählen Sie je nach Quellumgebung und Datenmenge.
 
 - [1. Lokale Backup-Datei (.bin)](#1-lokale-backup-datei-bin) — Funktioniert in allen Umgebungen. Die häufigste Methode.
 - [2. Save-Ordner Zip-Upload](#2-save-ordner-zip-upload) — Lokales RisuAI, kleine Datenmengen.
@@ -22,10 +22,10 @@ Es gibt drei Möglichkeiten, Daten von einer bestehenden RisuAI-Installation (We
 
 ## 1. Lokale Backup-Datei (.bin)
 
-Exportieren Sie eine `.bin`-Backup-Datei aus dem bestehenden RisuAI und importieren Sie sie dann in RisuBard. Funktioniert unabhängig von der Quellumgebung (Web / Tauri / Capacitor / lokal).
+Exportieren Sie eine `.bin`-Backup-Datei aus dem bestehenden RisuAI und importieren Sie sie dann in RisuVault. Funktioniert unabhängig von der Quellumgebung (Web / Tauri / Capacitor / lokal).
 
 1. **Im bestehenden RisuAI**: Einstellungen > Backup > "Lokales Backup speichern", um eine `.bin`-Datei zu exportieren.
-2. **In RisuBard**: Einstellungen > Datenmigration > "Original Risu Local Backup importieren", um die `.bin`-Datei zu importieren.
+2. **In RisuVault**: Einstellungen > Datenmigration > "Original Risu Local Backup importieren", um die `.bin`-Datei zu importieren.
 
 
 ---
@@ -35,7 +35,7 @@ Exportieren Sie eine `.bin`-Backup-Datei aus dem bestehenden RisuAI und importie
 Wenn Sie Lokales RisuAI (die Node-Server-Version) verwendet haben, können Sie Ihren `save`-Ordner zippen und hochladen.
 
 1. Komprimieren Sie den `save`-Ordner Ihres bestehenden RisuAI-Projekts als Zip-Datei.
-2. Öffnen Sie in RisuBard Einstellungen > Datenmigration > "Save-Ordner von NodeOnly Risu importieren"-Akkordeon.
+2. Öffnen Sie in RisuVault Einstellungen > Datenmigration > "Save-Ordner von NodeOnly Risu importieren"-Akkordeon.
 3. Laden Sie die Zip über "Aus Save-Ordner importieren (Zip-Upload)" hoch.
 
 > Wenn die Zip-Datei zu groß ist, kann der Upload fehlschlagen. Verwenden Sie in diesem Fall [3. Save-Ordner direkt kopieren](#3-save-ordner-direkt-kopieren).
@@ -47,9 +47,9 @@ Wenn Sie Lokales RisuAI (die Node-Server-Version) verwendet haben, können Sie I
 
 Geeignet für große Datenmengen (mehrere GB oder mehr). Erfordert direkten Dateisystemzugriff auf den Server.
 
-1. Stoppen Sie den RisuBard-Server.
-2. Überschreiben Sie den `save`-Ordner von RisuBard mit dem `save`-Ordner des bestehenden RisuAI.
-3. Starten Sie den RisuBard-Server neu — die automatische Migration beginnt.
+1. Stoppen Sie den RisuVault-Server.
+2. Überschreiben Sie den `save`-Ordner von RisuVault mit dem `save`-Ordner des bestehenden RisuAI.
+3. Starten Sie den RisuVault-Server neu — die automatische Migration beginnt.
     - Überwachen Sie den Fortschritt im Terminal oder in den PM2-Logs.
 4. Nach Abschluss der Migration verwenden Sie Einstellungen > Datenmigration > "Save-Ordner von NodeOnly Risu importieren"-Akkordeon > "Migrierte Save-Dateien aufräumen", um die Originaldateien zu entfernen und Speicherplatz freizugeben.
 

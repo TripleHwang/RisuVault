@@ -6,7 +6,7 @@
 
 > 🌐 Esta guía está traducida por máquina. Para obtener la información más precisa, consulte la versión en [inglés](../en/termux.md) o [coreano](../ko/termux.md).
 
-Esta guía explica cómo compilar y ejecutar RisuBard directamente en un teléfono Android usando Termux. El patrón de uso previsto es abrir `http://localhost:6001` en el navegador del propio teléfono.
+Esta guía explica cómo compilar y ejecutar RisuVault directamente en un teléfono Android usando Termux. El patrón de uso previsto es abrir `http://localhost:6001` en el navegador del propio teléfono.
 
 - [1. Requisitos previos](#1-requisitos-previos) — Termux de F-Droid y requisitos del sistema
 - [2. Instalación y compilación](#2-instalación-y-compilación) — configuración con un solo comando
@@ -25,7 +25,7 @@ Esta guía explica cómo compilar y ejecutar RisuBard directamente en un teléfo
 | **RAM**               | 2 GB          | 4 GB o más                             |
 | **Espacio libre**     | 2 GB          | 4 GB o más (incluida la compilación)   |
 
-RisuBard se compila en el teléfono. El entorno de ejecución ya no depende de SQLite nativo ni de `better-sqlite3`, eliminando la antigua barrera de compilación de SQLite.
+RisuVault se compila en el teléfono. El entorno de ejecución ya no depende de SQLite nativo ni de `better-sqlite3`, eliminando la antigua barrera de compilación de SQLite.
 
 
 ---
@@ -35,7 +35,7 @@ RisuBard se compila en el teléfono. El entorno de ejecución ya no depende de S
 ### Utilice la versión de Termux de F-Droid o GitHub Releases
 
 > ⚠️ **La versión de Termux de Play Store no se puede utilizar.**
-> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que RisuBard necesita (Node.js 22+).
+> Los mantenedores de Termux dejaron de actualizar la versión de Play Store en 2020, y ya no puede instalar los paquetes recientes que RisuVault necesita (Node.js 22+).
 
 Instale Termux desde una de las siguientes fuentes:
 
@@ -53,15 +53,15 @@ Abra Termux y ejecute este único comando:
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 El comando se encarga de:
 
 1. Instalar `git`
-2. Clonar el repositorio de RisuBard
+2. Clonar el repositorio de RisuVault
 3. Instalar las dependencias de compilación (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, etc.)
 4. `pnpm install` — dependencias de JavaScript y compilación de módulos nativos
 5. `pnpm build` — empaquetado del frontend
@@ -93,7 +93,7 @@ Una vez que aparezca el registro de arranque del servidor, abra el navegador del
 http://localhost:6001
 ```
 
-La interfaz de RisuBard debería cargarse. El navegador trata automáticamente a `localhost` como contexto seguro, por lo que el portapapeles, `crypto.subtle` y otras API que requieren contexto seguro funcionan con normalidad.
+La interfaz de RisuVault debería cargarse. El navegador trata automáticamente a `localhost` como contexto seguro, por lo que el portapapeles, `crypto.subtle` y otras API que requieren contexto seguro funcionan con normalidad.
 
 Detenga el servidor con `Ctrl + C`.
 
@@ -119,10 +119,10 @@ Libere con: `termux-wake-unlock`
 
 ## 5. Actualización
 
-Desde el directorio de RisuBard:
+Desde el directorio de RisuVault:
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,7 +136,7 @@ Si las dependencias cambiaron, `pnpm install` se ejecuta automáticamente como p
 
 **Quick Tunnel (túnel automático de Cloudflare) no funciona en Termux.** El binario `cloudflared` no es compatible con el entorno DNS y TLS de Termux.
 
-RisuBard detecta automáticamente el entorno Termux y muestra una advertencia en el menú de Acceso Remoto, ocultando el botón de inicio.
+RisuVault detecta automáticamente el entorno Termux y muestra una advertencia en el menú de Acceso Remoto, ocultando el botón de inicio.
 
 
 ---

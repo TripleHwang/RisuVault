@@ -4,7 +4,7 @@
 
 # Installation Guide
 
-RisuBard can be installed in four ways.
+RisuVault can be installed in four ways.
 
 - [1. Portable Package](#1-portable-package) — Pre-compiled binary. No Node.js required.
 - [2. Docker](#2-docker) — Container environment.
@@ -32,27 +32,27 @@ Download and run a pre-compiled binary. No Node.js, Docker, or other tools requi
 
 ### Download
 
-Get the file for your OS from the [Releases page](https://github.com/rpaddict/RisuBard/releases).
+Get the file for your OS from the [Releases page](https://github.com/TripleHwang/RisuVault/releases).
 
 | OS                      | File                                      |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `RisuBard-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `RisuBard-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `RisuBard-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `RisuBard-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `RisuVault-vX.X.X-win-x64.zip`           |
+| macOS (Apple Silicon)   | `RisuVault-vX.X.X-macos-arm64.tar.gz`    |
+| Linux (x64)             | `RisuVault-vX.X.X-linux-x64.tar.gz`      |
+| Linux (ARM)             | `RisuVault-vX.X.X-linux-arm64.tar.gz`    |
 
 ### Run
 
 **Windows**
 
-Extract the zip and double-click `RisuBard.exe`. A browser opens automatically at `http://localhost:6001`.
+Extract the zip and double-click `RisuVault.exe`. A browser opens automatically at `http://localhost:6001`.
 
 **macOS**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-macos-arm64.tar.gz
-xattr -cr RisuBard-vX.X.X-macos-arm64
-open RisuBard-vX.X.X-macos-arm64/RisuBard.app
+tar -xzf RisuVault-vX.X.X-macos-arm64.tar.gz
+xattr -cr RisuVault-vX.X.X-macos-arm64
+open RisuVault-vX.X.X-macos-arm64/RisuVault.app
 ```
 
 The `xattr` command is a one-time step to bypass the "Apple cannot verify" warning.
@@ -60,8 +60,8 @@ The `xattr` command is a one-time step to bypass the "Apple cannot verify" warni
 **Linux**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-linux-*.tar.gz
-cd RisuBard-vX.X.X-linux-*
+tar -xzf RisuVault-vX.X.X-linux-*.tar.gz
+cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -74,10 +74,10 @@ For Linux/macOS servers without a GUI, fetch and run the latest version in one c
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-linux-x64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-cd RisuBard-${VERSION}-linux-x64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-linux-x64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+cd RisuVault-${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -86,11 +86,11 @@ cd RisuBard-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-macos-arm64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-xattr -cr RisuBard-${VERSION}-macos-arm64
-cd RisuBard-${VERSION}-macos-arm64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-macos-arm64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+xattr -cr RisuVault-${VERSION}-macos-arm64
+cd RisuVault-${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -121,7 +121,7 @@ Runs on a system with Docker or Docker Desktop installed.
 ### Run
 
 ```bash
-curl -L https://raw.githubusercontent.com/rpaddict/RisuBard/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -135,7 +135,7 @@ docker compose pull && docker compose up -d
 
 ### Data Location
 
-All data (chats, characters, etc.) is stored in the Docker volume `risuai-save`. Data is preserved across updates.
+All data (chats, characters, etc.) is stored in the Docker volume `risuvault-save`. Data is preserved across updates.
 
 
 ---
@@ -158,7 +158,7 @@ Install from the [official Node.js site](https://nodejs.org/) if not present.
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/install.sh | bash
 ```
 
 A status message is shown when installation finishes.
@@ -179,10 +179,10 @@ cd ~/risubard
 ./update.sh
 ```
 
-> **One-time note for v1.5.x → v1.6.0**: If you installed via `install.sh` during the Risuai-NodeOnly era (v1.5.x or earlier), replace `update.sh` with the new version once before your first v1.6.0 update. (The repository was renamed to RisuBard, and the old `update.sh` cannot find the new source directory.)
+> **One-time note for v1.5.x → v1.6.0**: If you installed via `install.sh` during the Risuai-NodeOnly era (v1.5.x or earlier), replace `update.sh` with the new version once before your first v1.6.0 update. (The repository was renamed along the way — Risuai-NodeOnly → RisuBard → RisuVault — so the old `update.sh` cannot find the new source directory.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -196,8 +196,8 @@ cd ~/risubard
 Manually clone and build the source. For developers who need to modify or debug code.
 
 ```bash
-git clone https://github.com/rpaddict/RisuBard.git
-cd RisuBard
+git clone https://github.com/TripleHwang/RisuVault.git
+cd RisuVault
 pnpm install
 pnpm build
 pnpm runserver
@@ -218,4 +218,4 @@ pnpm runserver
 
 ---
 
-← [Back to README](../../README.md)
+← [Back to README](../../README.en.md)

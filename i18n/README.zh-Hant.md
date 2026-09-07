@@ -1,28 +1,24 @@
-<p align="center">
-  <img src="../assets/risubard-banner-1024.png" alt="RisuBard — 自架 AI 角色扮演聊天平台" width="900" />
-</p>
-
-<h1 align="center">RisuBard — 自架 AI 角色扮演聊天</h1>
+<h1 align="center">RisuVault — 自架 AI 角色扮演聊天</h1>
 
 <p align="center">
-  <a href="../README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <a href="README.es.md">Español</a> | <a href="README.vi.md">Tiếng Việt</a> | <strong>繁體中文</strong>
+  <a href="../README.en.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <a href="README.es.md">Español</a> | <a href="README.vi.md">Tiếng Việt</a> | <strong>繁體中文</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rpaddict/RisuBard/releases">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/rpaddict/RisuBard?label=latest" />
+  <a href="https://github.com/TripleHwang/RisuVault/releases">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/TripleHwang/RisuVault?label=latest" />
   </a>
   <a href="../LICENSE">
-    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/rpaddict/RisuBard" />
+    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/TripleHwang/RisuVault" />
   </a>
   <a href="https://nodejs.org/">
     <img alt="Node" src="https://img.shields.io/badge/node-≥22.12-brightgreen" />
   </a>
 </p>
 
-> 🌐 此 README 由機器翻譯生成。如需獲取最準確的資訊,請參閱 [English](../README.md) 或 [한국어](README.ko.md) 版本。歡迎貢獻翻譯。
+> 🌐 此 README 由機器翻譯生成。如需獲取最準確的資訊,請參閱 [English](../README.en.md) 或 [한국어](README.ko.md) 版本。歡迎貢獻翻譯。
 
-RisuBard 是一個自託管的 AI 角色扮演聊天平臺,您可以在自己的 PC 或個人伺服器上執行,並透過網頁瀏覽器從 PC、平板和智慧型手機存取。
+RisuVault 是一個自託管的 AI 角色扮演聊天平臺,您可以在自己的 PC 或個人伺服器上執行,並透過網頁瀏覽器從 PC、平板和智慧型手機存取。
 
 <p align="center">
   <table>
@@ -48,7 +44,7 @@ RisuBard 是一個自託管的 AI 角色扮演聊天平臺,您可以在自己的
 
 ## RisuAI 相容性
 
-RisuBard 衍生自 [RisuAI](https://github.com/kwaroran/RisuAI),針對自託管環境進行了改進。現有的 RisuAI 資料可以完整遷移,所有 RisuAI 生態系統資源都可以原樣使用。
+RisuVault 衍生自 [RisuAI](https://github.com/kwaroran/RisuAI)(經由 [RisuBard](https://github.com/rpaddict/RisuBard)),針對自託管環境進行了改進。現有的 RisuAI 資料可以完整遷移,所有 RisuAI 生態系統資源都可以原樣使用。
 
 - RisuRealm 角色下載
 - 角色卡(`.charx`、`.risum`、`.risup` 等)
@@ -77,7 +73,7 @@ RisuBard 衍生自 [RisuAI](https://github.com/kwaroran/RisuAI),針對自託管�
 
 ## 社群與聯絡
 
-- 錯誤回報/功能請求:[GitHub Issues](https://github.com/rpaddict/RisuBard/issues)
+- 錯誤回報/功能請求:[GitHub Issues](https://github.com/TripleHwang/RisuVault/issues)
 
 
 ## 授權條款

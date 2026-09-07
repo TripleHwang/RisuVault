@@ -53,12 +53,14 @@ fi
 
 info "Extracting..."
 tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
-# Match both RisuBard-* (current) and Risuai-NodeOnly-* (legacy repo name)
-# in case an older script encounters a redirected source archive.
+# GitHub names the extracted directory after the repository, so match all three
+# names this project has shipped under: RisuVault-* (current), RisuBard-* (the
+# upstream fork point) and Risuai-NodeOnly-* (the original repository name).
+# RISU_UPDATE_REPOSITORY can point at any of them.
 # Use find rather than ls: ls exits non-zero when one branch has no match,
 # which `set -euo pipefail` would propagate and abort the script.
 EXTRACTED_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d \
-    \( -name 'RisuBard-*' -o -name 'Risuai-NodeOnly-*' \) \
+    \( -name 'RisuVault-*' -o -name 'RisuBard-*' -o -name 'Risuai-NodeOnly-*' \) \
     -print -quit)
 [ -d "$EXTRACTED_DIR" ] || error "Extraction failed."
 
@@ -81,6 +83,15 @@ if [ -d "$INSTALL_DIR" ]; then
 fi
 
 mv "$EXTRACTED_DIR" "$INSTALL_DIR"
+
+# The GitHub source tarball does not preserve the executable bit, so restore it
+# on the shell scripts we tell the user to run.
+if [ -f "$INSTALL_DIR/update.sh" ]; then
+    chmod +x "$INSTALL_DIR/update.sh"
+fi
+if [ -f "$INSTALL_DIR/install.sh" ]; then
+    chmod +x "$INSTALL_DIR/install.sh"
+fi
 
 # Restore user data
 if [ -d "$TMP_DIR/_save_backup" ]; then

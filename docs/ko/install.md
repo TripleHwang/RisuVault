@@ -4,7 +4,7 @@
 
 # 설치 가이드
 
-리스바드를 설치하는 방법은 네 가지가 있습니다.
+RisuVault를 설치하는 방법은 네 가지가 있습니다.
 
 - [1. 포터블 패키지](#1-포터블-패키지) — 미리 컴파일된 바이너리. Node.js 불필요.
 - [2. Docker](#2-docker) — 컨테이너 환경.
@@ -32,27 +32,27 @@
 
 ### 다운로드
 
-[Releases 페이지](https://github.com/rpaddict/RisuBard/releases)에서 OS에 맞는 파일을 받습니다.
+[Releases 페이지](https://github.com/TripleHwang/RisuVault/releases)에서 OS에 맞는 파일을 받습니다.
 
 | OS                      | 파일명                                    |
 | ----------------------- | ----------------------------------------- |
-| Windows (x64)           | `RisuBard-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)   | `RisuBard-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)             | `RisuBard-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)             | `RisuBard-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)           | `RisuVault-vX.X.X-win-x64.zip`           |
+| macOS (Apple Silicon)   | `RisuVault-vX.X.X-macos-arm64.tar.gz`    |
+| Linux (x64)             | `RisuVault-vX.X.X-linux-x64.tar.gz`      |
+| Linux (ARM)             | `RisuVault-vX.X.X-linux-arm64.tar.gz`    |
 
 ### 실행
 
 **Windows**
 
-zip 파일의 압축을 풀고 폴더 안의 `RisuBard.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:6001`로 접속됩니다.
+zip 파일의 압축을 풀고 폴더 안의 `RisuVault.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:6001`로 접속됩니다.
 
 **macOS**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-macos-arm64.tar.gz
-xattr -cr RisuBard-vX.X.X-macos-arm64
-open RisuBard-vX.X.X-macos-arm64/RisuBard.app
+tar -xzf RisuVault-vX.X.X-macos-arm64.tar.gz
+xattr -cr RisuVault-vX.X.X-macos-arm64
+open RisuVault-vX.X.X-macos-arm64/RisuVault.app
 ```
 
 `xattr` 명령은 "Apple에서 확인할 수 없습니다" 경고를 우회하기 위한 1회성 작업입니다.
@@ -60,8 +60,8 @@ open RisuBard-vX.X.X-macos-arm64/RisuBard.app
 **Linux**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-linux-*.tar.gz
-cd RisuBard-vX.X.X-linux-*
+tar -xzf RisuVault-vX.X.X-linux-*.tar.gz
+cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -74,10 +74,10 @@ GUI 없는 Linux/macOS 서버에서 최신 버전을 한 번에 받아 실행합
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-linux-x64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-cd RisuBard-${VERSION}-linux-x64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-linux-x64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+cd RisuVault-${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -86,11 +86,11 @@ cd RisuBard-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-macos-arm64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-xattr -cr RisuBard-${VERSION}-macos-arm64
-cd RisuBard-${VERSION}-macos-arm64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-macos-arm64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+xattr -cr RisuVault-${VERSION}-macos-arm64
+cd RisuVault-${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -121,7 +121,7 @@ Docker / Docker Desktop이 설치된 환경에서 동작합니다.
 ### 실행
 
 ```bash
-curl -L https://raw.githubusercontent.com/rpaddict/RisuBard/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -135,7 +135,7 @@ docker compose pull && docker compose up -d
 
 ### 데이터 위치
 
-채팅·캐릭터 등 모든 데이터는 Docker 볼륨(`risuai-save`)에 저장됩니다. 업데이트해도 데이터는 유지됩니다.
+채팅·캐릭터 등 모든 데이터는 Docker 볼륨(`risuvault-save`)에 저장됩니다. 업데이트해도 데이터는 유지됩니다.
 
 
 ---
@@ -158,7 +158,7 @@ Node.js가 없다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설�
 ### 설치
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/install.sh | bash
 ```
 
 설치가 완료되면 안내 메시지가 표시됩니다.
@@ -179,10 +179,10 @@ cd ~/risubard
 ./update.sh
 ```
 
-> **v1.5.x → v1.6.0 1회성 안내**: Risuai-NodeOnly 시절(v1.5.x 이하)에 `install.sh`로 설치하셨다면, v1.6.0으로 첫 업데이트 전에 `update.sh`를 새 버전으로 한 번만 교체해주세요. (repo 이름이 리스바드로 바뀌어 옛 `update.sh`가 새 소스 디렉토리를 찾지 못합니다.)
+> **v1.5.x → v1.6.0 1회성 안내**: Risuai-NodeOnly 시절(v1.5.x 이하)에 `install.sh`로 설치하셨다면, v1.6.0으로 첫 업데이트 전에 `update.sh`를 새 버전으로 한 번만 교체해주세요. (repo 이름이 Risuai-NodeOnly → RisuBard → RisuVault로 바뀌어 옛 `update.sh`가 새 소스 디렉토리를 찾지 못합니다.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -196,8 +196,8 @@ cd ~/risubard
 소스 코드를 직접 받아 단계별로 빌드합니다. 코드 수정·디버깅이 필요한 개발자용입니다.
 
 ```bash
-git clone https://github.com/rpaddict/RisuBard.git
-cd RisuBard
+git clone https://github.com/TripleHwang/RisuVault.git
+cd RisuVault
 pnpm install
 pnpm build
 pnpm runserver

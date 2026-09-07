@@ -1,26 +1,22 @@
-<p align="center">
-  <img src="../assets/risubard-banner-1024.png" alt="리스바드 — 셀프호스팅 AI 롤플레이 채팅 플랫폼" width="900" />
-</p>
-
-<h1 align="center">리스바드 — 셀프호스팅 AI 롤플레이 채팅</h1>
+<h1 align="center">RisuVault — 셀프호스팅 AI 롤플레이 채팅</h1>
 
 <p align="center">
-  <a href="../README.md">English</a> | <strong>한국어</strong> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <a href="README.es.md">Español</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-Hant.md">繁體中文</a>
+  <a href="../README.en.md">English</a> | <strong>한국어</strong> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <a href="README.es.md">Español</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-Hant.md">繁體中文</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rpaddict/RisuBard/releases">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/rpaddict/RisuBard?label=latest" />
+  <a href="https://github.com/TripleHwang/RisuVault/releases">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/TripleHwang/RisuVault?label=latest" />
   </a>
   <a href="../LICENSE">
-    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/rpaddict/RisuBard" />
+    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/TripleHwang/RisuVault" />
   </a>
   <a href="https://nodejs.org/">
     <img alt="Node" src="https://img.shields.io/badge/node-≥22.12-brightgreen" />
   </a>
 </p>
 
-리스바드는 PC나 개인 서버에 띄워두고, PC·태블릿·스마트폰 등 여러 기기에서 브라우저로 접속해 사용하는 나만의 AI 롤플레이 채팅 플랫폼입니다.
+RisuVault는 PC나 개인 서버에 띄워두고, PC·태블릿·스마트폰 등 여러 기기에서 브라우저로 접속해 사용하는 나만의 AI 롤플레이 채팅 플랫폼입니다.
 
 <p align="center">
   <table>
@@ -46,7 +42,7 @@
 
 ## RisuAI 호환
 
-리스바드는 [RisuAI](https://github.com/kwaroran/RisuAI)에서 파생되어, 셀프호스팅 환경에 맞게 개선한 프로젝트입니다. 기존 RisuAI의 데이터를 통째로 마이그레이션할 수 있고, RisuAI 생태계의 모든 자산을 그대로 사용할 수 있습니다.
+RisuVault는 [RisuBard](https://github.com/rpaddict/RisuBard)를 거쳐 [RisuAI](https://github.com/kwaroran/RisuAI)에서 파생되어, 셀프호스팅 환경에 맞게 개선한 프로젝트입니다. 기존 RisuAI의 데이터를 통째로 마이그레이션할 수 있고, RisuAI 생태계의 모든 자산을 그대로 사용할 수 있습니다.
 
 - RisuRealm 캐릭터 다운로드
 - 캐릭터 카드 (`.charx`, `.risum`, `.risup` 등)
@@ -75,7 +71,7 @@
 
 ## 커뮤니티 & 연락처
 
-- 버그 리포트 / 기능 제안: [GitHub Issues](https://github.com/rpaddict/RisuBard/issues)
+- 버그 리포트 / 기능 제안: [GitHub Issues](https://github.com/TripleHwang/RisuVault/issues)
 
 
 ## 라이선스

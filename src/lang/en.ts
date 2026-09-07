@@ -1041,7 +1041,7 @@ export const languageEnglish = {
         },
         sections: {
             ai: "AI & generation",
-            risubard: "RisuBard",
+            risubard: "RisuVault",
             experience: "Experience",
             extensions: "Extensions",
             system: "Data & system",

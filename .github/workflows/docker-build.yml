@@ -146,7 +146,7 @@ jobs:
             const pkg = context.repo.repo.toLowerCase();
 
             // Detect owner type — Organization vs User — to use the matching package API.
-            // rpaddict/RisuBard is the current repository; the previous mrbart3885/* was a User.
+            // the repository owner is resolved at runtime from context.repo.owner; the previous mrbart3885/* was a User.
             const { data: ownerInfo } = await github.rest.users.getByUsername({ username: owner });
             const isOrg = ownerInfo.type === 'Organization';
             core.info(`Owner '${owner}' type: ${ownerInfo.type}`);

@@ -6,7 +6,7 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/termux.md) oder [koreanische](../ko/termux.md) Version.
 
-Diese Anleitung erklärt, wie RisuBard direkt auf einem Android-Telefon über Termux gebaut und ausgeführt wird. Das vorgesehene Nutzungsmuster ist das Öffnen von `http://localhost:6001` im Browser desselben Telefons.
+Diese Anleitung erklärt, wie RisuVault direkt auf einem Android-Telefon über Termux gebaut und ausgeführt wird. Das vorgesehene Nutzungsmuster ist das Öffnen von `http://localhost:6001` im Browser desselben Telefons.
 
 - [1. Voraussetzungen](#1-voraussetzungen) — F-Droid Termux und Systemanforderungen
 - [2. Installation und Build](#2-installation-und-build) — Einrichtung mit einem einzigen Befehl
@@ -25,7 +25,7 @@ Diese Anleitung erklärt, wie RisuBard direkt auf einem Android-Telefon über Te
 | **RAM**            | 2 GB            | 4 GB oder mehr                  |
 | **Freier Speicher** | 2 GB            | 4 GB oder mehr (mit Build)      |
 
-RisuBard wird auf dem Telefon gebaut. Die Laufzeit benötigt weder natives SQLite noch `better-sqlite3`, wodurch die frühere SQLite-Kompilierung entfällt.
+RisuVault wird auf dem Telefon gebaut. Die Laufzeit benötigt weder natives SQLite noch `better-sqlite3`, wodurch die frühere SQLite-Kompilierung entfällt.
 
 
 ---
@@ -35,7 +35,7 @@ RisuBard wird auf dem Telefon gebaut. Die Laufzeit benötigt weder natives SQLit
 ### Verwenden Sie die F-Droid- oder GitHub-Releases-Version von Termux
 
 > ⚠️ **Die Play-Store-Version von Termux kann nicht verwendet werden.**
-> Die Termux-Maintainer haben die Aktualisierung der Play-Store-Version 2020 eingestellt, und sie kann die aktuellen Pakete, die RisuBard benötigt (Node.js 22+), nicht mehr installieren.
+> Die Termux-Maintainer haben die Aktualisierung der Play-Store-Version 2020 eingestellt, und sie kann die aktuellen Pakete, die RisuVault benötigt (Node.js 22+), nicht mehr installieren.
 
 Installieren Sie Termux von einer dieser Quellen:
 
@@ -53,15 +53,15 @@ Wenn Sie bereits die Play-Store-Version installiert haben, deinstallieren Sie si
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 Der Befehl kümmert sich um:
 
 1. Installation von `git`
-2. Klonen des RisuBard-Repositorys
+2. Klonen des RisuVault-Repositorys
 3. Installation der Build-Abhängigkeiten (`nodejs-lts`, `python`, `make`, `clang`, `pnpm` usw.)
 4. `pnpm install` — JavaScript-Abhängigkeiten und Kompilierung nativer Module
 5. `pnpm build` — Frontend-Bundling
@@ -93,7 +93,7 @@ Sobald das Server-Boot-Protokoll erscheint, öffnen Sie den Browser des Telefons
 http://localhost:6001
 ```
 
-Die RisuBard-Benutzeroberfläche sollte geladen werden. `localhost` wird vom Browser automatisch als sicherer Kontext behandelt, sodass Zwischenablage, `crypto.subtle` und andere APIs, die einen sicheren Kontext erfordern, normal funktionieren.
+Die RisuVault-Benutzeroberfläche sollte geladen werden. `localhost` wird vom Browser automatisch als sicherer Kontext behandelt, sodass Zwischenablage, `crypto.subtle` und andere APIs, die einen sicheren Kontext erfordern, normal funktionieren.
 
 Server stoppen mit `Strg + C`.
 
@@ -119,10 +119,10 @@ Freigeben mit: `termux-wake-unlock`
 
 ## 5. Aktualisieren
 
-Aus dem RisuBard-Verzeichnis:
+Aus dem RisuVault-Verzeichnis:
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,7 +136,7 @@ Wenn sich Abhängigkeiten geändert haben, wird `pnpm install` automatisch als T
 
 **Quick Tunnel (Cloudflare Auto-Tunnel) funktioniert nicht auf Termux.** Das `cloudflared`-Binary ist nicht mit der DNS- und TLS-Umgebung von Termux kompatibel.
 
-RisuBard erkennt die Termux-Umgebung automatisch und zeigt eine Warnung im Menü Fernzugriff an, wobei die Start-Schaltfläche ausgeblendet wird.
+RisuVault erkennt die Termux-Umgebung automatisch und zeigt eine Warnung im Menü Fernzugriff an, wobei die Start-Schaltfläche ausgeblendet wird.
 
 
 ---

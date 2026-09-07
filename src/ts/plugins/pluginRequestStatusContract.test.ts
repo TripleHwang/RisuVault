@@ -31,7 +31,7 @@ describe('plugin provider host request status contract', () => {
 
         expect(readme).toContain('docs/ko/plugin-provider-compatibility.md')
         expect(docs).toContain('overrideRequestStatus: true')
-        expect(docs).toContain('RisuBard 요청 상태 창')
+        expect(docs).toContain('RisuVault 요청 상태 창')
         expect(docs).toContain('플러그인의 생성 정보 창')
     })
 })

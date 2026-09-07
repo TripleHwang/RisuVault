@@ -6,7 +6,7 @@
 
 > 🌐 此指南由機器翻譯生成。如需獲取最準確的資訊,請參閱 [English](../en/install.md) 或 [한국어](../ko/install.md) 版本。
 
-RisuBard 有四種安裝方式。
+RisuVault 有四種安裝方式。
 
 - [1. 可攜版](#1-可攜版) — 預先編譯的二進位檔案。無需 Node.js。
 - [2. Docker](#2-docker) — 容器環境。
@@ -34,27 +34,27 @@ RisuBard 有四種安裝方式。
 
 ### 下載
 
-從 [Releases 頁面](https://github.com/rpaddict/RisuBard/releases)取得對應您 OS 的檔案。
+從 [Releases 頁面](https://github.com/TripleHwang/RisuVault/releases)取得對應您 OS 的檔案。
 
 | OS                       | 檔案                                      |
 | ------------------------ | ----------------------------------------- |
-| Windows (x64)            | `RisuBard-vX.X.X-win-x64.zip`           |
-| macOS (Apple Silicon)    | `RisuBard-vX.X.X-macos-arm64.tar.gz`    |
-| Linux (x64)              | `RisuBard-vX.X.X-linux-x64.tar.gz`      |
-| Linux (ARM)              | `RisuBard-vX.X.X-linux-arm64.tar.gz`    |
+| Windows (x64)            | `RisuVault-vX.X.X-win-x64.zip`           |
+| macOS (Apple Silicon)    | `RisuVault-vX.X.X-macos-arm64.tar.gz`    |
+| Linux (x64)              | `RisuVault-vX.X.X-linux-x64.tar.gz`      |
+| Linux (ARM)              | `RisuVault-vX.X.X-linux-arm64.tar.gz`    |
 
 ### 執行
 
 **Windows**
 
-解壓縮 zip,雙擊資料夾中的 `RisuBard.exe`。瀏覽器自動開啟 `http://localhost:6001`。
+解壓縮 zip,雙擊資料夾中的 `RisuVault.exe`。瀏覽器自動開啟 `http://localhost:6001`。
 
 **macOS**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-macos-arm64.tar.gz
-xattr -cr RisuBard-vX.X.X-macos-arm64
-open RisuBard-vX.X.X-macos-arm64/RisuBard.app
+tar -xzf RisuVault-vX.X.X-macos-arm64.tar.gz
+xattr -cr RisuVault-vX.X.X-macos-arm64
+open RisuVault-vX.X.X-macos-arm64/RisuVault.app
 ```
 
 `xattr` 命令是繞過「Apple 無法驗證」警告的一次性操作。
@@ -62,8 +62,8 @@ open RisuBard-vX.X.X-macos-arm64/RisuBard.app
 **Linux**
 
 ```bash
-tar -xzf RisuBard-vX.X.X-linux-*.tar.gz
-cd RisuBard-vX.X.X-linux-*
+tar -xzf RisuVault-vX.X.X-linux-*.tar.gz
+cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
@@ -76,10 +76,10 @@ cd RisuBard-vX.X.X-linux-*
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-linux-x64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-cd RisuBard-${VERSION}-linux-x64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-linux-x64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+cd RisuVault-${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -88,11 +88,11 @@ cd RisuBard-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/rpaddict/RisuBard/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/rpaddict/RisuBard/releases/download/${VERSION}/RisuBard-${VERSION}-macos-arm64.tar.gz" -o risubard.tar.gz
-tar -xzf risubard.tar.gz && rm risubard.tar.gz
-xattr -cr RisuBard-${VERSION}-macos-arm64
-cd RisuBard-${VERSION}-macos-arm64
+VERSION=$(curl -s https://api.github.com/repos/TripleHwang/RisuVault/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/TripleHwang/RisuVault/releases/download/${VERSION}/RisuVault-${VERSION}-macos-arm64.tar.gz" -o risuvault.tar.gz
+tar -xzf risuvault.tar.gz && rm risuvault.tar.gz
+xattr -cr RisuVault-${VERSION}-macos-arm64
+cd RisuVault-${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -123,7 +123,7 @@ cd RisuBard-${VERSION}-macos-arm64
 ### 執行
 
 ```bash
-curl -L https://raw.githubusercontent.com/rpaddict/RisuBard/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -137,7 +137,7 @@ docker compose pull && docker compose up -d
 
 ### 資料位置
 
-所有資料(對話、角色等)儲存在 Docker 卷 `risuai-save`。更新時資料保留。
+所有資料(對話、角色等)儲存在 Docker 卷 `risuvault-save`。更新時資料保留。
 
 
 ---
@@ -160,7 +160,7 @@ node --version
 ### 安裝
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/install.sh | bash
 ```
 
 安裝完成後會顯示狀態訊息。
@@ -181,10 +181,10 @@ cd ~/risubard
 ./update.sh
 ```
 
-> **v1.5.x → v1.6.0 一次性提示**: 若您在 Risuai-NodeOnly 時代(v1.5.x 或更早)透過 `install.sh` 安裝,請在首次 v1.6.0 更新前一次性將 `update.sh` 替換為新版本。(儲存庫已重新命名為 RisuBard,舊 `update.sh` 無法找到新的原始目錄。)
+> **v1.5.x → v1.6.0 一次性提示**: 若您在 Risuai-NodeOnly 時代(v1.5.x 或更早)透過 `install.sh` 安裝,請在首次 v1.6.0 更新前一次性將 `update.sh` 替換為新版本。(儲存庫期間經歷了重新命名 — Risuai-NodeOnly → RisuBard → RisuVault,舊 `update.sh` 無法找到新的原始目錄。)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/rpaddict/RisuBard/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/TripleHwang/RisuVault/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -198,8 +198,8 @@ cd ~/risubard
 手動 clone 並建構原始碼。適用於需要修改或除錯程式碼的開發者。
 
 ```bash
-git clone https://github.com/rpaddict/RisuBard.git
-cd RisuBard
+git clone https://github.com/TripleHwang/RisuVault.git
+cd RisuVault
 pnpm install
 pnpm build
 pnpm runserver

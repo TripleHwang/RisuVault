@@ -55,11 +55,11 @@ function getCustomBackupKeepEntry() {
         const rel = path.relative(ROOT, abs);
         if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
         if (!rel) {
-            error('Custom backup directory points at the RisuBard app root. Move it to a separate folder before updating.');
+            error('Custom backup directory points at the RisuVault app root. Move it to a separate folder before updating.');
         }
         const top = rel.split(path.sep)[0];
         if (MANAGED_BACKUP_PATH_ROOTS.has(top)) {
-            error(`Custom backup directory is inside RisuBard app files (${rel}). Move it to a separate folder such as data/backups before updating.`);
+            error(`Custom backup directory is inside RisuVault app files (${rel}). Move it to a separate folder such as data/backups before updating.`);
         }
         return top || null;
     } catch {
@@ -318,7 +318,7 @@ async function main() {
             log('Restoring files already moved to backup...');
             restoreBackupIntoRoot(backupDir, true);
             error(isWin
-                ? 'Update failed because some files are in use. Close the running RisuBard window/console first, then run update.bat again.'
+                ? 'Update failed because some files are in use. Close the running RisuVault window/console first, then run update.bat again.'
                 : 'Update failed because some files are in use. Stop the running server first, then try again.');
         }
     }
@@ -404,7 +404,7 @@ async function main() {
     log(`Update complete! ${current} → ${latest}`);
     log('');
     if (isWin) {
-        log('Restart by running RisuBard.exe');
+        log('Restart by running RisuVault.exe');
     } else {
         log('Restart by running ./start.sh');
     }

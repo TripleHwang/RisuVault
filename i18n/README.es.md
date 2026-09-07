@@ -1,28 +1,24 @@
-<p align="center">
-  <img src="../assets/risubard-banner-1024.png" alt="RisuBard — Plataforma de Chat de Roleplay con IA Autoalojada" width="900" />
-</p>
-
-<h1 align="center">RisuBard — Chat de Roleplay con IA Autoalojado</h1>
+<h1 align="center">RisuVault — Chat de Roleplay con IA Autoalojado</h1>
 
 <p align="center">
-  <a href="../README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <strong>Español</strong> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-Hant.md">繁體中文</a>
+  <a href="../README.en.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.cn.md">简体中文</a> | <strong>Español</strong> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-Hant.md">繁體中文</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rpaddict/RisuBard/releases">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/rpaddict/RisuBard?label=latest" />
+  <a href="https://github.com/TripleHwang/RisuVault/releases">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/TripleHwang/RisuVault?label=latest" />
   </a>
   <a href="../LICENSE">
-    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/rpaddict/RisuBard" />
+    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/TripleHwang/RisuVault" />
   </a>
   <a href="https://nodejs.org/">
     <img alt="Node" src="https://img.shields.io/badge/node-≥22.12-brightgreen" />
   </a>
 </p>
 
-> 🌐 Este README está traducido por máquina. Para obtener la información más precisa, consulte la versión en [inglés](../README.md) o [coreano](README.ko.md). Las contribuciones son bienvenidas.
+> 🌐 Este README está traducido por máquina. Para obtener la información más precisa, consulte la versión en [inglés](../README.en.md) o [coreano](README.ko.md). Las contribuciones son bienvenidas.
 
-RisuBard es una plataforma de chat de roleplay con IA autoalojada que se ejecuta en tu PC o servidor personal y se accede desde PC, tablet y smartphone a través de un navegador web.
+RisuVault es una plataforma de chat de roleplay con IA autoalojada que se ejecuta en tu PC o servidor personal y se accede desde PC, tablet y smartphone a través de un navegador web.
 
 <p align="center">
   <table>
@@ -48,7 +44,7 @@ RisuBard es una plataforma de chat de roleplay con IA autoalojada que se ejecuta
 
 ## Compatibilidad con RisuAI
 
-RisuBard deriva de [RisuAI](https://github.com/kwaroran/RisuAI) y está adaptado para entornos autoalojados. Los datos existentes de RisuAI se pueden migrar por completo, y todos los recursos del ecosistema de RisuAI siguen siendo utilizables tal cual.
+RisuVault deriva de [RisuAI](https://github.com/kwaroran/RisuAI) (a través de [RisuBard](https://github.com/rpaddict/RisuBard)) y está adaptado para entornos autoalojados. Los datos existentes de RisuAI se pueden migrar por completo, y todos los recursos del ecosistema de RisuAI siguen siendo utilizables tal cual.
 
 - Descargas de personajes de RisuRealm
 - Tarjetas de personaje (`.charx`, `.risum`, `.risup`, etc.)
@@ -77,7 +73,7 @@ Para migrar desde una instalación existente de RisuAI, consulta la [guía de mi
 
 ## Comunidad y contacto
 
-- Reportes de errores / solicitudes de funciones: [GitHub Issues](https://github.com/rpaddict/RisuBard/issues)
+- Reportes de errores / solicitudes de funciones: [GitHub Issues](https://github.com/TripleHwang/RisuVault/issues)
 
 
 ## Licencia

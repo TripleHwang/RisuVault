@@ -6,17 +6,17 @@
 
 > 🌐 Hướng dẫn này được dịch bằng máy. Để có thông tin chính xác nhất, vui lòng tham khảo phiên bản [tiếng Anh](../en/remote.md) hoặc [tiếng Hàn](../ko/remote.md).
 
-Có hai cách để truy cập RisuBard đang chạy trên PC của bạn từ thiết bị khác (điện thoại thông minh, máy tính bảng, PC khác).
+Có hai cách để truy cập RisuVault đang chạy trên PC của bạn từ thiết bị khác (điện thoại thông minh, máy tính bảng, PC khác).
 
-- [1. Quick Tunnel](#1-quick-tunnel) — Tính năng tích hợp trong RisuBard. Không cần ứng dụng bổ sung. URL thay đổi khi khởi động lại máy chủ.
+- [1. Quick Tunnel](#1-quick-tunnel) — Tính năng tích hợp trong RisuVault. Không cần ứng dụng bổ sung. URL thay đổi khi khởi động lại máy chủ.
 - [2. Tailscale](#2-tailscale) — Dựa trên mạng riêng (VPN). URL cố định.
 
 
 ## 1. Quick Tunnel
 
-Tính năng tích hợp của RisuBard để cấp URL truy cập từ xa tạm thời.
+Tính năng tích hợp của RisuVault để cấp URL truy cập từ xa tạm thời.
 
-1. Trên PC, trong RisuBard: Cài đặt > Truy cập từ xa > "Mở truy cập từ xa"
+1. Trên PC, trong RisuVault: Cài đặt > Truy cập từ xa > "Mở truy cập từ xa"
 2. Quét mã QR hiển thị bằng camera điện thoại thông minh hoặc nhập URL trực tiếp vào trình duyệt của thiết bị khác.
 
 > URL thay đổi mỗi khi máy chủ khởi động lại. Để có URL cố định, hãy sử dụng [Tailscale](#2-tailscale).
@@ -40,7 +40,7 @@ Xây dựng một mạng riêng (VPN) chỉ có thể truy cập từ các thi�
 
 ### Bước 3: Bật chia sẻ HTTPS trên PC
 
-Trong terminal trên PC đang chạy RisuBard, chạy một lần:
+Trong terminal trên PC đang chạy RisuVault, chạy một lần:
 
 ```bash
 tailscale serve --bg http://localhost:6001

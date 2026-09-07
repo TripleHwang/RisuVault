@@ -6,17 +6,17 @@
 
 > 🌐 此指南由机器翻译生成。如需获取最准确的信息,请参阅 [English](../en/remote.md) 或 [한국어](../ko/remote.md) 版本。
 
-从其他设备(智能手机、平板、其他 PC)访问运行在 PC 上的 RisuBard 有两种方式。
+从其他设备(智能手机、平板、其他 PC)访问运行在 PC 上的 RisuVault 有两种方式。
 
-- [1. Quick Tunnel](#1-quick-tunnel) — RisuBard 内置功能。无需额外应用。服务器重启时 URL 变更。
+- [1. Quick Tunnel](#1-quick-tunnel) — RisuVault 内置功能。无需额外应用。服务器重启时 URL 变更。
 - [2. Tailscale](#2-tailscale) — 基于私有网络(VPN)。URL 固定。
 
 
 ## 1. Quick Tunnel
 
-RisuBard 内置的临时远程访问 URL 发放功能。
+RisuVault 内置的临时远程访问 URL 发放功能。
 
-1. 在 PC 上 RisuBard 中:设置 > 远程访问 > "打开远程访问"
+1. 在 PC 上 RisuVault 中:设置 > 远程访问 > "打开远程访问"
 2. 用智能手机相机扫描显示的二维码,或在其他设备的浏览器中直接输入 URL。
 
 > 服务器重启时 URL 会变更。如需固定 URL,请使用 [Tailscale](#2-tailscale)。
@@ -40,7 +40,7 @@ RisuBard 内置的临时远程访问 URL 发放功能。
 
 ### 步骤 3: 在 PC 上启用 HTTPS 共享
 
-在运行 RisuBard 的 PC 终端中执行一次:
+在运行 RisuVault 的 PC 终端中执行一次:
 
 ```bash
 tailscale serve --bg http://localhost:6001

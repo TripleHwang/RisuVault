@@ -6,7 +6,7 @@
 
 > 🌐 Hướng dẫn này được dịch bằng máy. Để có thông tin chính xác nhất, vui lòng tham khảo phiên bản [tiếng Anh](../en/termux.md) hoặc [tiếng Hàn](../ko/termux.md).
 
-Hướng dẫn này giải thích cách xây dựng và chạy RisuBard trực tiếp trên điện thoại Android sử dụng Termux. Mẫu sử dụng dự kiến là mở `http://localhost:6001` trong trình duyệt của chính điện thoại.
+Hướng dẫn này giải thích cách xây dựng và chạy RisuVault trực tiếp trên điện thoại Android sử dụng Termux. Mẫu sử dụng dự kiến là mở `http://localhost:6001` trong trình duyệt của chính điện thoại.
 
 - [1. Điều kiện tiên quyết](#1-điều-kiện-tiên-quyết) — Termux từ F-Droid và yêu cầu hệ thống
 - [2. Cài đặt và xây dựng](#2-cài-đặt-và-xây-dựng) — thiết lập bằng một lệnh duy nhất
@@ -25,7 +25,7 @@ Hướng dẫn này giải thích cách xây dựng và chạy RisuBard trực t
 | **RAM**             | 2 GB            | 4 GB trở lên                           |
 | **Dung lượng trống** | 2 GB            | 4 GB trở lên (bao gồm bản build)       |
 
-RisuBard được xây dựng trên điện thoại. Runtime không còn phụ thuộc vào SQLite native hoặc `better-sqlite3`, loại bỏ rào cản biên dịch SQLite trước đây.
+RisuVault được xây dựng trên điện thoại. Runtime không còn phụ thuộc vào SQLite native hoặc `better-sqlite3`, loại bỏ rào cản biên dịch SQLite trước đây.
 
 
 ---
@@ -35,7 +35,7 @@ RisuBard được xây dựng trên điện thoại. Runtime không còn phụ t
 ### Sử dụng phiên bản Termux từ F-Droid hoặc GitHub Releases
 
 > ⚠️ **Không thể sử dụng phiên bản Termux trên Play Store.**
-> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà RisuBard cần (Node.js 22+).
+> Các bảo trì viên Termux đã ngừng cập nhật bản Play Store vào năm 2020, và bản này không còn cài đặt được các gói mới mà RisuVault cần (Node.js 22+).
 
 Cài đặt Termux từ một trong các nguồn sau:
 
@@ -53,15 +53,15 @@ Mở Termux và chạy lệnh duy nhất này:
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 Lệnh này tự động xử lý:
 
 1. Cài đặt `git`
-2. Sao chép kho lưu trữ RisuBard
+2. Sao chép kho lưu trữ RisuVault
 3. Cài đặt các phụ thuộc xây dựng (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, v.v.)
 4. `pnpm install` — phụ thuộc JavaScript và biên dịch module gốc
 5. `pnpm build` — đóng gói giao diện người dùng
@@ -93,7 +93,7 @@ Sau khi nhật ký khởi động máy chủ xuất hiện, mở trình duyệt 
 http://localhost:6001
 ```
 
-Giao diện RisuBard sẽ tải lên. `localhost` được trình duyệt tự động xem là ngữ cảnh bảo mật (secure context), vì vậy clipboard, `crypto.subtle` và các API yêu cầu ngữ cảnh bảo mật khác đều hoạt động bình thường.
+Giao diện RisuVault sẽ tải lên. `localhost` được trình duyệt tự động xem là ngữ cảnh bảo mật (secure context), vì vậy clipboard, `crypto.subtle` và các API yêu cầu ngữ cảnh bảo mật khác đều hoạt động bình thường.
 
 Dừng máy chủ bằng `Ctrl + C`.
 
@@ -119,10 +119,10 @@ Giải phóng bằng: `termux-wake-unlock`
 
 ## 5. Cập nhật
 
-Từ thư mục RisuBard:
+Từ thư mục RisuVault:
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,7 +136,7 @@ Nếu các phụ thuộc thay đổi, `pnpm install` sẽ tự động chạy nh
 
 **Quick Tunnel (đường hầm tự động của Cloudflare) không hoạt động trên Termux.** Tệp nhị phân `cloudflared` không tương thích với môi trường DNS và TLS của Termux.
 
-RisuBard tự động phát hiện môi trường Termux và hiển thị cảnh báo trong menu Truy cập từ xa, ẩn nút khởi động.
+RisuVault tự động phát hiện môi trường Termux và hiển thị cảnh báo trong menu Truy cập từ xa, ẩn nút khởi động.
 
 
 ---

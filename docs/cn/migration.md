@@ -6,7 +6,7 @@
 
 > 🌐 此指南由机器翻译生成。如需获取最准确的信息,请参阅 [English](../en/migration.md) 或 [한국어](../ko/migration.md) 版本。
 
-从现有 RisuAI 安装(Web RisuAI、本地 RisuAI)迁移数据到 RisuBard 有三种方式。根据您的源环境和数据规模选择。
+从现有 RisuAI 安装(Web RisuAI、本地 RisuAI)迁移数据到 RisuVault 有三种方式。根据您的源环境和数据规模选择。
 
 - [1. 本地备份文件(.bin)](#1-本地备份文件bin) — 在所有环境中工作。最常用的方法。
 - [2. Save 文件夹 zip 上传](#2-save-文件夹-zip-上传) — 本地 RisuAI,小规模数据。
@@ -22,10 +22,10 @@
 
 ## 1. 本地备份文件(.bin)
 
-从现有 RisuAI 导出 `.bin` 备份文件,然后导入 RisuBard。无论源环境(web / Tauri / Capacitor / 本地)如何均可使用。
+从现有 RisuAI 导出 `.bin` 备份文件,然后导入 RisuVault。无论源环境(web / Tauri / Capacitor / 本地)如何均可使用。
 
 1. **在现有 RisuAI 中**: 设置 > 备份 > "保存本地备份" 导出 `.bin` 文件。
-2. **在 RisuBard 中**: 设置 > 数据迁移 > "导入原版 Risu 本地备份" 导入 `.bin` 文件。
+2. **在 RisuVault 中**: 设置 > 数据迁移 > "导入原版 Risu 本地备份" 导入 `.bin` 文件。
 
 
 ---
@@ -35,7 +35,7 @@
 如果您使用的是本地 RisuAI(Node 服务器版),可以将 `save` 文件夹压缩为 zip 并上传。
 
 1. 将现有 RisuAI 项目的 `save` 文件夹压缩为 zip 文件。
-2. 在 RisuBard 中打开 设置 > 数据迁移 > "从 NodeOnly Risu 导入 save 文件夹" 折叠面板。
+2. 在 RisuVault 中打开 设置 > 数据迁移 > "从 NodeOnly Risu 导入 save 文件夹" 折叠面板。
 3. 通过 "从 save 文件夹导入(Zip 上传)" 上传 zip 文件。
 
 > 如果 zip 文件过大,上传可能失败。这种情况请使用 [3. Save 文件夹直接复制](#3-save-文件夹直接复制)。
@@ -47,9 +47,9 @@
 
 适合大规模数据(数 GB 以上)。需要服务器文件系统的直接访问权限。
 
-1. 停止 RisuBard 服务器。
-2. 用现有 RisuAI 的 `save` 文件夹整体覆盖 RisuBard 的 `save` 文件夹。
-3. 重启 RisuBard 服务器 — 自动迁移开始。
+1. 停止 RisuVault 服务器。
+2. 用现有 RisuAI 的 `save` 文件夹整体覆盖 RisuVault 的 `save` 文件夹。
+3. 重启 RisuVault 服务器 — 自动迁移开始。
     - 可在终端或 PM2 日志中查看进度。
 4. 迁移完成后,使用 设置 > 数据迁移 > "从 NodeOnly Risu 导入 save 文件夹" 折叠面板 > "清理已迁移的 save 文件" 移除原始文件并回收磁盘空间。
 

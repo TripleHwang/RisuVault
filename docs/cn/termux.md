@@ -6,7 +6,7 @@
 
 > 🌐 此指南由机器翻译生成。如需获取最准确的信息,请参阅 [English](../en/termux.md) 或 [한국어](../ko/termux.md) 版本。
 
-本指南介绍如何通过 Termux 在 Android 手机上直接构建并运行 RisuBard。预期使用方式是在同一台手机的浏览器中打开 `http://localhost:6001`。
+本指南介绍如何通过 Termux 在 Android 手机上直接构建并运行 RisuVault。预期使用方式是在同一台手机的浏览器中打开 `http://localhost:6001`。
 
 - [1. 准备工作](#1-准备工作) — F-Droid Termux 与系统要求
 - [2. 安装与构建](#2-安装与构建) — 单条命令完成
@@ -25,7 +25,7 @@
 | **内存**     | 2 GB         | 4 GB 或以上             |
 | **可用存储** | 2 GB         | 4 GB 或以上(含构建产物) |
 
-RisuBard 直接在手机上构建。运行时不再依赖原生 SQLite 或 `better-sqlite3`，移除了原有的 SQLite 编译障碍。
+RisuVault 直接在手机上构建。运行时不再依赖原生 SQLite 或 `better-sqlite3`，移除了原有的 SQLite 编译障碍。
 
 
 ---
@@ -35,7 +35,7 @@ RisuBard 直接在手机上构建。运行时不再依赖原生 SQLite 或 `bett
 ### 使用 F-Droid 或 GitHub Releases 版本的 Termux
 
 > ⚠️ **Play Store 版本的 Termux 无法使用。**
-> Termux 维护者已于 2020 年停止更新 Play Store 版本,无法再安装 RisuBard 所需的最新软件包(Node.js 22+)。
+> Termux 维护者已于 2020 年停止更新 Play Store 版本,无法再安装 RisuVault 所需的最新软件包(Node.js 22+)。
 
 请从以下任一来源安装 Termux:
 
@@ -53,15 +53,15 @@ RisuBard 直接在手机上构建。运行时不再依赖原生 SQLite 或 `bett
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 该命令将自动完成:
 
 1. 安装 `git`
-2. 克隆 RisuBard 仓库
+2. 克隆 RisuVault 仓库
 3. 安装构建依赖(`nodejs-lts`、`python`、`make`、`clang`、`pnpm` 等)
 4. `pnpm install` — JavaScript 依赖及原生模块编译
 5. `pnpm build` — 前端打包
@@ -93,7 +93,7 @@ node server/node/server.cjs
 http://localhost:6001
 ```
 
-RisuBard UI 应当正常加载。浏览器自动将 `localhost` 视为安全上下文(secure context),因此剪贴板、`crypto.subtle` 等需要安全上下文的 API 均可正常工作。
+RisuVault UI 应当正常加载。浏览器自动将 `localhost` 视为安全上下文(secure context),因此剪贴板、`crypto.subtle` 等需要安全上下文的 API 均可正常工作。
 
 使用 `Ctrl + C` 停止服务器。
 
@@ -119,10 +119,10 @@ Termux 通知栏会显示唤醒锁指示,即使屏幕关闭服务器也会继续
 
 ## 5. 更新
 
-在 RisuBard 目录下执行:
+在 RisuVault 目录下执行:
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,7 +136,7 @@ NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 
 **Quick Tunnel(Cloudflare 自动隧道)在 Termux 上无法使用。** `cloudflared` 二进制文件与 Termux 的 DNS 和 TLS 环境不兼容。
 
-RisuBard 会自动检测 Termux 环境,在远程访问菜单中显示警告并隐藏启动按钮。
+RisuVault 会自动检测 Termux 环境,在远程访问菜单中显示警告并隐藏启动按钮。
 
 
 ---

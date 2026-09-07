@@ -4,7 +4,7 @@
 
 # RisuAI Migration Guide
 
-There are three ways to migrate data from an existing RisuAI installation (Web RisuAI, Local RisuAI) to RisuBard. Choose based on your source environment and data size.
+There are three ways to migrate data from an existing RisuAI installation (Web RisuAI, Local RisuAI) to RisuVault. Choose based on your source environment and data size.
 
 - [1. Local Backup File (.bin)](#1-local-backup-file-bin) — Works in all environments. The most common method.
 - [2. Save Folder Zip Upload](#2-save-folder-zip-upload) — Local RisuAI, small datasets.
@@ -20,10 +20,10 @@ There are three ways to migrate data from an existing RisuAI installation (Web R
 
 ## 1. Local Backup File (.bin)
 
-Export a `.bin` backup file from existing RisuAI, then import it into RisuBard. Works regardless of the source environment (web / Tauri / Capacitor / local).
+Export a `.bin` backup file from existing RisuAI, then import it into RisuVault. Works regardless of the source environment (web / Tauri / Capacitor / local).
 
 1. **In existing RisuAI**: Settings > Backup > "Save Local Backup" to export a `.bin` file.
-2. **In RisuBard**: Settings > Data Migration > "Import Original Risu Local Backup" to import the `.bin` file.
+2. **In RisuVault**: Settings > Data Migration > "Import Original Risu Local Backup" to import the `.bin` file.
 
 
 ---
@@ -33,7 +33,7 @@ Export a `.bin` backup file from existing RisuAI, then import it into RisuBard. 
 If you were using Local RisuAI (the Node server version), you can zip your `save` folder and upload it.
 
 1. Compress the `save` folder of your existing RisuAI project as a zip file.
-2. In RisuBard, go to Settings > Data Migration > "Import save folder from NodeOnly Risu" accordion.
+2. In RisuVault, go to Settings > Data Migration > "Import save folder from NodeOnly Risu" accordion.
 3. Upload the zip via "Import from Save Folder (Zip Upload)".
 
 > If the zip file is too large, the upload may fail. In that case, use [3. Save Folder Direct Copy](#3-save-folder-direct-copy).
@@ -45,9 +45,9 @@ If you were using Local RisuAI (the Node server version), you can zip your `save
 
 Suitable for large datasets (several GB or more). Requires direct filesystem access to the server.
 
-1. Stop the RisuBard server.
-2. Overwrite RisuBard's `save` folder with the existing RisuAI's `save` folder.
-3. Restart the RisuBard server — automatic migration begins.
+1. Stop the RisuVault server.
+2. Overwrite RisuVault's `save` folder with the existing RisuAI's `save` folder.
+3. Restart the RisuVault server — automatic migration begins.
     - Monitor progress in the terminal or PM2 logs.
 4. After migration completes, use Settings > Data Migration > "Import save folder from NodeOnly Risu" accordion > "Clean Up Migrated Save Files" to remove the original files and reclaim disk space.
 
@@ -66,4 +66,4 @@ Suitable for large datasets (several GB or more). Requires direct filesystem acc
 
 ---
 
-← [Back to README](../../README.md)
+← [Back to README](../../README.en.md)

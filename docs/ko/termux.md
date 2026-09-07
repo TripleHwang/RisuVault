@@ -4,7 +4,7 @@
 
 # Termux 설치 가이드
 
-안드로이드 폰에서 Termux를 통해 리스바드를 직접 빌드해 사용하는 방법을 안내합니다. 같은 폰의 브라우저에서 `http://localhost:6001`로 접속하는 사용 패턴이 기본입니다.
+안드로이드 폰에서 Termux를 통해 RisuVault를 직접 빌드해 사용하는 방법을 안내합니다. 같은 폰의 브라우저에서 `http://localhost:6001`로 접속하는 사용 패턴이 기본입니다.
 
 - [1. 사전 준비](#1-사전-준비) — F-Droid Termux + 시스템 요구사항
 - [2. 설치 및 빌드](#2-설치-및-빌드) — 한 줄 명령으로 자동 진행
@@ -23,7 +23,7 @@
 | **RAM**      | 2GB            | 4GB 이상                      |
 | **여유 공간**  | 2GB            | 4GB 이상 (빌드 결과물 포함)   |
 
-리스바드는 폰에서 직접 빌드합니다. 런타임에서 native SQLite와 `better-sqlite3` 의존성을 제거해 기존 SQLite 컴파일 장벽이 없습니다.
+RisuVault는 폰에서 직접 빌드합니다. 런타임에서 native SQLite와 `better-sqlite3` 의존성을 제거해 기존 SQLite 컴파일 장벽이 없습니다.
 
 
 ---
@@ -33,7 +33,7 @@
 ### Termux는 F-Droid 또는 GitHub Releases 버전을 사용
 
 > ⚠️ **Play Store의 Termux는 사용할 수 없습니다.**
-> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, 리스바드 빌드에 필요한 최신 패키지(Node.js 22 이상 등)가 설치되지 않습니다.
+> Termux 개발진이 2020년 이후 Play Store 버전 업데이트를 중단했으며, RisuVault 빌드에 필요한 최신 패키지(Node.js 22 이상 등)가 설치되지 않습니다.
 
 다음 두 곳 중 하나에서 Termux를 받습니다.
 
@@ -51,15 +51,15 @@ Termux 앱을 연 후 다음 한 줄을 실행합니다.
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 이 명령이 자동으로 처리합니다.
 
 1. `git` 설치
-2. 리스바드 소스 다운로드
+2. RisuVault 소스 다운로드
 3. 빌드 의존성 설치 (`nodejs-lts`, `python`, `make`, `clang`, `pnpm` 등)
 4. `pnpm install` — JavaScript 의존성 다운로드 및 네이티브 모듈 컴파일
 5. `pnpm build` — 프론트엔드 번들링
@@ -91,7 +91,7 @@ node server/node/server.cjs
 http://localhost:6001
 ```
 
-리스바드 UI가 표시되면 정상입니다. `localhost`는 브라우저가 자동으로 secure context로 인정하므로 클립보드, crypto.subtle 등 모든 기능이 동작합니다.
+RisuVault UI가 표시되면 정상입니다. `localhost`는 브라우저가 자동으로 secure context로 인정하므로 클립보드, crypto.subtle 등 모든 기능이 동작합니다.
 
 서버 종료: 터미널에서 `Ctrl + C`
 
@@ -119,10 +119,10 @@ Termux 알림 영역에 wake lock 상태가 표시되며, 폰 화면이 꺼져�
 
 ## 5. 업데이트
 
-리스바드 디렉터리에서 다음을 실행합니다.
+RisuVault 디렉터리에서 다음을 실행합니다.
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,9 +136,9 @@ NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 
 설정 → 원격 접속 메뉴의 **Quick Tunnel은 Termux에서 사용할 수 없습니다**. cloudflared 바이너리가 Termux의 DNS·TLS 환경과 호환되지 않습니다.
 
-리스바드 UI는 Termux 환경을 자동 감지하여 해당 메뉴에 경고를 표시하고 버튼을 숨깁니다.
+RisuVault UI는 Termux 환경을 자동 감지하여 해당 메뉴에 경고를 표시하고 버튼을 숨깁니다.
 
 
 ---
 
-← [리스바드 README로 돌아가기](../../i18n/README.ko.md)
+← [RisuVault README로 돌아가기](../../i18n/README.ko.md)

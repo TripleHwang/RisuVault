@@ -89,6 +89,15 @@ find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 ! -name 'save' ! -name 'backups' ! -n
 # Move new files in
 mv "$EXTRACTED_DIR"/* "$EXTRACTED_DIR"/.[!.]* "$SCRIPT_DIR/" 2>/dev/null || true
 
+# The GitHub source tarball does not preserve the executable bit, and the move
+# above has just replaced this script with a non-executable copy of itself.
+if [ -f "$SCRIPT_DIR/update.sh" ]; then
+    chmod +x "$SCRIPT_DIR/update.sh"
+fi
+if [ -f "$SCRIPT_DIR/install.sh" ]; then
+    chmod +x "$SCRIPT_DIR/install.sh"
+fi
+
 # Restore save/
 if [ -d "$TMP_DIR/_save_backup" ]; then
     rm -rf "$SCRIPT_DIR/save"

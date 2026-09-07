@@ -1,6 +1,6 @@
 # 파일 정본 사용자 데이터
 
-리스바드의 사용자 데이터 정본은 일반 JSON·JSONL·Markdown과 content-addressed 파일입니다. SQLite와 `database.bin`은 정본이 아닙니다. 기존 클라이언트와 RisuAI 내보내기에 필요한 `database.bin`은 파일 정본에서 다시 만들 수 있습니다.
+RisuVault의 사용자 데이터 정본은 일반 JSON·JSONL·Markdown과 content-addressed 파일입니다. SQLite와 `database.bin`은 정본이 아닙니다. 기존 클라이언트와 RisuAI 내보내기에 필요한 `database.bin`은 파일 정본에서 다시 만들 수 있습니다.
 
 서버 실행 전에 절대 데이터 루트를 지정할 수 있습니다.
 

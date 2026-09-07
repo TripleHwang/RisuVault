@@ -1118,7 +1118,7 @@ export const languageKorean = {
     },
     sections: {
       ai: "AI 및 생성",
-      risubard: "리스바드",
+      risubard: "RisuVault",
       experience: "환경",
       extensions: "확장 기능",
       system: "데이터 및 시스템",

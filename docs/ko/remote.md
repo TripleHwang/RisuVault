@@ -4,17 +4,17 @@
 
 # 원격 접속 가이드
 
-리스바드를 PC에 실행해두고 다른 기기(스마트폰, 태블릿, 다른 PC 등)에서 접속하는 방법은 두 가지입니다.
+RisuVault를 PC에 실행해두고 다른 기기(스마트폰, 태블릿, 다른 PC 등)에서 접속하는 방법은 두 가지입니다.
 
-- [1. Quick Tunnel](#1-quick-tunnel) — 리스바드 내장 기능. 별도 앱 불필요. 서버 재시작 시 URL 변경.
+- [1. Quick Tunnel](#1-quick-tunnel) — RisuVault 내장 기능. 별도 앱 불필요. 서버 재시작 시 URL 변경.
 - [2. Tailscale](#2-tailscale) — 사설 네트워크(VPN) 기반. URL 고정.
 
 
 ## 1. Quick Tunnel
 
-리스바드가 임시 원격 접속 URL을 발급하는 내장 기능입니다.
+RisuVault가 임시 원격 접속 URL을 발급하는 내장 기능입니다.
 
-1. PC에서 리스바드 설정 > 원격 접속 > "원격 접속 열기" 클릭
+1. PC에서 RisuVault 설정 > 원격 접속 > "원격 접속 열기" 클릭
 2. 표시되는 QR 코드를 스마트폰 카메라로 스캔하거나, URL을 다른 기기 브라우저에 직접 입력
 
 > 서버를 재시작하면 URL이 바뀝니다. 고정 URL이 필요하면 [Tailscale](#2-tailscale)을 사용하세요.
@@ -38,7 +38,7 @@ PC와 접속할 모든 기기에서 동일한 계정(Google, Microsoft 등)으�
 
 ### 3단계: PC에서 HTTPS 공유 활성화
 
-리스바드가 실행 중인 PC의 터미널에서 한 번만 실행:
+RisuVault가 실행 중인 PC의 터미널에서 한 번만 실행:
 
 ```bash
 tailscale serve --bg http://localhost:6001

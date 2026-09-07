@@ -6,17 +6,17 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/remote.md) oder [koreanische](../ko/remote.md) Version.
 
-Es gibt zwei Möglichkeiten, von einem anderen Gerät (Smartphone, Tablet, anderer PC) auf RisuBard zuzugreifen, das auf Ihrem PC läuft.
+Es gibt zwei Möglichkeiten, von einem anderen Gerät (Smartphone, Tablet, anderer PC) auf RisuVault zuzugreifen, das auf Ihrem PC läuft.
 
-- [1. Quick Tunnel](#1-quick-tunnel) — In RisuBard integriert. Keine zusätzliche App erforderlich. URL ändert sich beim Serverneustart.
+- [1. Quick Tunnel](#1-quick-tunnel) — In RisuVault integriert. Keine zusätzliche App erforderlich. URL ändert sich beim Serverneustart.
 - [2. Tailscale](#2-tailscale) — Basiert auf privatem Netzwerk (VPN). Persistente URL.
 
 
 ## 1. Quick Tunnel
 
-Eine in RisuBard integrierte Funktion, die eine temporäre Fernzugriffs-URL ausgibt.
+Eine in RisuVault integrierte Funktion, die eine temporäre Fernzugriffs-URL ausgibt.
 
-1. Auf Ihrem PC in RisuBard: Einstellungen > Fernzugriff > "Fernzugriff öffnen"
+1. Auf Ihrem PC in RisuVault: Einstellungen > Fernzugriff > "Fernzugriff öffnen"
 2. Scannen Sie den angezeigten QR-Code mit Ihrer Smartphone-Kamera oder geben Sie die URL direkt im Browser eines anderen Geräts ein.
 
 > Die URL ändert sich bei jedem Server-Neustart. Für eine persistente URL verwenden Sie [Tailscale](#2-tailscale).
@@ -40,7 +40,7 @@ Melden Sie sich in der Tailscale-App auf dem PC und auf jedem Gerät, von dem Si
 
 ### Schritt 3: HTTPS-Sharing auf dem PC aktivieren
 
-Führen Sie im Terminal auf dem PC, auf dem RisuBard läuft, einmal aus:
+Führen Sie im Terminal auf dem PC, auf dem RisuVault läuft, einmal aus:
 
 ```bash
 tailscale serve --bg http://localhost:6001

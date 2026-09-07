@@ -6,7 +6,7 @@
 
 > 🌐 Esta guía está traducida por máquina. Para obtener la información más precisa, consulte la versión en [inglés](../en/migration.md) o [coreano](../ko/migration.md).
 
-Hay tres formas de migrar datos desde una instalación existente de RisuAI (RisuAI Web, RisuAI Local) a RisuBard. Elija según su entorno de origen y el tamaño de los datos.
+Hay tres formas de migrar datos desde una instalación existente de RisuAI (RisuAI Web, RisuAI Local) a RisuVault. Elija según su entorno de origen y el tamaño de los datos.
 
 - [1. Archivo de copia de seguridad local (.bin)](#1-archivo-de-copia-de-seguridad-local-bin) — Funciona en todos los entornos. El método más común.
 - [2. Subida zip de la carpeta save](#2-subida-zip-de-la-carpeta-save) — RisuAI Local, datos pequeños.
@@ -22,10 +22,10 @@ Hay tres formas de migrar datos desde una instalación existente de RisuAI (Risu
 
 ## 1. Archivo de copia de seguridad local (.bin)
 
-Exporte un archivo de copia de seguridad `.bin` desde RisuAI existente y luego impórtelo en RisuBard. Funciona independientemente del entorno de origen (web / Tauri / Capacitor / local).
+Exporte un archivo de copia de seguridad `.bin` desde RisuAI existente y luego impórtelo en RisuVault. Funciona independientemente del entorno de origen (web / Tauri / Capacitor / local).
 
 1. **En RisuAI existente**: Configuración > Copia de seguridad > "Guardar copia local" para exportar un archivo `.bin`.
-2. **En RisuBard**: Configuración > Migración de datos > "Importar copia local de Risu original" para importar el archivo `.bin`.
+2. **En RisuVault**: Configuración > Migración de datos > "Importar copia local de Risu original" para importar el archivo `.bin`.
 
 
 ---
@@ -35,7 +35,7 @@ Exporte un archivo de copia de seguridad `.bin` desde RisuAI existente y luego i
 Si estaba usando RisuAI Local (la versión de servidor Node), puede comprimir su carpeta `save` y subirla.
 
 1. Comprima la carpeta `save` de su proyecto RisuAI existente como un archivo zip.
-2. En RisuBard, vaya a Configuración > Migración de datos > acordeón "Importar carpeta save de NodeOnly Risu".
+2. En RisuVault, vaya a Configuración > Migración de datos > acordeón "Importar carpeta save de NodeOnly Risu".
 3. Suba el zip a través de "Importar desde carpeta save (Subir Zip)".
 
 > Si el archivo zip es demasiado grande, la subida puede fallar. En ese caso, use [3. Copia directa de la carpeta save](#3-copia-directa-de-la-carpeta-save).
@@ -47,9 +47,9 @@ Si estaba usando RisuAI Local (la versión de servidor Node), puede comprimir su
 
 Apropiado para grandes conjuntos de datos (varios GB o más). Requiere acceso directo al sistema de archivos del servidor.
 
-1. Detenga el servidor RisuBard.
-2. Sobrescriba la carpeta `save` de RisuBard con la carpeta `save` del RisuAI existente.
-3. Reinicie el servidor RisuBard — la migración automática comienza.
+1. Detenga el servidor RisuVault.
+2. Sobrescriba la carpeta `save` de RisuVault con la carpeta `save` del RisuAI existente.
+3. Reinicie el servidor RisuVault — la migración automática comienza.
     - Monitoree el progreso en el terminal o en los logs de PM2.
 4. Después de que se complete la migración, use Configuración > Migración de datos > acordeón "Importar carpeta save de NodeOnly Risu" > "Limpiar archivos save migrados" para eliminar los archivos originales y recuperar espacio en disco.
 

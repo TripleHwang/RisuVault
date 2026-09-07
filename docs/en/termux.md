@@ -4,7 +4,7 @@
 
 # Termux Installation Guide
 
-This guide explains how to build and run RisuBard directly on an Android phone using Termux. The intended use pattern is to open `http://localhost:6001` in the phone's own browser.
+This guide explains how to build and run RisuVault directly on an Android phone using Termux. The intended use pattern is to open `http://localhost:6001` in the phone's own browser.
 
 - [1. Prerequisites](#1-prerequisites) — F-Droid Termux and system requirements
 - [2. Install and Build](#2-install-and-build) — single-command setup
@@ -23,7 +23,7 @@ This guide explains how to build and run RisuBard directly on an Android phone u
 | **RAM**           | 2 GB            | 4 GB or more               |
 | **Free storage** | 2 GB            | 4 GB or more (with build)  |
 
-RisuBard builds on the phone. The runtime no longer depends on native SQLite or `better-sqlite3`, which removes the former SQLite compilation barrier on Termux.
+RisuVault builds on the phone. The runtime no longer depends on native SQLite or `better-sqlite3`, which removes the former SQLite compilation barrier on Termux.
 
 
 ---
@@ -33,7 +33,7 @@ RisuBard builds on the phone. The runtime no longer depends on native SQLite or 
 ### Use the F-Droid or GitHub Releases build of Termux
 
 > ⚠️ **The Play Store version of Termux cannot be used.**
-> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages RisuBard needs (Node.js 22+).
+> The Termux maintainers stopped updating the Play Store build in 2020, and it can no longer install the recent packages RisuVault needs (Node.js 22+).
 
 Install Termux from one of:
 
@@ -51,15 +51,15 @@ Open Termux and run this single command:
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/rpaddict/RisuBard.git && \
-  cd RisuBard && \
+  git clone https://github.com/TripleHwang/RisuVault.git && \
+  cd RisuVault && \
   bash scripts/termux/build.sh
 ```
 
 The command takes care of:
 
 1. Installing `git`
-2. Cloning the RisuBard repository
+2. Cloning the RisuVault repository
 3. Installing build dependencies (`nodejs-lts`, `python`, `make`, `clang`, `pnpm`, etc.)
 4. `pnpm install` — JavaScript dependencies and native module compilation
 5. `pnpm build` — frontend bundling
@@ -91,7 +91,7 @@ Once the server boot log appears, open the phone's browser (Chrome, Firefox, etc
 http://localhost:6001
 ```
 
-The RisuBard UI should load. `localhost` is automatically treated as a secure context by the browser, so clipboard, `crypto.subtle`, and other secure-context APIs work normally.
+The RisuVault UI should load. `localhost` is automatically treated as a secure context by the browser, so clipboard, `crypto.subtle`, and other secure-context APIs work normally.
 
 Stop the server with `Ctrl + C`.
 
@@ -119,10 +119,10 @@ Release with: `termux-wake-unlock`
 
 ## 5. Update
 
-From the RisuBard directory:
+From the RisuVault directory:
 
 ```bash
-cd ~/RisuBard
+cd ~/RisuVault
 git pull
 NODE_OPTIONS="--max-old-space-size=2048" pnpm build
 ```
@@ -136,9 +136,9 @@ If dependencies changed, `pnpm install` runs automatically as part of the build.
 
 **Quick Tunnel (Cloudflare auto tunnel) does not work on Termux.** The `cloudflared` binary is incompatible with Termux's DNS and TLS environment.
 
-RisuBard detects the Termux environment automatically and shows a warning in the Remote Access menu, hiding the start button.
+RisuVault detects the Termux environment automatically and shows a warning in the Remote Access menu, hiding the start button.
 
 
 ---
 
-← [Back to README](../../README.md)
+← [Back to README](../../README.en.md)
