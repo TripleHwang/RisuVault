@@ -18,6 +18,8 @@ vi.mock('src/ts/stores.svelte', () => ({
 }))
 vi.mock('src/ts/storage/database.svelte', () => ({
     getCurrentChat: () => chat,
+    getActivePromptOverlayTemplate: () => null,
+    getActivePromptOverlayToggleTemplate: () => '',
     fillMissingPinnedToggleValues: vi.fn(),
     resetPinnedToggleValues: vi.fn(),
     saveTogglesToChat: vi.fn(),

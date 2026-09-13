@@ -29,7 +29,7 @@ describe('AISettingsWorkspace', () => {
         expect(source).toContain('<PromptPresetSettings />')
         expect(promptPresetPage).toContain("title={language.settingsWorkspace.aiWorkspace.sections['chat-prompt-presets'].title}")
         expect(promptPresetPage).not.toContain("description={language.settingsWorkspace.aiWorkspace.sections['chat-prompt-presets'].description}")
-        expect(promptPresetPage).toContain('fullWidth={$PromptPresetSubmenuIndex === 2}')
+        expect(promptPresetPage).toContain('fullWidth={$PromptPresetSubmenuIndex === 2 || $PromptPresetSubmenuIndex === 5}')
     })
 
     test('lets embedded settings pages defer their heading to the workspace', () => {
