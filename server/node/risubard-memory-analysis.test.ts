@@ -168,6 +168,55 @@ describe('memory analysis runner', () => {
         expect(canonicalTurnNeedsRetry(result.canonicalReceipt!)).toBe(true)
     })
 
+    test('does not overwrite an existing document when a section hits the former 4,000-character boundary', async () => {
+        const saveCanonicalDocument = vi.fn()
+        const analyze = vi.fn(async (request: MemoryAnalysisModelRequest) => {
+            if (request.format === 'memory-draft') return JSON.stringify({
+                title: 'Arrival', establishedEvents: ['Alice arrived.'],
+                stateChanges: [], characterKnowledge: [], persistentFacts: [],
+                openContinuity: [], canonicalUpdateCandidates: [{
+                    type: 'character', title: 'Alice', reason: 'Arrival update',
+                    action: 'update', targetDocumentId: 'character.Alice',
+                    confidence: 1,
+                }],
+            })
+            return canonicalPatchBatch([{
+                heading: 'Story History', operation: 'upsert',
+                content: 'A'.repeat(4_000),
+            }])
+        })
+        const runner = createMemoryAnalysisRunner({
+            memoryService: { loadState: vi.fn(), applyDelta: vi.fn() },
+            nativeV2Analysis: true,
+            markdownWikiService: {
+                inquire: vi.fn(async () => ({ graphRevision: 0, sources: [] })),
+                loadDocuments: vi.fn(async () => [{
+                    id: 'character.Alice', type: 'character' as const,
+                    title: 'Alice', relativePath: 'characters/Alice.md',
+                    content: '## Alice\n\n### Story History\n\n- Existing complete history.',
+                    contentHash: 'alice-old', sourceMessageIds: [],
+                }]),
+                saveConfirmedTurn: vi.fn(async () => undefined),
+                saveCanonicalDocument,
+            },
+            onError: vi.fn(), analyze,
+        })
+
+        const result = await runner.run({
+            characterId: 'character', chatId: 'chat', wikiWritingLanguage: 'en',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: 'Alice arrived.',
+            }],
+        })
+
+        expect(analyze).toHaveBeenCalledTimes(3)
+        expect(saveCanonicalDocument).not.toHaveBeenCalled()
+        expect(result.canonicalReceipt?.warnings.join(' '))
+            .toContain('내용 잘림 의심')
+        expect(canonicalTurnNeedsRetry(result.canonicalReceipt!)).toBe(true)
+    })
+
     test.each([false, true])('keeps English through analysis, rewrite and saves (reboot=%s)', async (reboot) => {
         const systems: string[] = []
         const saveConfirmedTurn = vi.fn(async (input) => input)

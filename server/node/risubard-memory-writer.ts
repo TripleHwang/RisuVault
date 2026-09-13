@@ -4,7 +4,10 @@ import {
 } from '../../packages/risubard-core/src/modelOutput'
 import englishContract from '../../src/ts/risubard/skills/bardwiki-memory-writer/references/english-contract.md?raw'
 import { normalizeWikiWritingLanguage, wikiWritingHeadings, type WikiWritingLanguage } from '../../src/ts/risubard/wikiWritingLanguage'
-import { normalizeCanonicalSectionHeading } from './risubard-markdown-section-patch'
+import {
+    assertCanonicalSectionContentNotTruncated,
+    normalizeCanonicalSectionHeading,
+} from './risubard-markdown-section-patch'
 
 const itemString = { type: 'string', minLength: 1, maxLength: 500 }
 const canonicalTypes = [
@@ -188,9 +191,7 @@ export function buildCanonicalBatchSchema(candidateCount?: number): string {
                                     operation: {
                                         type: 'string', enum: ['upsert', 'delete'],
                                     },
-                                    content: {
-                                        type: 'string', maxLength: 4_000,
-                                    },
+                                    content: { type: 'string' },
                                 },
                             },
                         },
@@ -628,13 +629,16 @@ export function parseCanonicalBatch(
                     `canonical batch documents[${index}].sections[${sectionIndex}].operation is invalid`
                 )
             }
-            if (typeof section.content !== 'string'
-                || section.content.length > 4_000) {
+            if (typeof section.content !== 'string') {
                 throw new Error(
                     `canonical batch documents[${index}].sections[${sectionIndex}].content is invalid`
                 )
             }
             const content = section.content.trim()
+            assertCanonicalSectionContentNotTruncated(section.content)
+            if (content.length !== section.content.length) {
+                assertCanonicalSectionContentNotTruncated(content)
+            }
             if ((operation === 'upsert' && content.length === 0)
                 || (operation === 'delete' && content.length > 0)) {
                 throw new Error(

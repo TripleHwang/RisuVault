@@ -37,4 +37,14 @@ describe('BardWiki current-chat setting help', () => {
         expect(help).toContain('기본 절약값은 4개')
         expect(help).toContain('2~3개')
     })
+
+    test('explains long canonical section handling in the analysis token help', () => {
+        const help = buildRisuBardChatSettingHelp(
+            'risuBardAnalysisTokenLimit',
+            measureRisuBardChat([]),
+        )
+
+        expect(help).toContain('4,000자 고정 상한이 없습니다')
+        expect(help).toContain('저장하지 않고 재시도')
+    })
 })

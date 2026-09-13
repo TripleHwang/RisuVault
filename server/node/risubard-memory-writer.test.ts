@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { ModelOutputError } from '../../packages/risubard-core/src/modelResponse'
 import {
     canonicalBatchSchema,
     buildCanonicalBatchSchema,
@@ -249,6 +250,40 @@ describe('BardWiki memory writer skill', () => {
             schemaVersion: 1,
             documents: [{ candidateIndex: 0, sections: [] }],
         }), 1).documents[0]?.sections).toEqual([])
+    })
+
+    test('allows canonical section content beyond the former 4,000-character cap', () => {
+        const content = 'A'.repeat(4_001)
+        const schema = JSON.parse(canonicalBatchSchema)
+        expect(schema.properties.documents.items.properties.sections.items
+            .properties.content).not.toHaveProperty('maxLength')
+        expect(parseCanonicalBatch(JSON.stringify({
+            documents: [{
+                candidateIndex: 0,
+                sections: [{ heading: 'History', operation: 'upsert', content }],
+            }],
+        }), 1).documents[0].sections[0].content).toBe(content)
+    })
+
+    test('rejects content ending exactly at the former 4,000-character boundary', () => {
+        const parse = () => parseCanonicalBatch(JSON.stringify({
+            documents: [{
+                candidateIndex: 0,
+                sections: [{
+                    heading: 'History', operation: 'upsert',
+                    content: 'A'.repeat(4_000),
+                }],
+            }],
+        }), 1)
+        expect(parse).toThrow(ModelOutputError)
+        try {
+            parse()
+        } catch (error) {
+            expect(error).toMatchObject({
+                reason: 'truncated',
+                validationHint: expect.stringContaining('내용 잘림 의심'),
+            })
+        }
     })
 
     test('uses a compact single-document contract for protocol recovery', () => {

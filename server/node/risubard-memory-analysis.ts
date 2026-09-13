@@ -1349,6 +1349,7 @@ export function createMemoryAnalysisRunner(
                                 'Use an empty heading only to replace or delete legacy text between the document title and the first H3 section.',
                                 'For a new document, return every initial section needed to assemble it. Do not return an H1 or H2 title.',
                                 'If an existing target has no verified change after checking the evidence, return an empty sections array so the program skips persistence. A new document must contain at least one section.',
+                                'There is no fixed 4,000-character limit per section. Return every changed section complete, never stop at an artificial character boundary, and stay concise enough to finish within the overall output token limit.',
                                 'Use semanticUpdate as a structured coverage checklist, but verify every item against confirmedMessages before applying it.',
                                 `Prefer a compact self-contained \`### ${wikiWritingHeadings[normalizeWikiWritingLanguage(snapshot.wikiWritingLanguage)].currentState}\` section near the top of character documents when verified current facts benefit from a snapshot. Its absence is not a persistence error and never justifies a structure-only rewrite.`,
                                 'Remove superseded facts from current-state sections; retain an old state only as a clearly historical transition when it remains narratively useful.',
