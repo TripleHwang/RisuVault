@@ -377,22 +377,6 @@ describe('BardWiki memory writer skill', () => {
         }), ['a1', 'a2'])).toThrow(/order|assistant/i)
     })
 
-    test('accepts an exact Batch analysis response with more than two turns', () => {
-        const schema = JSON.parse(buildRebootBatchDraftSchema(3))
-        expect(schema.properties.turns).toMatchObject({ minItems: 3, maxItems: 3 })
-        const turns = ['첫 사건', '둘째 사건', '셋째 사건'].map((title) => ({
-            title,
-            establishedEvents: [`${title}이 확정되었다.`],
-        }))
-        expect(parseRebootBatchDraft(JSON.stringify({
-            turns,
-            stateChanges: [], characterKnowledge: [], persistentFacts: [],
-            openContinuity: [], canonicalUpdateCandidates: [],
-        }), ['a1', 'a2', 'a3']).turns.map((turn) =>
-            turn.assistantMessageId
-        )).toEqual(['a1', 'a2', 'a3'])
-    })
-
     test('binds trusted reboot assistant IDs instead of model-generated IDs', () => {
         const draft = parseRebootBatchDraft(JSON.stringify({
             schemaVersion: 1,

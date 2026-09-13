@@ -32,7 +32,7 @@
         reanalyzeNarrativeMessage,
         doingChat,
         executeCurrentNarrativeWikiCommand,
-        batchCurrentNarrativeWikiUpdate,
+        forceCurrentNarrativeWikiUpdate,
         resumeCurrentWikiReboot,
         startCurrentWikiReboot,
         stopCurrentWikiReboot,
@@ -1902,7 +1902,7 @@ import { isMobile } from 'src/ts/platform'
             bind:open={memoryWikiOpen}
             characterId={currentCharacter.chaId}
             chatId={currentChatSlot.id}
-            onBatchWikiUpdate={batchCurrentNarrativeWikiUpdate}
+            onForceWikiUpdate={forceCurrentNarrativeWikiUpdate}
             rebootJob={currentChatSlot.risuBardWikiReboot}
             onStartWikiReboot={startCurrentWikiReboot}
             onStopWikiReboot={stopCurrentWikiReboot}

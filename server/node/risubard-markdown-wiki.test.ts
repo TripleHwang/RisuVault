@@ -16,25 +16,6 @@ afterEach(async () => {
 })
 
 describe('Markdown narrative wiki', () => {
-    test('creates a recovery checkpoint for more than two Batch analysis turns', async () => {
-        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
-        temporaryDirectories.push(root)
-        const wiki = createMarkdownNarrativeWiki(root)
-        const sourceMessageIds = ['u1', 'a1', 'u2', 'a2', 'u3', 'a3']
-        const eventSourceGroups = [
-            ['u1', 'a1'], ['u2', 'a2'], ['u3', 'a3'],
-        ]
-
-        await expect(wiki.beginRebootBatch({
-            characterId: 'character', chatId: 'chat',
-            sourceMessageIds, eventSourceGroups,
-        })).resolves.toEqual({ canonicalCount: 0 })
-        await expect(wiki.recoverRebootBatch({
-            characterId: 'character', chatId: 'chat',
-            sourceMessageIds, eventSourceGroups,
-        })).resolves.toBeNull()
-    })
-
     test('can append the first summary to an English event with only a title', async () => {
         const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
         temporaryDirectories.push(root)

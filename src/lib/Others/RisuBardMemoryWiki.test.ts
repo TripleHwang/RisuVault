@@ -629,7 +629,7 @@ describe('RisuBardMemoryWiki', () => {
                 open: true,
                 characterId: 'character',
                 chatId: 'chat',
-                onBatchWikiUpdate: async () => {
+                onForceWikiUpdate: async () => {
                     throw new Error('위키 조회 제한 시간을 초과했습니다.')
                 },
             },
@@ -637,11 +637,8 @@ describe('RisuBardMemoryWiki', () => {
 
         let button: HTMLButtonElement | null = null
         await vi.waitFor(() => {
-            document.body.querySelector<HTMLButtonElement>(
-                '[data-wiki-tools-trigger]'
-            )?.click()
             button = document.body.querySelector(
-                '[data-risubard-batch-wiki-update]'
+                '[data-risubard-force-wiki-update]'
             )
             expect(button).not.toBeNull()
         })
@@ -684,18 +681,15 @@ describe('RisuBardMemoryWiki', () => {
                 open: true,
                 characterId: 'character',
                 chatId: 'chat',
-                onBatchWikiUpdate: async () => true,
+                onForceWikiUpdate: async () => true,
             },
         })
 
         await vi.waitFor(() => expect(document.querySelector(
-            '[data-wiki-tools-trigger]'
+            '[data-risubard-force-wiki-update]'
         )).not.toBeNull())
         document.querySelector<HTMLButtonElement>(
-            '[data-wiki-tools-trigger]'
-        )?.click()
-        document.querySelector<HTMLButtonElement>(
-            '[data-risubard-batch-wiki-update]'
+            '[data-risubard-force-wiki-update]'
         )?.click()
 
         await vi.waitFor(() => {
@@ -811,44 +805,6 @@ describe('RisuBardMemoryWiki', () => {
         expect(settings.getAttribute('aria-expanded')).toBe('true')
     })
 
-    test('opens the large BardWiki tool flyout by hover or click and closes outside', async () => {
-        mocks.loadNarrativeMemoryWiki.mockResolvedValue({
-            mode: 'markdown', wikiPath: 'C:\\wiki', documents: [],
-        })
-        mounted = mount(RisuBardMemoryWiki, {
-            target: document.body,
-            props: {
-                open: true,
-                characterId: 'character',
-                chatId: 'chat',
-                onBatchWikiUpdate: async () => true,
-            },
-        })
-
-        let trigger: HTMLButtonElement | null = null
-        await vi.waitFor(() => {
-            trigger = document.querySelector('[data-wiki-tools-trigger]')
-            expect(trigger?.textContent).toContain('도구 모음')
-        })
-        if (!trigger) throw new Error('Tool trigger was not rendered')
-
-        trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
-        await tick()
-        const flyout = document.querySelector<HTMLElement>('[data-wiki-tools-flyout]')
-        expect(flyout?.hidden).toBe(false)
-        expect([...flyout!.querySelectorAll('button')].map((button) =>
-            button.textContent?.trim()
-        )).toEqual(['Batch analysis', 'Reboot wiki', '찾기/바꾸기'])
-
-        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
-        await tick()
-        expect(flyout?.hidden).toBe(true)
-
-        trigger.click()
-        await tick()
-        expect(flyout?.hidden).toBe(false)
-    })
-
     test('uses a separate icon toolbar below the title and moves document count into the sidebar', async () => {
         const source = readFileSync(resolve(
             process.cwd(), 'src/lib/Others/RisuBardMemoryWiki.svelte'
@@ -880,7 +836,7 @@ describe('RisuBardMemoryWiki', () => {
             expect(views).not.toBeNull()
             expect(views?.parentElement?.classList.contains('dock-header')).toBe(true)
             expect(views?.previousElementSibling?.classList.contains('dock-titlebar')).toBe(true)
-            expect(views?.querySelector('[data-wiki-tools-trigger]'))
+            expect(views?.querySelector('[data-risubard-force-wiki-update]'))
                 .not.toBeNull()
             expect(views?.querySelector('[data-memory-settings]')).not.toBeNull()
             expect(document.body.querySelector('[data-wiki-editor-menu]')).toBeNull()
@@ -893,14 +849,8 @@ describe('RisuBardMemoryWiki', () => {
             )
         })
 
-        const toolsTrigger = document.body.querySelector<HTMLButtonElement>(
-            '[data-wiki-tools-trigger]'
-        )!
-        toolsTrigger.click()
-        await tick()
-        const flyout = document.body.querySelector('[data-wiki-tools-flyout]')!
-        const batchUpdate = flyout.querySelector(
-            '[data-risubard-batch-wiki-update]'
+        const forceUpdate = document.body.querySelector(
+            '[data-risubard-force-wiki-update]'
         )!
         const actions = document.body.querySelector('.dock-view-actions')!
         const workspace = document.body.querySelector('[data-memory-view="workspace"]')!
@@ -908,35 +858,35 @@ describe('RisuBardMemoryWiki', () => {
         const arcPlot = document.body.querySelector('[data-memory-view="arc-plot"]')!
         const log = document.body.querySelector('[data-memory-view="log"]')!
         const settings = document.body.querySelector('[data-memory-settings]')!
-        expect(toolsTrigger.classList.contains('tools-trigger')).toBe(true)
-        expect(flyout.parentElement?.classList.contains('dock-header')).toBe(true)
-        expect(document.body.querySelector('.dock-views')?.contains(flyout)).toBe(false)
-        expect(batchUpdate.querySelector('.force-update-idle')).not.toBeNull()
-        expect(batchUpdate.querySelector('.force-update-hover')).not.toBeNull()
+        expect(forceUpdate.classList.contains('force-update-button')).toBe(true)
+        expect(forceUpdate.querySelector('.force-update-idle')).not.toBeNull()
+        expect(forceUpdate.querySelector('.force-update-hover')).not.toBeNull()
         expect(actions.contains(workspace)).toBe(true)
         expect(workspace.querySelector('[data-solar-icon="notebook"]')).not.toBeNull()
         expect(story.querySelector('[data-memory-icon="scroll"]')).not.toBeNull()
         expect(arcPlot.textContent).toContain('아크 플롯')
         expect(actions.querySelector('[data-memory-view="replace"]')).toBeNull()
         expect(settings.querySelector('[data-solar-icon="settings"]')).not.toBeNull()
-        expect(toolsTrigger.textContent).toContain('도구 모음')
+        expect(forceUpdate.querySelector('span')?.textContent?.trim())
+            .toBe(forceUpdate.getAttribute('aria-label'))
         const findReplace = document.body.querySelector<HTMLButtonElement>(
             '[data-wiki-open-find-replace]'
         )!
         expect(findReplace.textContent?.trim()).toBe('찾기/바꾸기')
+        expect(findReplace.previousElementSibling).toBe(forceUpdate)
         expect(findReplace.querySelector('[data-solar-icon="magnifier"]')).not.toBeNull()
         expect(document.body.querySelector(
             '[data-wiki-action-toolbar] [data-wiki-open-find-replace]'
         )).toBeNull()
-        expect(source).toMatch(/\.tools-flyout\s*\{[^}]*width:\s*min\(20rem[^}]*background:\s*var\(--risu-theme-bgcolor\)/s)
-        expect(source).toMatch(/\.batch-action img\s*\{[^}]*width:\s*28px[^}]*height:\s*28px/s)
-        expect(source).toMatch(/\.tools-flyout \.tool-action\s*\{[^}]*min-height:\s*3\.25rem/s)
+        expect(source).toMatch(/\.dock-views \.force-update-button,\s*\.dock-views \.find-replace-button,\s*\.dock-views \.reboot-button,\s*\.dock-views \.reboot-cancel-button\s*\{[^}]*height:\s*2\.25rem/s)
+        expect(source).toMatch(/\.force-update-button img\s*\{[^}]*width:\s*24px[^}]*height:\s*24px/s)
+        expect(source).toMatch(/\.dock-views \.force-update-button span,\s*\.dock-views \.find-replace-button span,\s*\.dock-views \.reboot-button span/)
         expect(source).toMatch(/\.dock-views\s*\{[^}]*min-height:\s*44px[^}]*padding:\s*\.3rem\s+\.35rem/s)
         expect(source).toMatch(/\.dock-identity strong\s*\{[^}]*font-family:\s*var\(--risu-font-family\)/s)
         expect(source).toMatch(/\.settings-popover\s*\{[^}]*background:\s*var\(--risu-theme-bgcolor\)/s)
         expect(source).toMatch(/\.dock-view-actions\s*\{[^}]*margin-left:\s*auto/s)
         expect(source).toMatch(/\.memory-wiki-dock\.mobile-layout \.dock-views\s*\{[^}]*overflow-x:\s*auto/s)
-        expect(toolsTrigger.compareDocumentPosition(workspace)
+        expect(forceUpdate.compareDocumentPosition(workspace)
             & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
         expect(workspace.compareDocumentPosition(story)
             & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
