@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PromptItem } from './process/prompt'
+import * as promptBlockOverlayModule from './promptBlockOverlay'
 import {
     composePromptBlockOverlay,
     applyPromptBlockOverlayApplicationPreset,
@@ -283,6 +284,19 @@ describe('prompt block overlay', () => {
             .toEqual([preset])
     })
 
+    test('renames an application preset without changing its stable ID or settings', () => {
+        const rename = (promptBlockOverlayModule as Record<string, unknown>)
+            .renamePromptBlockOverlayApplicationPreset
+        expect(rename).toBeTypeOf('function')
+        if (typeof rename !== 'function') return
+
+        const preset = createPromptBlockOverlayApplicationPreset(config, 'apply-1', '이전 이름')
+        const renamed = rename([preset], 'apply-1', '  새 이름  ') as typeof preset[]
+        expect(renamed[0]).toEqual({ ...preset, name: '새 이름' })
+        expect(renamed[0].id).toBe('apply-1')
+        expect(preset.name).toBe('이전 이름')
+    })
+
     test('renames and deletes extracted profiles without mutating the source list', () => {
         const renamed = renamePromptBlockOverlayProfile([sourceProfile], 'memo-profile', '새 비망록 이름')
         expect(renamed[0].id).toBe('memo-profile')
@@ -313,6 +327,27 @@ describe('prompt block overlay', () => {
             '📙 Open', '📙 Reply', '📙 Open 복사본',
         ])
         expect(sourceProfile.promptTemplate).toHaveLength(3)
+    })
+
+    test('inserts a new plain block after the selected block and replaces block metadata immutably', () => {
+        const insert = (promptBlockOverlayModule as Record<string, unknown>)
+            .insertPromptBlockOverlayProfileBlock
+        const replace = (promptBlockOverlayModule as Record<string, unknown>)
+            .replacePromptBlockOverlayProfileBlock
+        expect(insert).toBeTypeOf('function')
+        expect(replace).toBeTypeOf('function')
+        if (typeof insert !== 'function' || typeof replace !== 'function') return
+
+        const inserted = insert(sourceProfile, 0, plain('새 블록', '')) as typeof sourceProfile
+        expect(inserted.promptTemplate.map(item => item.name)).toEqual([
+            '📙 Open', '새 블록', '📙 Reply', 'Unused',
+        ])
+        expect(sourceProfile.promptTemplate).toHaveLength(3)
+
+        const replacement = { ...inserted.promptTemplate[1], name: '인라인 이름', type: 'jailbreak' } as PromptItem
+        const replaced = replace(inserted, 1, replacement) as typeof sourceProfile
+        expect(replaced.promptTemplate[1]).toEqual(replacement)
+        expect(inserted.promptTemplate[1].name).toBe('새 블록')
     })
 
     test('remaps saved rules when profile blocks move or are deleted', () => {

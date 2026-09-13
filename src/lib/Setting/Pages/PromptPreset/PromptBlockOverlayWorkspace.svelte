@@ -9,10 +9,9 @@
         ChevronRightIcon,
         ChevronsDownIcon,
         ChevronsUpIcon,
-        CheckIcon,
         CircleHelpIcon,
         CopyIcon,
-        PencilIcon,
+        PlusIcon,
         ReplaceIcon,
         Trash2Icon,
     } from '@lucide/svelte'
@@ -22,7 +21,14 @@
     import { alertConfirm, alertInput, notifySuccess } from 'src/ts/alert'
     import { saveCurrentPreset } from 'src/ts/storage/database.svelte'
     import { safeStructuredClone } from 'src/ts/polyfill'
-    import type { PromptItem } from 'src/ts/process/prompt'
+    import type {
+        PromptItem,
+        PromptItemAuthorNote,
+        PromptItemPlain,
+        PromptItemTyped,
+        PromptRole,
+        PromptType,
+    } from 'src/ts/process/prompt'
     import {
         applyPromptBlockOverlayApplicationPreset,
         appendPromptBlockOverlayProfileFromPreset,
@@ -34,6 +40,7 @@
         deletePromptBlockOverlayProfileBlock,
         duplicatePromptBlockOverlayProfileBlock,
         getEffectivePromptToggleTemplate,
+        insertPromptBlockOverlayProfileBlock,
         movePromptBlockOverlayProfileBlock,
         normalizePromptBlockOverlay,
         overwritePromptBlockOverlayApplicationPreset,
@@ -41,9 +48,11 @@
         promptBlockMatchesExtractionText,
         promptBlockOverlayReference,
         remapPromptBlockOverlayRules,
+        renamePromptBlockOverlayApplicationPreset,
         resolvePromptBlockOverlayReference,
         renamePromptBlockOverlayProfile,
         selectPromptBlockOverlayProfile,
+        replacePromptBlockOverlayProfileBlock,
         updatePromptBlockItemText,
         updatePromptBlockOverlayProfileBlockText,
         updatePromptBlockOverlayConfig,
@@ -67,6 +76,8 @@
     let hydratedProfileId = $state('')
     let selectedSourceIndex = $state(-1)
     let editingSourceBlocks = $state<Record<number, boolean>>({})
+    let editingSourceNameIndex = $state(-1)
+    let blockNameDraft = $state('')
     let expandedBlocks = $state<Record<string, boolean>>({})
     let topTools = $state<HTMLDivElement>(null!)
     let topSplitHandle = $state<HTMLButtonElement>(null!)
@@ -112,6 +123,8 @@
         profileName = activeProfile?.name ?? ''
         selectedSourceIndex = -1
         editingSourceBlocks = {}
+        editingSourceNameIndex = -1
+        blockNameDraft = ''
     })
 
     function blockName(item: PromptItem, index?: number): string {
@@ -153,12 +166,13 @@
             profile.id === nextProfile.id ? nextProfile : profile)
     }
 
-    function replaceProfileStructure(nextProfile: PromptBlockOverlayProfile, removedIndex = -1) {
+    function replaceProfileStructure(nextProfile: PromptBlockOverlayProfile, removedIndex = -1, replacedIndex = -1) {
         const rules = remapPromptBlockOverlayRules(
             config.rules,
             sourceItems,
             nextProfile.promptTemplate,
             removedIndex,
+            replacedIndex,
         )
         store(updatePromptBlockOverlayConfig(config, { rules }))
         replaceActiveProfile(nextProfile)
@@ -189,6 +203,107 @@
     function editBlockText(index: number, text: string) {
         if (!activeProfile) return
         replaceActiveProfile(updatePromptBlockOverlayProfileBlockText(activeProfile, index, text))
+    }
+
+    function replaceBlock(index: number, item: PromptItem) {
+        if (!activeProfile) return
+        replaceProfileStructure(
+            replacePromptBlockOverlayProfileBlock(activeProfile, index, item),
+            -1,
+            index,
+        )
+    }
+
+    function uniqueNewBlockName(): string {
+        const baseName = language.promptOverlay.newBlock
+        const usedNames = new Set(sourceItems.map(item => item.name ?? ''))
+        if (!usedNames.has(baseName)) return baseName
+        let number = 2
+        while (usedNames.has(`${baseName} ${number}`)) number += 1
+        return `${baseName} ${number}`
+    }
+
+    function insertNewBlockAfterSelection() {
+        if (!activeProfile || selectedSourceIndex < 0) return
+        const nextIndex = selectedSourceIndex + 1
+        const item: PromptItem = {
+            type: 'plain',
+            type2: 'normal',
+            text: '',
+            role: 'system',
+            name: uniqueNewBlockName(),
+        }
+        replaceProfileStructure(insertPromptBlockOverlayProfileBlock(activeProfile, selectedSourceIndex, item))
+        selectedSourceIndex = nextIndex
+        editingSourceBlocks = { [nextIndex]: true }
+    }
+
+    function beginBlockNameEdit(event: MouseEvent, index: number) {
+        event.stopPropagation()
+        selectedSourceIndex = index
+        editingSourceNameIndex = index
+        blockNameDraft = blockName(sourceItems[index], index)
+    }
+
+    function finishBlockNameEdit(index: number, save = true) {
+        const item = sourceItems[index]
+        if (save && item && blockNameDraft.trim()) replaceBlock(index, { ...item, name: blockNameDraft.trim() } as PromptItem)
+        editingSourceNameIndex = -1
+        blockNameDraft = ''
+    }
+
+    function makeBlockForType(item: PromptItem, type: PromptType): PromptItem {
+        const name = item.name
+        const text = promptBlockOverlayItemText(item)
+        let next: PromptItem
+        if (type === 'plain' || type === 'jailbreak' || type === 'cot') {
+            next = { type, type2: 'normal', text: '', role: 'system', name }
+        } else if (type === 'chatML') {
+            next = { type, text: '', name }
+        } else if (type === 'chat') {
+            next = { type, rangeStart: -1000, rangeEnd: 'end', name }
+        } else if (type === 'cache') {
+            next = { type, name: name ?? '', depth: 1, role: 'all' }
+        } else if (type === 'authornote') {
+            next = { type, name, defaultText: '', role2: 'system' }
+        } else {
+            next = { type, name, role2: type === 'lorebook' || type === 'postEverything' ? undefined : 'system' }
+        }
+        return updatePromptBlockItemText(next, text)
+    }
+
+    function replaceBlockType(index: number, type: PromptType) {
+        const item = sourceItems[index]
+        if (!item || item.type === type) return
+        replaceBlock(index, makeBlockForType(item, type))
+    }
+
+    function hasSpecialType(item: PromptItem): item is PromptItemPlain {
+        return item.type === 'plain' || item.type === 'jailbreak' || item.type === 'cot'
+    }
+
+    function hasRole2(item: PromptItem): item is PromptItemTyped | PromptItemAuthorNote {
+        return item.type === 'persona' || item.type === 'description' || item.type === 'authornote' || item.type === 'memory'
+    }
+
+    function blockRole(item: PromptItem): string {
+        if (hasSpecialType(item)) return item.role
+        if (hasRole2(item)) return item.role2 ?? 'system'
+        if (item.type === 'cache') return item.role
+        return ''
+    }
+
+    function setBlockSpecialType(index: number, type2: 'normal' | 'globalNote' | 'main') {
+        const item = sourceItems[index]
+        if (item && hasSpecialType(item)) replaceBlock(index, { ...item, type2 })
+    }
+
+    function setBlockRole(index: number, role: string) {
+        const item = sourceItems[index]
+        if (!item) return
+        if (hasSpecialType(item)) replaceBlock(index, { ...item, role: role as PromptRole })
+        else if (hasRole2(item)) replaceBlock(index, { ...item, role2: role as PromptRole })
+        else if (item.type === 'cache') replaceBlock(index, { ...item, role: role as 'all' | 'user' | 'assistant' | 'system' })
     }
 
     function editResultBlock(kind: 'base' | PromptBlockOverlayPlacement, index: number, text: string) {
@@ -231,12 +346,12 @@
         editingSourceBlocks = {}
     }
 
-    function toggleSelectedBlockEditor() {
-        const item = sourceItems[selectedSourceIndex]
-        if (!item || !canEditBlock(item)) return
+    function toggleBlockEditor(event: MouseEvent, index: number) {
+        event.stopPropagation()
+        selectedSourceIndex = index
         editingSourceBlocks = {
             ...editingSourceBlocks,
-            [selectedSourceIndex]: !editingSourceBlocks[selectedSourceIndex],
+            [index]: !editingSourceBlocks[index],
         }
     }
 
@@ -266,6 +381,17 @@
             selectedApplicationPreset.id,
             config,
         )
+    }
+
+    function renameApplicationPreset() {
+        const name = applicationPresetName.trim()
+        if (!selectedApplicationPreset || !name || name === selectedApplicationPreset.name) return
+        DBState.db.promptBlockOverlayApplicationPresets = renamePromptBlockOverlayApplicationPreset(
+            applicationPresets,
+            selectedApplicationPreset.id,
+            name,
+        )
+        applicationPresetName = name
     }
 
     function deleteApplicationPreset() {
@@ -592,6 +718,10 @@
                     <div class="preset-actions">
                         <button disabled={!applicationPresetName.trim() || !config.profileId} onclick={saveApplicationPreset}>{language.promptOverlay.saveNewPreset}</button>
                         <button disabled={!selectedApplicationPreset} onclick={overwriteApplicationPreset}>{language.promptOverlay.overwritePreset}</button>
+                        <button
+                            disabled={!selectedApplicationPreset || !applicationPresetName.trim() || applicationPresetName.trim() === selectedApplicationPreset.name}
+                            onclick={renameApplicationPreset}
+                        >{language.promptOverlay.renamePreset}</button>
                         <button class="danger" disabled={!selectedApplicationPreset} onclick={deleteApplicationPreset}>{language.promptOverlay.deletePreset}</button>
                     </div>
                 </div>
@@ -670,11 +800,11 @@
                 <div class="mapping-body">
                     <div class="block-toolbar" role="toolbar" aria-label={language.promptOverlay.blockToolbar}>
                         <button
-                            disabled={selectedSourceIndex < 0 || !canEditBlock(sourceItems[selectedSourceIndex])}
-                            aria-label={language.promptOverlay.editBlockContent}
-                            title={language.promptOverlay.editBlockContent}
-                            onclick={toggleSelectedBlockEditor}
-                        ><PencilIcon size={16} /></button>
+                            disabled={selectedSourceIndex < 0}
+                            aria-label={language.promptOverlay.newBlock}
+                            title={language.promptOverlay.newBlock}
+                            onclick={insertNewBlockAfterSelection}
+                        ><PlusIcon size={16} /></button>
                         <button
                             disabled={selectedSourceIndex < 0}
                             aria-label={language.promptOverlay.duplicateBlock}
@@ -720,28 +850,54 @@
                         {@const rule = ruleFor(index)}
                         {@const targetIndex = rule ? resolvedTargetIndex(rule) : -1}
                         {@const missingTarget = !!rule && targetIndex < 0}
-                        <article
+                        <div
                             class:active-rule={!!rule}
                             class:missing-target={missingTarget}
                             class:selected-block={selectedSourceIndex === index}
                             class="mapping-row"
+                            role="button"
+                            tabindex="0"
+                            onclick={() => selectedSourceIndex = index}
+                            onkeydown={(event) => {
+                                if (event.target !== event.currentTarget) return
+                                if (event.key !== 'Enter' && event.key !== ' ') return
+                                event.preventDefault()
+                                selectedSourceIndex = index
+                            }}
                         >
-                            <button
-                                type="button"
-                                class="block-selector"
-                                aria-label={`${language.promptOverlay.selectBlock}: ${blockName(item, index)}`}
-                                aria-pressed={selectedSourceIndex === index}
-                                title={blockName(item, index)}
-                                onclick={() => selectedSourceIndex = index}
-                            >
-                                <span class="selection-indicator" aria-hidden="true">
-                                    <CheckIcon size={14} />
-                                </span>
+                            <div class="block-selector">
+                                <button
+                                    type="button"
+                                    class:expanded={!!editingSourceBlocks[index]}
+                                    class="block-editor-toggle"
+                                    aria-label={`${language.promptOverlay.editBlockContent}: ${blockName(item, index)}`}
+                                    aria-expanded={!!editingSourceBlocks[index]}
+                                    onclick={(event) => toggleBlockEditor(event, index)}
+                                ><ChevronDownIcon size={16} /></button>
                                 <span class="block-copy">
-                                    <strong>{blockName(item, index)}</strong>
+                                    {#if editingSourceNameIndex === index}
+                                        <input
+                                            class="block-name-input"
+                                            bind:value={blockNameDraft}
+                                            aria-label={language.name}
+                                            onclick={(event) => event.stopPropagation()}
+                                            onblur={() => finishBlockNameEdit(index)}
+                                            onkeydown={(event) => {
+                                                if (event.key === 'Enter' && !event.isComposing) event.currentTarget.blur()
+                                                if (event.key === 'Escape') finishBlockNameEdit(index, false)
+                                            }}
+                                        />
+                                    {:else}
+                                        <button
+                                            type="button"
+                                            class="block-name-button"
+                                            title={language.name}
+                                            onclick={(event) => beginBlockNameEdit(event, index)}
+                                        >{blockName(item, index)}</button>
+                                    {/if}
                                     <span>#{index + 1} · {item.type}</span>
                                 </span>
-                            </button>
+                            </div>
                             <label class="mapping-control">
                                 <span>{language.promptOverlay.action}</span>
                                 <select
@@ -768,16 +924,66 @@
                                     {/each}
                                 </select>
                             </label>
-                            {#if editingSourceBlocks[index] && canEditBlock(item)}
-                                <label class="block-editor">
-                                    <span>{language.promptOverlay.editBlockContent}</span>
-                                    <textarea
-                                        value={promptBlockOverlayItemText(item)}
-                                        oninput={(event) => editBlockText(index, event.currentTarget.value)}
-                                    ></textarea>
-                                </label>
+                            {#if editingSourceBlocks[index]}
+                                <div class="block-editor block-editor-layout">
+                                    <label class="block-editor-content">
+                                        <span>{language.promptOverlay.editBlockContent}</span>
+                                        <textarea
+                                            disabled={!canEditBlock(item)}
+                                            value={promptBlockOverlayItemText(item)}
+                                            placeholder={!canEditBlock(item) ? language.promptOverlay.blockHasNoEditableContent : ''}
+                                            oninput={(event) => editBlockText(index, event.currentTarget.value)}
+                                        ></textarea>
+                                    </label>
+                                    <div class="block-editor-fields">
+                                        <label>
+                                            <span>{language.type}</span>
+                                            <select value={item.type} onchange={(event) => replaceBlockType(index, event.currentTarget.value as PromptType)}>
+                                                <option value="plain">{language.formating.plain}</option>
+                                                <option value="jailbreak">{language.formating.jailbreak}</option>
+                                                <option value="chat">{language.Chat}</option>
+                                                <option value="persona">{language.formating.personaPrompt}</option>
+                                                <option value="description">{language.formating.description}</option>
+                                                <option value="authornote">{language.formating.authorNote}</option>
+                                                <option value="lorebook">{language.formating.lorebook}</option>
+                                                <option value="memory">{language.formating.memory}</option>
+                                                <option value="postEverything">{language.formating.postEverything}</option>
+                                                <option value="chatML">ChatML</option>
+                                                <option value="cache">{language.cachePoint}</option>
+                                                <option value="cot">{language.cot}</option>
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>{language.specialType}</span>
+                                            <select
+                                                disabled={!hasSpecialType(item)}
+                                                value={hasSpecialType(item) ? item.type2 : ''}
+                                                onchange={(event) => setBlockSpecialType(index, event.currentTarget.value as 'normal' | 'globalNote' | 'main')}
+                                            >
+                                                {#if !hasSpecialType(item)}<option value="">—</option>{/if}
+                                                <option value="normal">{language.noSpecialType}</option>
+                                                <option value="main">{language.mainPrompt}</option>
+                                                <option value="globalNote">{language.globalNote}</option>
+                                            </select>
+                                        </label>
+                                        <label>
+                                            <span>{language.role}</span>
+                                            <select
+                                                disabled={!blockRole(item)}
+                                                value={blockRole(item)}
+                                                onchange={(event) => setBlockRole(index, event.currentTarget.value)}
+                                            >
+                                                {#if !blockRole(item)}<option value="">—</option>{/if}
+                                                {#if item.type === 'cache'}<option value="all">{language.all}</option>{/if}
+                                                <option value="user">{language.user}</option>
+                                                <option value={item.type === 'cache' ? 'assistant' : 'bot'}>{language.character}</option>
+                                                <option value="system">{language.systemPrompt}</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
                             {/if}
-                        </article>
+                        </div>
                     {:else}
                         <div class="empty-state">{language.promptOverlay.noMatchingBlocks}</div>
                     {/each}
@@ -1028,6 +1234,7 @@
      .extract-row input,
      .application-preset-row input,
      .profile-manager input,
+     .block-name-input,
      .block-editor textarea,
      .filter-bar > input {
         min-height: 2.35rem;
@@ -1146,6 +1353,7 @@
         border-radius: .65rem;
         padding: .4rem .55rem;
         background: color-mix(in srgb, var(--color-darkbutton) 14%, transparent);
+        cursor: pointer;
         transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
     }
     .mapping-row::before {
@@ -1203,41 +1411,63 @@
         grid-template-columns: 1.5rem minmax(0, 1fr);
         align-items: center;
         gap: .55rem;
-        border: 0;
-        border-radius: .4rem;
         padding: .35rem;
         color: inherit;
-        background: transparent;
         text-align: left;
-        cursor: pointer;
-        transition: background-color 160ms ease;
     }
-    .block-selector:hover { background: color-mix(in srgb, var(--color-selected) 18%, transparent); }
-    .block-selector:active { background: color-mix(in srgb, var(--color-selected) 30%, transparent); }
-    .block-selector:focus-visible { outline: 2px solid var(--color-borderc); outline-offset: 1px; }
-    .selection-indicator {
+    .block-editor-toggle {
         display: grid;
         width: 1.35rem;
         height: 1.35rem;
         place-items: center;
         border: 1px solid color-mix(in srgb, var(--color-textcolor2) 55%, var(--color-darkborderc));
-        border-radius: 999px;
-        color: transparent;
+        border-radius: .35rem;
+        padding: 0;
+        color: var(--color-textcolor2);
         background: color-mix(in srgb, var(--color-darkbg) 74%, transparent);
-        transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+        cursor: pointer;
+        transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
     }
-    .mapping-row.selected-block .selection-indicator {
+    .block-editor-toggle:hover,
+    .block-editor-toggle:focus-visible,
+    .mapping-row.selected-block .block-editor-toggle {
         border-color: var(--color-borderc);
-        color: var(--color-darkbg);
-        background: var(--color-borderc);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-borderc) 24%, transparent);
+        color: var(--color-textcolor);
+        background: color-mix(in srgb, var(--color-selected) 36%, var(--color-darkbg));
     }
+    .block-editor-toggle.expanded { transform: rotate(180deg); }
     .block-copy { display: flex; min-width: 0; flex-direction: column; gap: .2rem; }
-    .block-copy strong { overflow: hidden; color: var(--color-textcolor); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+    .block-name-button {
+        overflow: hidden;
+        border: 0;
+        padding: 0;
+        color: var(--color-textcolor);
+        background: transparent;
+        font-size: .82rem;
+        font-weight: 700;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: text;
+    }
+    .block-name-button:hover { color: var(--color-borderc); }
+    .block-name-button:focus-visible { outline: 2px solid var(--color-borderc); outline-offset: 2px; }
+    .block-name-input { min-height: 1.75rem; padding: .15rem .35rem; font-size: .82rem; font-weight: 700; }
      .block-copy > span { color: var(--color-textcolor2); font-size: .72rem; }
-     .block-editor { grid-column: 1 / -1; }
+     .block-editor {
+         display: grid;
+         grid-column: 1 / -1;
+         grid-template-columns: minmax(14rem, 1fr) minmax(8rem, 10rem);
+         gap: .65rem;
+         cursor: default;
+     }
+     .block-editor-content,
+     .block-editor-fields label { display: flex; min-width: 0; flex-direction: column; gap: .25rem; }
+     .block-editor-content > span,
+     .block-editor-fields label > span { color: var(--color-textcolor2); font-size: .72rem; font-weight: 650; }
+     .block-editor-fields { display: grid; align-content: start; gap: .45rem; grid-template-columns: 1fr; }
      .block-editor textarea {
-         min-height: 9rem;
+         min-height: 7.5rem;
          padding: .65rem;
          resize: vertical;
          font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -1273,8 +1503,6 @@
     .result-row:focus-visible { outline: 2px solid var(--color-borderc); outline-offset: -2px; }
     .result-row--base { background: color-mix(in srgb, var(--color-darkbutton) 22%, transparent); }
     .result-row--source {
-        margin-left: .8rem;
-        width: calc(100% - .8rem);
         border-color: color-mix(in srgb, var(--color-selected) 46%, var(--color-darkborderc));
         color: var(--color-binding-text);
         background: color-mix(in srgb, var(--color-binding) 72%, var(--color-darkbg));
@@ -1394,10 +1622,10 @@
          .mapping-row { grid-template-columns: minmax(10rem, 1fr) minmax(14rem, 1.1fr); }
          .mapping-control--target { grid-column: 1 / -1; }
      }
-     @container mapping-panel (max-width: 30rem) {
+      @container mapping-panel (max-width: 30rem) {
          .mapping-row { grid-template-columns: 1fr; }
          .mapping-control--target { grid-column: 1; }
-         .block-editor { grid-column: 1; }
+          .block-editor { grid-column: 1; grid-template-columns: 1fr; }
      }
 
     @media (max-width: 900px) {
@@ -1427,7 +1655,7 @@
          .mapping-row,
          .mapping-row::before,
          .block-selector,
-         .selection-indicator,
+          .block-editor-toggle,
          .result-row { transition: none; }
      }
 </style>

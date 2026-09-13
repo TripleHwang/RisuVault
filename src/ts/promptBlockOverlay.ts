@@ -182,6 +182,18 @@ export function overwritePromptBlockOverlayApplicationPreset(
         : preset)
 }
 
+export function renamePromptBlockOverlayApplicationPreset(
+    presets: PromptBlockOverlayApplicationPreset[],
+    id: string,
+    name: string,
+): PromptBlockOverlayApplicationPreset[] {
+    const nextName = name.trim()
+    if (!nextName) return presets
+    return presets.map(preset => preset.id === id
+        ? { ...preset, name: nextName, rules: preset.rules.map(cloneRule) }
+        : preset)
+}
+
 export function deletePromptBlockOverlayApplicationPreset(
     presets: PromptBlockOverlayApplicationPreset[],
     id: string,
@@ -297,6 +309,27 @@ export function updatePromptBlockOverlayProfileBlockText(
     return { ...profile, promptTemplate }
 }
 
+export function replacePromptBlockOverlayProfileBlock(
+    profile: PromptBlockOverlayProfile,
+    index: number,
+    item: PromptItem,
+): PromptBlockOverlayProfile {
+    const promptTemplate = profile.promptTemplate.map(cloneItem)
+    if (index >= 0 && index < promptTemplate.length) promptTemplate[index] = cloneItem(item)
+    return { ...profile, promptTemplate }
+}
+
+export function insertPromptBlockOverlayProfileBlock(
+    profile: PromptBlockOverlayProfile,
+    afterIndex: number,
+    item: PromptItem,
+): PromptBlockOverlayProfile {
+    const promptTemplate = profile.promptTemplate.map(cloneItem)
+    if (afterIndex < 0 || afterIndex >= promptTemplate.length) return { ...profile, promptTemplate }
+    promptTemplate.splice(afterIndex + 1, 0, cloneItem(item))
+    return { ...profile, promptTemplate }
+}
+
 export function duplicatePromptBlockOverlayProfileBlock(
     profile: PromptBlockOverlayProfile,
     index: number,
@@ -344,11 +377,18 @@ export function remapPromptBlockOverlayRules(
     currentItems: PromptItem[],
     nextItems: PromptItem[],
     removedIndex = -1,
+    replacedIndex = -1,
 ): PromptBlockOverlayRule[] {
     return rules.flatMap(rule => {
         const currentIndex = resolvePromptBlockOverlayReference(currentItems, rule.source)
         if (currentIndex < 0) return [rule]
         if (currentIndex === removedIndex) return []
+        if (currentIndex === replacedIndex && nextItems[replacedIndex]) {
+            return [{
+                ...rule,
+                source: promptBlockOverlayReference(nextItems[replacedIndex], replacedIndex),
+            }]
+        }
         const currentItem = currentItems[currentIndex]
         const nextIndex = nextItems.findIndex(item =>
             item.type === currentItem.type && (item.name ?? '') === (currentItem.name ?? ''))
