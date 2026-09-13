@@ -1,17 +1,4 @@
 import type { CanonicalSectionPatch } from './risubard-memory-writer'
-import { ModelOutputError } from '../../packages/risubard-core/src/modelResponse'
-
-const LEGACY_CANONICAL_SECTION_CHARACTER_LIMIT = 4_000
-
-export function assertCanonicalSectionContentNotTruncated(
-    content: string,
-): void {
-    if (content.length !== LEGACY_CANONICAL_SECTION_CHARACTER_LIMIT) return
-    throw new ModelOutputError(
-        'truncated',
-        '내용 잘림 의심: 정본 절 본문이 이전 4,000자 경계에서 끝났습니다.',
-    )
-}
 
 interface MarkdownLine {
     start: number
@@ -152,7 +139,6 @@ export function parseCanonicalSectionPatchMarkdown(
         if (!content) {
             throw new Error(`Canonical Markdown patch has invalid content: ${heading.text}`)
         }
-        assertCanonicalSectionContentNotTruncated(content)
         return { heading: heading.text, operation: 'upsert', content }
     })
 }

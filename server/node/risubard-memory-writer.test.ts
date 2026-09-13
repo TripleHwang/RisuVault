@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { ModelOutputError } from '../../packages/risubard-core/src/modelResponse'
 import {
     canonicalBatchSchema,
     buildCanonicalBatchSchema,
@@ -265,25 +264,17 @@ describe('BardWiki memory writer skill', () => {
         }), 1).documents[0].sections[0].content).toBe(content)
     })
 
-    test('rejects content ending exactly at the former 4,000-character boundary', () => {
-        const parse = () => parseCanonicalBatch(JSON.stringify({
+    test('accepts content ending exactly at the former 4,000-character boundary', () => {
+        const content = 'A'.repeat(4_000)
+        expect(parseCanonicalBatch(JSON.stringify({
             documents: [{
                 candidateIndex: 0,
                 sections: [{
                     heading: 'History', operation: 'upsert',
-                    content: 'A'.repeat(4_000),
+                    content,
                 }],
             }],
-        }), 1)
-        expect(parse).toThrow(ModelOutputError)
-        try {
-            parse()
-        } catch (error) {
-            expect(error).toMatchObject({
-                reason: 'truncated',
-                validationHint: expect.stringContaining('내용 잘림 의심'),
-            })
-        }
+        }), 1).documents[0].sections[0].content).toBe(content)
     })
 
     test('uses a compact single-document contract for protocol recovery', () => {

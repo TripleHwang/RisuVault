@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { ModelOutputError } from '../../packages/risubard-core/src/modelResponse'
 import {
     applyCanonicalSectionPatches,
     parseCanonicalSectionPatchMarkdown,
@@ -156,23 +155,11 @@ describe('canonical Markdown section patches', () => {
         ])
     })
 
-    test('allows long fallback sections but rejects the former 4,000-character boundary', () => {
-        const longContent = 'A'.repeat(4_001)
+    test.each([4_000, 4_001])('allows fallback sections with %i characters', (length) => {
+        const content = 'A'.repeat(length)
         expect(parseCanonicalSectionPatchMarkdown(
-            `### History\n\n${longContent}`
-        )[0].content).toBe(longContent)
-        const parseBoundary = () => parseCanonicalSectionPatchMarkdown(
-            `### History\n\n${'A'.repeat(4_000)}`
-        )
-        expect(parseBoundary).toThrow(ModelOutputError)
-        try {
-            parseBoundary()
-        } catch (error) {
-            expect(error).toMatchObject({
-                reason: 'truncated',
-                validationHint: expect.stringContaining('내용 잘림 의심'),
-            })
-        }
+            `### History\n\n${content}`
+        )[0].content).toBe(content)
     })
 
     test.each([

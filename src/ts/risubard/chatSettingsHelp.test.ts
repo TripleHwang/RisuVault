@@ -45,6 +45,7 @@ describe('BardWiki current-chat setting help', () => {
         )
 
         expect(help).toContain('4,000자 고정 상한이 없습니다')
+        expect(help).toContain('공급자가 출력 한도 종료를 보고')
         expect(help).toContain('저장하지 않고 재시도')
     })
 })

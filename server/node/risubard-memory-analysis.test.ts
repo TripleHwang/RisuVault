@@ -168,8 +168,14 @@ describe('memory analysis runner', () => {
         expect(canonicalTurnNeedsRetry(result.canonicalReceipt!)).toBe(true)
     })
 
-    test('does not overwrite an existing document when a section hits the former 4,000-character boundary', async () => {
-        const saveCanonicalDocument = vi.fn()
+    test('saves a complete 4,000-character section without treating its length as truncation', async () => {
+        const saveCanonicalDocument = vi.fn(async (input) => ({
+            ...input,
+            id: 'character.Alice',
+            type: 'character' as const,
+            relativePath: 'characters/Alice.md',
+            contentHash: 'alice-new',
+        }))
         const analyze = vi.fn(async (request: MemoryAnalysisModelRequest) => {
             if (request.format === 'memory-draft') return JSON.stringify({
                 title: 'Arrival', establishedEvents: ['Alice arrived.'],
@@ -210,11 +216,12 @@ describe('memory analysis runner', () => {
             }],
         })
 
-        expect(analyze).toHaveBeenCalledTimes(3)
-        expect(saveCanonicalDocument).not.toHaveBeenCalled()
-        expect(result.canonicalReceipt?.warnings.join(' '))
-            .toContain('내용 잘림 의심')
-        expect(canonicalTurnNeedsRetry(result.canonicalReceipt!)).toBe(true)
+        expect(analyze).toHaveBeenCalledTimes(2)
+        expect(saveCanonicalDocument).toHaveBeenCalledOnce()
+        expect(saveCanonicalDocument.mock.calls[0][0].markdown)
+            .toContain('A'.repeat(4_000))
+        expect(result.canonicalReceipt?.warnings).toEqual([])
+        expect(canonicalTurnNeedsRetry(result.canonicalReceipt!)).toBe(false)
     })
 
     test.each([false, true])('keeps English through analysis, rewrite and saves (reboot=%s)', async (reboot) => {
