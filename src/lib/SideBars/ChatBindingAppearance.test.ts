@@ -23,6 +23,7 @@ vi.mock('src/ts/alert', () => ({
 vi.mock('src/ts/characters', () => ({ getCharImage: async (icon: string) => icon }))
 vi.mock('src/lang', () => ({ language: {
     personaBindingLabel: '페르소나 바인딩', promptBindingLabel: '프롬프트 바인딩',
+    pinPersonaOnNewChat: '새 챗 생성시 페르소나 고정',
     promptPresetParamsUse: '파라미터', none: '없음',
 } }))
 
@@ -36,6 +37,7 @@ beforeEach(() => {
         characters: [0, 1].map(() => ({ chatPage: 0, chats: [{
             bindedPersona: '', bindedBotPreset: '',
         }] })),
+        pinPersonaOnNewChat: true,
     } as typeof DBState.db
     selectedCharID.set(0)
     openPersonaList.set(false)
@@ -90,7 +92,25 @@ test('keeps a configured persona image with one binding-status icon', async () =
     DBState.db.personas[0].icon = '/persona.png'
     mounted = mount(PersonaBind, { target: document.body })
     await vi.waitFor(() => expect(document.body.querySelector('button img')?.getAttribute('src')).toBe('/persona.png'))
-    expect(document.body.querySelectorAll('button svg')).toHaveLength(1)
+    expect(document.body.querySelector('button')!.querySelectorAll('svg')).toHaveLength(1)
+})
+
+test('places an accessible new-chat persona pin toggle to the right of the binding button', async () => {
+    mounted = mount(PersonaBind, { target: document.body })
+    await tick()
+
+    const buttons = [...document.body.querySelectorAll('button')]
+    expect(buttons).toHaveLength(2)
+    expect(buttons[1]).toMatchObject({
+        title: '새 챗 생성시 페르소나 고정',
+    })
+    expect(buttons[1].getAttribute('aria-label')).toBe('새 챗 생성시 페르소나 고정')
+    expect(buttons[1].getAttribute('aria-pressed')).toBe('true')
+
+    buttons[1].click()
+    await tick()
+    expect(DBState.db.pinPersonaOnNewChat).toBe(false)
+    expect(buttons[1].getAttribute('aria-pressed')).toBe('false')
 })
 
 test.each([false, true])('opens the manager instead of the legacy picker when replacing a bound persona=%s', async (bound) => {

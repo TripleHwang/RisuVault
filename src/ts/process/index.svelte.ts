@@ -1,5 +1,5 @@
 import { get } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, normalizeChat, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, getActivePromptOverlayToggleTemplate, setCurrentChat, type Message, normalizeChat, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -52,6 +52,7 @@ import {
     selectPromptedNarrativeSources,
     selectNarrativeWorkingMessages,
     shouldIncludeNarrativeFirstMessage,
+    countNarrativeTurns,
 } from "../risubard/narrativeContext";
 import {
     createRisuBardContextTrace,
@@ -118,6 +119,8 @@ import {
     endWikiGeneration,
     isWikiGenerating,
 } from '../risubard/wikiGenerationState';
+import { projectPendingWikiBatch } from '../risubard/wikiBatchAnalysis';
+import { composePromptBlockOverlay } from '../promptBlockOverlay';
 
 function resolvedRisuBardSettings(chat?: Chat) {
     return resolveRisuBardChatSettings(DBState.db, chat?.risuBardSettings)
@@ -208,6 +211,12 @@ async function confirmProjectedNarrativeTurn(input: {
     additionalAnalysis?: boolean
     historicalReanalysis?: boolean
     excludeCanonicalDocumentIds?: readonly string[]
+    eventTurns?: readonly {
+        assistantMessageId: string
+        sourceMessageIds: readonly string[]
+    }[]
+    confirmationMessageIds?: readonly string[]
+    contextMessages?: readonly MemoryAnalysisMessage[]
 }): Promise<boolean> {
     const key = JSON.stringify([
         input.characterId,
@@ -253,7 +262,13 @@ async function confirmProjectedNarrativeTurn(input: {
         const confirmedMessages = settings.risuBardAnalysisExcludeUserMessages
             ? input.messages.filter((message) => message.role !== 'user')
             : [...input.messages]
-        const contextMessages = chat
+        const contextMessages = input.contextMessages
+            ? (settings.risuBardAnalysisExcludeUserMessages
+                ? input.contextMessages.filter((message) =>
+                    message.role !== 'user'
+                )
+                : [...input.contextMessages])
+            : chat
             ? projectRecentMemoryMessages(
                 chat.message,
                 normalizeNarrativeWorkingMessageLimit(
@@ -267,11 +282,13 @@ async function confirmProjectedNarrativeTurn(input: {
         const receipt = await storedResponseMemoryAnalysis.confirm({
             characterId: input.characterId,
             chatId: input.chatId,
-            messages: projectMemoryAnalysisEvidence(
-                confirmedMessages,
-                contextMessages,
-                firstMessageEvidence
-            ),
+            messages: input.eventTurns
+                ? confirmedMessages
+                : projectMemoryAnalysisEvidence(
+                    confirmedMessages,
+                    contextMessages,
+                    firstMessageEvidence
+                ),
             analysisTokenLimit: settings.risuBardAnalysisTokenLimit,
             additionalSearchLimit: settings.risuBardAdditionalSearchLimit,
             canonicalTargetLimit: settings.risuBardCanonicalTargetLimit,
@@ -297,6 +314,7 @@ async function confirmProjectedNarrativeTurn(input: {
                 excludeCanonicalDocumentIds:
                     input.excludeCanonicalDocumentIds,
             } : {}),
+            ...(input.eventTurns ? { rebootTurns: input.eventTurns } : {}),
             ...(chat ? { contextMessages } : {}),
         }, generationSignal)
         const retryWarning = receipt
@@ -311,20 +329,23 @@ async function confirmProjectedNarrativeTurn(input: {
                 message: retryWarning,
             })
         }
-        const message = chat?.message.find(
-            (item) => item.chatId === input.targetMessageId
-        )
-        const accepted = input.messages.at(-1)
-        if (message
-            && accepted?.role === 'assistant'
-            && message.data === accepted.content) {
-            if (receipt && canonicalTurnNeedsRetry(receipt)) {
-                delete message.risubardMemoryConfirmed
+        for (const messageId of input.confirmationMessageIds
+            ?? [input.targetMessageId]) {
+            const message = chat?.message.find((item) =>
+                item.chatId === messageId
+            )
+            const accepted = confirmedMessages.find((item) =>
+                item.messageId === messageId && item.role === 'assistant'
+            )
+            if (message && accepted && message.data === accepted.content) {
+                if (receipt && canonicalTurnNeedsRetry(receipt)) {
+                    delete message.risubardMemoryConfirmed
+                }
+                else {
+                    message.risubardMemoryConfirmed = true
+                }
+                if (receipt) message.risubardCanonicalReceipt = receipt
             }
-            else {
-                message.risubardMemoryConfirmed = true
-            }
-            if (receipt) message.risubardCanonicalReceipt = receipt
         }
         return true
     }
@@ -399,7 +420,7 @@ export async function reanalyzeNarrativeMessage(
     })
 }
 
-export async function forceCurrentNarrativeWikiUpdate(): Promise<boolean> {
+async function analyzeLatestNarrativeWikiCandidates(): Promise<boolean> {
     const character = DBState.db.characters[get(selectedCharID)]
     const chat = character?.chats[character.chatPage]
     if (!character || !chat) return false
@@ -426,6 +447,92 @@ export async function forceCurrentNarrativeWikiUpdate(): Promise<boolean> {
             .map((change) => change.documentId) ?? [],
         ...projected,
     })
+}
+
+function applyBatchReceipt(
+    chat: Chat,
+    assistantMessageIds: readonly string[],
+    receipt: NonNullable<Message['risubardCanonicalReceipt']>,
+): void {
+    for (const messageId of assistantMessageIds) {
+        const message = chat.message.find((item) => item.chatId === messageId)
+        if (!message || message.role !== 'char') continue
+        if (canonicalTurnNeedsRetry(receipt)) {
+            delete message.risubardMemoryConfirmed
+        }
+        else {
+            message.risubardMemoryConfirmed = true
+        }
+        message.risubardCanonicalReceipt = receipt
+    }
+}
+
+export async function batchCurrentNarrativeWikiUpdate(): Promise<boolean> {
+    const character = DBState.db.characters[get(selectedCharID)]
+    const chatIndex = character?.chatPage
+    const chat = typeof chatIndex === 'number'
+        ? character?.chats[chatIndex]
+        : undefined
+    if (!character || !chat || typeof chatIndex !== 'number') return false
+    const chatId = ensureNarrativeSessionChatId(chat, v4)
+    const settings = resolvedRisuBardSettings(chat)
+    const firstMessageEvidence = await resolveNarrativeFirstMessageEvidence(
+        character,
+        chat,
+        chatId,
+    )
+    const projected = projectPendingWikiBatch(
+        chat.message,
+        normalizeNarrativeWorkingMessageLimit(
+            settings.risuBardRecentMessageCount
+        ),
+        !settings.risuBardAnalysisExcludeUserMessages,
+        firstMessageEvidence,
+    )
+    if (!projected) return analyzeLatestNarrativeWikiCandidates()
+
+    const operation = `batch-analysis:${character.chaId}:${chatId}`
+    const signal = beginWikiGeneration(operation)
+    try {
+        const recoveryInput = {
+            characterId: character.chaId,
+            stagingChatId: chatId,
+            sourceMessageIds: projected.sourceMessageIds,
+            eventSourceGroups: projected.eventSourceGroups,
+            fetchImpl: fetch,
+            createAuth: () => forageStorage.createAuth(),
+        }
+        const recovered = await recoverWikiRebootBatch(recoveryInput)
+        if (recovered) {
+            applyBatchReceipt(chat, projected.assistantMessageIds, recovered)
+            await saveChatToServer(character.chaId, chatIndex, chatId, chat)
+            await completeWikiRebootBatch(recoveryInput)
+            announceRisuBardMemoryUpdated({
+                characterId: character.chaId,
+                chatId,
+            })
+            return true
+        }
+        signal.throwIfAborted()
+        const updated = await confirmProjectedNarrativeTurn({
+            characterId: character.chaId,
+            chatId,
+            targetMessageId: projected.assistantMessageIds.at(-1) ?? '',
+            messages: projected.messages,
+            eventTurns: projected.eventTurns,
+            confirmationMessageIds: projected.assistantMessageIds,
+            contextMessages: projected.messages,
+        })
+        if (!updated) return false
+        await saveChatToServer(character.chaId, chatIndex, chatId, chat)
+        await completeWikiRebootBatch(recoveryInput).catch((error) => {
+            console.warn('[RisuBard Batch analysis cleanup]', error)
+        })
+        return true
+    }
+    finally {
+        endWikiGeneration(operation)
+    }
 }
 
 const activeWikiReboots = new Set<string>()
@@ -1293,7 +1400,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }[] = []
     if(DBState.db.promptInfoInsideChat){
         initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
-        initialPromptTogglesForPromptInfo = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
+        initialPromptTogglesForPromptInfo = parseToggleSyntax(getActivePromptOverlayToggleTemplate() + getModuleToggles())
             .flatMap(toggle => {
                 const raw = getGlobalChatVar(`toggle_${toggle.key}`)
                 if (toggle.type === 'select' || toggle.type === 'text') {
@@ -1371,7 +1478,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         'personaPrompt':([] as OpenAIChat[])
     }
 
-    let promptTemplate = safeStructuredClone(DBState.db.promptTemplate)
+    let promptTemplate = composePromptBlockOverlay(
+        DBState.db.promptTemplate,
+        DBState.db.promptBlockOverlayProfiles ?? [],
+        DBState.db.promptBlockOverlay,
+    )
     const usingPromptTemplate = !!promptTemplate
     if(promptTemplate){
         let hasPostEverything = false
@@ -2169,7 +2280,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    narrativeContextObservation.availableHistoryMessages = ms.length
+    narrativeContextObservation.availableHistoryMessages = countNarrativeTurns(ms)
     const narrativeWorkingMessageLimit =
         normalizeNarrativeWorkingMessageLimit(
             resolvedRisuBardSettings(currentChat).risuBardResponseMessageCount

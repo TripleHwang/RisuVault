@@ -648,16 +648,16 @@ describe('stored response memory analysis', () => {
         expect(requestModel).not.toHaveBeenCalled()
     })
 
-    test('projects only the latest twelve stable user and assistant messages', () => {
+    test('projects the configured number of assistant turns with their user messages', () => {
         const messages = Array.from({ length: 14 }, (_, index) => ({
             role: index % 2 === 0 ? 'user' : 'char',
             data: `message-${index}`,
             chatId: `id-${index}`,
         }))
 
-        expect(projectRecentMemoryMessages(messages)).toEqual(
-            Array.from({ length: 12 }, (_, index) => {
-                const sourceIndex = index + 2
+        expect(projectRecentMemoryMessages(messages, 2)).toEqual(
+            Array.from({ length: 4 }, (_, index) => {
+                const sourceIndex = index + 10
                 return {
                     messageId: `id-${sourceIndex}`,
                     role: sourceIndex % 2 === 0 ? 'user' : 'assistant',
@@ -689,16 +689,15 @@ describe('stored response memory analysis', () => {
 
         expect(projectRecentMemoryMessages(
             messages,
-            3,
+            1,
             'assistant-1'
         )).toEqual([
-            { messageId: 'assistant-0', role: 'assistant', content: 'old reply' },
             { messageId: 'user-1', role: 'user', content: 'current' },
             { messageId: 'assistant-1', role: 'assistant', content: 'confirmed' },
         ])
     })
 
-    test('keeps the first message through five later stored messages and drops it on the sixth', () => {
+    test('keeps the first message through the configured later turns', () => {
         const firstMessage = {
             messageId: 'first-message',
             role: 'assistant' as const,
@@ -712,12 +711,12 @@ describe('stored response memory analysis', () => {
 
         expect(projectRecentMemoryMessages(
             messages,
-            5,
-            'id-4',
+            2,
+            'id-3',
             firstMessage,
         )).toEqual([
             firstMessage,
-            ...Array.from({ length: 5 }, (_, index) => ({
+            ...Array.from({ length: 4 }, (_, index) => ({
                 messageId: `id-${index}`,
                 role: index % 2 === 0 ? 'user' : 'assistant',
                 content: `message-${index}`,
@@ -725,17 +724,28 @@ describe('stored response memory analysis', () => {
         ])
         expect(projectRecentMemoryMessages(
             messages,
-            5,
+            2,
             'id-5',
             firstMessage,
-        )).toEqual(Array.from({ length: 5 }, (_, index) => {
-            const sourceIndex = index + 1
+        )).toEqual(Array.from({ length: 4 }, (_, index) => {
+            const sourceIndex = index + 2
             return {
                 messageId: `id-${sourceIndex}`,
                 role: sourceIndex % 2 === 0 ? 'user' : 'assistant',
                 content: `message-${sourceIndex}`,
             }
         }))
+    })
+
+    test('counts assistant turns before removing analysis user messages', () => {
+        const messages = Array.from({ length: 4 }, (_, index) => [
+            { role: 'user', data: `user-${index}`, chatId: `u-${index}` },
+            { role: 'char', data: `assistant-${index}`, chatId: `a-${index}` },
+        ]).flat()
+
+        expect(projectRecentMemoryMessages(
+            messages, 2, undefined, undefined, false
+        ).map((message) => message.messageId)).toEqual(['a-2', 'a-3'])
     })
 
     test('uses the first message as analysis evidence only while it remains in the recent window', async () => {

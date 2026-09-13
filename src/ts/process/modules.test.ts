@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+    events: [] as string[],
     alertWait: vi.fn(),
     decodeRPackBatch: vi.fn<(data: Uint8Array[]) => Promise<Uint8Array[]>>(async (data) => data.map(item => Buffer.from(item))),
     decodeRPack: vi.fn<(data: Uint8Array) => Promise<Uint8Array>>(async (data) => Buffer.from(data)),
     hasher: vi.fn(async (data: Uint8Array) => `hash-${data[0]}`),
     saveAsset: vi.fn<(data: Uint8Array) => Promise<string>>(async () => 'single-write'),
     readImage: vi.fn(),
+    requestImmediateSave: vi.fn(),
+    selectSingleFile: vi.fn(),
     setItems: vi.fn<(entries: Array<{ key: string; value: Uint8Array }>) => Promise<void>>(async () => undefined),
     database: {
         current: {
@@ -22,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('src/lang', () => ({
     language: {
         errors: { noData: 'no data' },
+        successImport: 'imported',
         fileDropImport: {
             moduleAssets: (completed: number, total: number) =>
                 `module assets ${completed} / ${total}`,
@@ -36,7 +40,7 @@ vi.mock('../alert', () => ({
     alertNormal: vi.fn(),
     alertStore: { set: vi.fn() },
     alertWait: mocks.alertWait,
-    notifySuccess: vi.fn(),
+    notifySuccess: vi.fn(() => mocks.events.push('notified')),
 }))
 vi.mock('../storage/database.svelte', () => ({
     getCurrentCharacter: vi.fn(),
@@ -55,12 +59,13 @@ vi.mock('../globalApi.svelte', () => ({
     forageStorage: { setItems: mocks.setItems },
     LocalWriter: class {},
     readImage: mocks.readImage,
+    requestImmediateSave: mocks.requestImmediateSave,
     saveAsset: mocks.saveAsset,
     VirtualWriter: class {},
 }))
 vi.mock('../util', () => ({
     checkPersonaBinded: vi.fn(),
-    selectSingleFile: vi.fn(),
+    selectSingleFile: mocks.selectSingleFile,
     sleep: vi.fn(async () => undefined),
 }))
 vi.mock('uuid', () => ({ v4: vi.fn(() => 'new-module-id') }))
@@ -87,7 +92,7 @@ vi.mock('../characterCards', () => ({
 }))
 vi.mock('../parser/parser.svelte', () => ({ hasher: mocks.hasher }))
 
-import { exportModuleLegacy, getModules, readModule, refreshModules, resolveModuleIds } from './modules'
+import { exportModuleLegacy, getModules, importModule, readModule, refreshModules, resolveModuleIds } from './modules'
 
 function uint32le(value: number) {
     const bytes = Buffer.alloc(4)
@@ -113,6 +118,33 @@ function risumWithAssets(count: number) {
     parts.push(Buffer.from([0]))
     return Buffer.concat(parts)
 }
+
+describe('module import durability', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mocks.events = []
+        mocks.database.current.modules = []
+        mocks.requestImmediateSave.mockImplementation(async () => {
+            mocks.events.push('saved')
+        })
+        mocks.selectSingleFile.mockResolvedValue({
+            name: 'module.json',
+            data: Buffer.from(JSON.stringify({
+                type: 'risuModule',
+                id: 'old-id',
+                name: 'Imported module',
+                description: '',
+            })),
+        })
+    })
+
+    it('persists an imported module before reporting success', async () => {
+        await importModule()
+
+        expect(mocks.requestImmediateSave).toHaveBeenCalledWith({ flushServer: true, rejectOnFailure: true })
+        expect(mocks.events).toEqual(['saved', 'notified'])
+    })
+})
 
 describe('readModule asset persistence', () => {
     beforeEach(() => {

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     createWriteStream: vi.fn(),
     exportBackup: vi.fn(),
     notifySuccess: vi.fn(),
+    requestImmediateSave: vi.fn(),
 }))
 
 vi.mock('../alert', () => ({
@@ -29,6 +30,7 @@ vi.mock('../globalApi.svelte', () => ({
         exportBackup: mocks.exportBackup,
     },
     LocalWriter: class {},
+    requestImmediateSave: mocks.requestImmediateSave,
 }))
 
 vi.mock('../storage/risuSave', () => ({ encodeRisuSaveLegacy: vi.fn() }))
@@ -47,6 +49,7 @@ describe('local backup download', () => {
 
     beforeEach(() => {
         vi.clearAllMocks()
+        mocks.requestImmediateSave.mockResolvedValue(undefined)
         delete (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker
     })
 
@@ -94,12 +97,29 @@ describe('local backup download', () => {
 
         expect(showSaveFilePicker).toHaveBeenCalledOnce()
         expect(showSaveFilePicker.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.exportBackup.mock.invocationCallOrder[0],
+            mocks.requestImmediateSave.mock.invocationCallOrder[0],
         )
+        expect(mocks.requestImmediateSave).toHaveBeenCalledWith({ flushServer: true, rejectOnFailure: true })
+        expect(mocks.requestImmediateSave.mock.invocationCallOrder[0]).toBeLessThan(mocks.exportBackup.mock.invocationCallOrder[0])
         expect(fileHandle.createWritable).toHaveBeenCalledOnce()
         expect(written).toEqual([...expected])
         expect(mocks.createWriteStream).not.toHaveBeenCalled()
         expect(mocks.alertError).not.toHaveBeenCalled()
         expect(mocks.notifySuccess).toHaveBeenCalledWith('Success')
+    })
+
+    it('does not export or report success when the current state cannot be persisted', async () => {
+        const error = new Error('disk flush failed')
+        mocks.requestImmediateSave.mockRejectedValue(error)
+        Object.defineProperty(window, 'showSaveFilePicker', {
+            configurable: true,
+            value: vi.fn(async () => ({ createWritable: vi.fn() })),
+        })
+
+        await SaveLocalBackup()
+
+        expect(mocks.exportBackup).not.toHaveBeenCalled()
+        expect(mocks.notifySuccess).not.toHaveBeenCalled()
+        expect(mocks.alertError).toHaveBeenCalledWith('disk flush failed')
     })
 })

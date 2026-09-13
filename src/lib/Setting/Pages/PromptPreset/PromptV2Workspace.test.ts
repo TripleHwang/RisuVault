@@ -30,7 +30,7 @@ describe('Prompt V2 workspace contract', () => {
         expect(settings).toContain('{ label: language.advancedSettings, value: 4 }')
         expect(settings).toContain('<SettingRenderer items={promptPresetPromptItems} />')
         expect(settings).toContain('<PromptV2Workspace />')
-        expect(settings).toContain('fullWidth={$PromptPresetSubmenuIndex === 2}')
+        expect(settings).toContain('fullWidth={$PromptPresetSubmenuIndex === 2 || $PromptPresetSubmenuIndex === 5}')
         expect(settings).not.toContain('resizeStorageKey="prompt-v2-frame"')
         expect(settings).not.toContain('resizable={$PromptPresetSubmenuIndex === 2}')
         expect(settings).toContain('{#snippet headerActions()}')

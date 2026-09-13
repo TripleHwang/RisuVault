@@ -7,7 +7,7 @@ import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from 
 import { language } from "src/lang"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { characterFormatUpdate } from "./characters"
-import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, saveAsset, VirtualWriter } from "./globalApi.svelte"
+import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
 import { selectedCharID } from "./stores.svelte"
 import { openSettings, SettingsRoute } from "./routing"
@@ -27,6 +27,10 @@ const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
 const NIGHTLY_HUB_URL = 'https://nightly.sv.risuai.xyz'
 export const hubURL = '/hub-proxy';
 const MAX_EMBEDDED_ASSET_BASE64_LENGTH = Math.ceil(100 * 1024 * 1024 * 4 / 3)
+
+async function persistImportedData() {
+    await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
+}
 
 function formatImportBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
@@ -126,6 +130,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
             let db = getDatabase()
             db.characters.push(convertOffSpecCards(da))
             setDatabaseLite(db)
+            await persistImportedData()
             notifySuccess(language.importedCharacter)
             return
         }
@@ -390,6 +395,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         const imgp = await saveAsset(img)
         db.characters.push(convertOffSpecCards(charaData, imgp))
         setDatabaseLite(db)
+        await persistImportedData()
         notifySuccess(language.importedCharacter)
         return db.characters.length - 1
     }
@@ -484,6 +490,7 @@ export async function characterURLImport() {
             }
         }
         db.modules.push(importData)
+        await persistImportedData()
         notifySuccess(language.successImport)
         openSettings(SettingsRoute.Module)
         return
@@ -519,6 +526,7 @@ export async function characterURLImport() {
         md.id = v4()
         const db = getDatabase()
         db.modules.push(md)
+        await persistImportedData()
         notifySuccess(language.successImport)
         openSettings(SettingsRoute.Module)
     }
@@ -573,6 +581,7 @@ export async function characterURLImport() {
             md.id = v4()
             const db = getDatabase()
             db.modules.push(md)
+            await persistImportedData()
             notifySuccess(language.successImport)
             openSettings(SettingsRoute.Module)
             return
@@ -1019,6 +1028,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     }
 
     db.characters.push(char)
+    await persistImportedData()
     notifySuccess(language.importedCharacter)
     return true as any
 

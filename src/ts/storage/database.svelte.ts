@@ -13,6 +13,16 @@ import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
+import {
+    composePromptBlockOverlay,
+    getEffectivePromptToggleTemplate,
+    normalizePromptBlockOverlay,
+    normalizePromptBlockOverlayApplicationPresets,
+    normalizePromptBlockOverlayProfiles,
+    type PromptBlockOverlayApplicationPreset,
+    type PromptBlockOverlayConfig,
+    type PromptBlockOverlayProfile,
+} from '../promptBlockOverlay';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
@@ -259,8 +269,13 @@ export function setDatabase(data:Database){
             if (preset && typeof preset.description !== 'string') {
                 preset.description = ''
             }
+            if (preset) {
+                preset.promptBlockOverlay = normalizePromptBlockOverlay(preset.promptBlockOverlay)
+            }
         }
     }
+    data.promptBlockOverlayProfiles = normalizePromptBlockOverlayProfiles(data.promptBlockOverlayProfiles)
+    data.promptBlockOverlayApplicationPresets = normalizePromptBlockOverlayApplicationPresets(data.promptBlockOverlayApplicationPresets)
     if(checkNullish(data.botPresetsId)){
         data.botPresetsId = 0
     }
@@ -275,6 +290,7 @@ export function setDatabase(data:Database){
     if(Array.isArray(data.promptTemplate)){
         data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
     }
+    data.promptBlockOverlay = normalizePromptBlockOverlay(data.promptBlockOverlay)
     if(checkNullish(data.sdProvider)){
         data.sdProvider = ''
     }
@@ -818,6 +834,7 @@ export function setDatabase(data:Database){
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.pinPersonaOnNewChat ??= true
     data.nodeOnlyModelModeLock ??= 'none'
     data.moduleModelBindingsEnabled ??= false
     data.moduleModelBindings ??= {}
@@ -1187,12 +1204,28 @@ export interface TogglePreset {
     promptPresetName?: string        // name of the prompt preset active when saved
 }
 
+export function getActivePromptOverlayTemplate(db: Database = getDatabase()): PromptItem[] | null | undefined {
+    return composePromptBlockOverlay(
+        db.promptTemplate,
+        db.promptBlockOverlayProfiles ?? [],
+        db.promptBlockOverlay,
+    )
+}
+
+export function getActivePromptOverlayToggleTemplate(db: Database = getDatabase()): string {
+    return getEffectivePromptToggleTemplate(
+        db.customPromptTemplateToggle,
+        db.promptBlockOverlayProfiles ?? [],
+        db.promptBlockOverlay,
+    )
+}
+
 export function getToggleKeys(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string[]{
     const moduleToggleTemplate = getEnabledModuleDefinitions(db, char, chat)
         .map((module) => module.customModuleToggle ?? '')
         .filter(Boolean)
         .join('\n')
-    return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
+    return parseToggleKeysFromTemplate(`${getActivePromptOverlayToggleTemplate(db)}\n${moduleToggleTemplate}`)
 }
 
 export function snapshotToggleValues(db:Database = getDatabase()):Record<string, string>{
@@ -1630,6 +1663,9 @@ export interface Database{
     colorScheme:ColorScheme
     colorSchemeName:string
     promptTemplate?:PromptItem[]
+    promptBlockOverlay?: PromptBlockOverlayConfig | null
+    promptBlockOverlayProfiles?: PromptBlockOverlayProfile[]
+    promptBlockOverlayApplicationPresets?: PromptBlockOverlayApplicationPreset[]
     forceProxyAsOpenAI?:boolean
     hypaModel:HypaModel
     saveTime?:number
@@ -1845,6 +1881,7 @@ export interface Database{
     showModelInSidebar:boolean
     showPresetInSidebar:boolean
     showPersonaInSidebar:boolean
+    pinPersonaOnNewChat:boolean
     disableMobileDragDrop:boolean
     disableToggleBinding:boolean
     menuSideBar:boolean
@@ -2372,6 +2409,7 @@ export interface botPreset{
     autoSuggestPrefix?: string
     autoSuggestClean?: boolean
     promptTemplate?:PromptItem[]
+    promptBlockOverlay?: PromptBlockOverlayConfig | null
     NAIadventure?: boolean
     NAIappendName?: boolean
     localStopStrings?: string[]
@@ -3092,6 +3130,7 @@ export function saveCurrentPreset(){
         openrouterRequestModel: db.openrouterRequestModel,
         NAISettings: safeStructuredClone(db.NAIsettings),
         promptTemplate: normalizePromptTemplate(db.promptTemplate) ?? null,
+        promptBlockOverlay: safeStructuredClone(normalizePromptBlockOverlay(db.promptBlockOverlay)),
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
@@ -3164,10 +3203,13 @@ export function copyPreset(id:number){
 }
 
 export function changeToPreset(id =0, savecurrent = true){
+    let db = getDatabase()
+    if(id === db.botPresetsId){
+        return
+    }
     if(savecurrent){
         saveCurrentPreset()
     }
-    let db = getDatabase()
     let pres = db.botPresets
     const newPres = pres[id]
     db.botPresetsId = id
@@ -3210,6 +3252,7 @@ export function setPreset(db:Database, newPres: botPreset){
     db.autoSuggestPrefix = newPres.autoSuggestPrefix ?? db.autoSuggestPrefix
     db.autoSuggestClean = newPres.autoSuggestClean ?? db.autoSuggestClean
     db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
+    db.promptBlockOverlay = safeStructuredClone(normalizePromptBlockOverlay(newPres.promptBlockOverlay))
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName
     db.NAIsettings.cfg_scale ??= 1

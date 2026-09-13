@@ -80,6 +80,17 @@ describe('RisuBard mode settings', () => {
         expect(memoryWiki).not.toContain('data-memory-recent-message-count')
         expect(memoryWiki).not.toContain('data-response-recent-message-count')
         expect(memoryWiki).not.toContain('data-response-include-user-messages')
+        const korean = readFileSync(
+            resolve(process.cwd(), 'src/lang/ko.ts'), 'utf8',
+        )
+        expect(korean).toContain('risuBardRecentMessages: "분석할 턴 수"')
+        expect(korean).toContain('risuBardResponseRecentMessages: "응답용 턴 수"')
+        expect(korean).toContain('risuBardResponseExcludeUsers: "응답 사용자 메시지"')
+        expect(korean).toContain('risuBardAnalysisExcludeUsers: "분석 사용자 메시지"')
+        expect(currentChatSettings).toContain("'분석할 턴 수'")
+        expect(currentChatSettings).toContain("'응답용 턴 수'")
+        expect(currentChatSettings).toContain("'응답 사용자 메시지'")
+        expect(currentChatSettings).toContain("'분석 사용자 메시지'")
     })
 
     test('exposes bounded automatic canon analysis controls without review mode', () => {

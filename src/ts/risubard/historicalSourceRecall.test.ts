@@ -43,7 +43,7 @@ describe('historical source recall', () => {
     test('ignores current, recent, disabled, comment, and id-less messages', () => {
         const matches = findHistoricalSourceMatches({
             currentInput: '플러피풋 사과 에일을 기억한다.',
-            excludeRecentMessages: 2,
+            excludeRecentMessages: 1,
             messages: [
                 { role: 'char', data: '플러피풋 사과 에일', chatId: 'old' },
                 { role: 'char', data: '플러피풋 사과 에일', chatId: 'disabled', disabled: true },
@@ -116,10 +116,7 @@ describe('historical source recall', () => {
             excludeRecentMessages: 1,
         })
 
-        expect(matches.map((match) => match.messageId)).toEqual([
-            'turn-1',
-            'turn-4',
-        ])
+        expect(matches.map((match) => match.messageId)).toEqual(['turn-1'])
         expect(matches[0]?.score).toBeGreaterThan(100)
     })
 })

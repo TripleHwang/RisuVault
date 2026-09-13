@@ -34,6 +34,12 @@
     ))
     let displayPersona = $derived(displaySelection?.persona)
     let isPersonaBound = $derived(!!boundPersona)
+    let pinPersonaOnNewChat = $state(DBState.db.pinPersonaOnNewChat ?? true)
+
+    function toggleNewChatPersonaPin() {
+        pinPersonaOnNewChat = !pinPersonaOnNewChat
+        DBState.db.pinPersonaOnNewChat = pinPersonaOnNewChat
+    }
 
     function bindPersona(selection: PersonaSelection) {
         const chat = target ?? getCurrentChat()
@@ -108,6 +114,22 @@
         <span class="truncate">{displayPersona?.name ?? 'User'}</span>
         {#if displayPersona?.note}
             <span class="truncate text-xs opacity-60">({displayPersona.note})</span>
+        {/if}
+    </ShButton>
+    <ShButton
+        data-pin-persona-on-new-chat
+        size="icon"
+        variant={pinPersonaOnNewChat ? 'binding' : 'default'}
+        className="shrink-0"
+        onclick={toggleNewChatPersonaPin}
+        title={language.pinPersonaOnNewChat}
+        aria-label={language.pinPersonaOnNewChat}
+        aria-pressed={pinPersonaOnNewChat}
+    >
+        {#if pinPersonaOnNewChat}
+            <PinIcon size={16} />
+        {:else}
+            <PinOffIcon size={16} />
         {/if}
     </ShButton>
 </div>

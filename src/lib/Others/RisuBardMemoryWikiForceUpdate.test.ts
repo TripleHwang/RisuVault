@@ -17,14 +17,17 @@ const processSource = readFileSync(resolve(
 const korean = readFileSync(resolve(process.cwd(), 'src/lang/ko.ts'), 'utf8')
 const english = readFileSync(resolve(process.cwd(), 'src/lang/en.ts'), 'utf8')
 
-describe('BardWiki additional analysis control', () => {
-    test('analyzes the latest accepted response while excluding applied canon', () => {
-        expect(dock).toContain('onForceWikiUpdate?: () => Promise<boolean>')
-        expect(dock).toContain('data-risubard-force-wiki-update')
-        expect(dock).toContain('await onForceWikiUpdate?.()')
+describe('BardWiki Batch analysis control', () => {
+    test('analyzes all pending responses and retains missing-candidate fallback', () => {
+        expect(dock).toContain('onBatchWikiUpdate?: () => Promise<boolean>')
+        expect(dock).toContain('data-risubard-batch-wiki-update')
+        expect(dock).toContain('await onBatchWikiUpdate?.()')
         expect(chatScreen).toContain(
-            'onForceWikiUpdate={forceCurrentNarrativeWikiUpdate}'
+            'onBatchWikiUpdate={batchCurrentNarrativeWikiUpdate}'
         )
+        expect(processSource).toContain('projectPendingWikiBatch(')
+        expect(processSource).toContain('eventTurns: projected.eventTurns')
+        expect(processSource).toContain('settings.risuBardAnalysisExcludeUserMessages')
         expect(processSource).toContain("operation: 'error'")
         expect(processSource).toContain('위키 갱신 실패:')
         expect(processSource).toContain('canonicalTurnRetryWarning(receipt)')
@@ -37,14 +40,14 @@ describe('BardWiki additional analysis control', () => {
         expect(processSource).toContain('realChatId: chatId')
     })
 
-    test('describes the action as bounded additional analysis', () => {
-        expect(korean).toContain('risuBardMemoryForceUpdate: "추가 분석"')
+    test('describes the action as Batch analysis', () => {
+        expect(korean).toContain('risuBardMemoryForceUpdate: "Batch 분석"')
         expect(korean).toContain(
-            'risuBardMemoryForceUpdateEmpty: "추가 분석할 최신 AI 응답이 없습니다."'
+            'risuBardMemoryForceUpdateEmpty: "분석할 AI 응답이 없습니다."'
         )
         expect(korean).toContain(
             'risuBardMemoryForceUpdateMeta: (turn: number, time: string) => `분석 기준: ${turn.toLocaleString()}턴 · 갱신: ${time}`'
         )
-        expect(english).toContain('risuBardMemoryForceUpdate: "Additional analysis"')
+        expect(english).toContain('risuBardMemoryForceUpdate: "Batch analysis"')
     })
 })

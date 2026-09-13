@@ -1046,6 +1046,7 @@ export function createMemoryAnalysisRunner(
                     'Each turns item must contain exactly title and establishedEvents. Do not return assistantMessageId; the program binds trusted message IDs by position.',
                     'Do not return top-level title, establishedEvents, or drafts.',
                     'Include every required shared array even when it is empty.',
+                    'Compute shared state, knowledge, continuity, and canonical candidates from the cumulative chronological effect of every supplied turn. For current-state documents, represent the final state after the last turn.',
                 ].join('\n')
                 : ''
             const analyzeDraft = async (
@@ -1081,7 +1082,7 @@ export function createMemoryAnalysisRunner(
                 structuredOutputMode,
                 ...(snapshot.rebootTurns ? {
                     responseSchema: buildRebootBatchDraftSchema(
-                        snapshot.rebootTurns.length as 1 | 2
+                        snapshot.rebootTurns.length
                     ),
                 } : {}),
                 inputTokenLimit: snapshot.analysisTokenLimit,

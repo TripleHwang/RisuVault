@@ -977,9 +977,9 @@ export function createMarkdownNarrativeWiki(
             const sourceMessageIds = input.sourceMessageIds.map((id) =>
                 required(id, 'Source message ID')
             )
-            if (sourceMessageIds.length < 1 || sourceMessageIds.length > 12
+            if (sourceMessageIds.length < 1 || sourceMessageIds.length > 20_000
                 || input.eventSourceGroups.length < 1
-                || input.eventSourceGroups.length > 2) {
+                || input.eventSourceGroups.length > 10_000) {
                 throw new Error('Invalid reboot recovery sources')
             }
             const eventSourceGroups = input.eventSourceGroups.map((group) => {
@@ -1096,9 +1096,9 @@ export function createMarkdownNarrativeWiki(
             const eventSourceGroups = input.eventSourceGroups.map((group) =>
                 group.map((id) => required(id, 'Event source message ID'))
             )
-            if (sourceMessageIds.length < 1 || sourceMessageIds.length > 12
+            if (sourceMessageIds.length < 1 || sourceMessageIds.length > 20_000
                 || eventSourceGroups.length < 1
-                || eventSourceGroups.length > 2
+                || eventSourceGroups.length > 10_000
                 || eventSourceGroups.some((group) =>
                     group.length < 1 || group.length > 2)) {
                 throw new Error('Invalid reboot recovery sources')

@@ -619,23 +619,49 @@ export function selectNarrativeWorkingMessages<T>(
     if (!Number.isSafeInteger(limit) || limit < 1) {
         throw new Error('Narrative working-message limit must be positive')
     }
-    if (includeHistoricalUserMessages) return messages.slice(-limit)
     const roleOf = (message: T): unknown =>
         typeof message === 'object'
         && message !== null
         && 'role' in message
             ? (message as { role?: unknown }).role
             : undefined
+    const isAssistant = (message: T) => {
+        const role = roleOf(message)
+        return role === 'char' || role === 'assistant'
+    }
+    const assistantIndices = messages.flatMap((message, index) =>
+        isAssistant(message) ? [index] : []
+    )
+    if (assistantIndices.length === 0) return messages.slice(-limit)
+    const firstAssistantIndex = assistantIndices[
+        Math.max(0, assistantIndices.length - limit)
+    ]
+    let startIndex = firstAssistantIndex
+    for (let index = firstAssistantIndex - 1; index >= 0; index -= 1) {
+        if (isAssistant(messages[index])) break
+        startIndex = index
+    }
+    const selected = messages.slice(startIndex)
+    if (includeHistoricalUserMessages) return selected
     let latestUserIndex = -1
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (roleOf(messages[index]) === 'user') {
+    for (let index = selected.length - 1; index >= 0; index -= 1) {
+        if (roleOf(selected[index]) === 'user') {
             latestUserIndex = index
             break
         }
     }
-    return messages.filter((message, index) =>
+    return selected.filter((message, index) =>
         roleOf(message) !== 'user' || index === latestUserIndex
-    ).slice(-limit)
+    )
+}
+
+export function countNarrativeTurns<T>(messages: readonly T[]): number {
+    return messages.filter((message) => {
+        if (typeof message !== 'object' || message === null
+            || !('role' in message)) return false
+        const role = (message as { role?: unknown }).role
+        return role === 'char' || role === 'assistant'
+    }).length
 }
 
 export function normalizeNarrativeWorkingMessageLimit(

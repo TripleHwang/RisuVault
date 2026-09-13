@@ -5,7 +5,7 @@
     import { language } from "src/lang";
     import type { PromptItem } from "src/ts/process/prompt";
     import type { character } from "src/ts/storage/database.svelte";
-    import { fillMissingPinnedToggleValues, getCurrentChat, pinToggleValuesToChat, resetPinnedToggleValues, saveTogglesToChat, unpinToggleValuesFromChat } from "src/ts/storage/database.svelte";
+    import { fillMissingPinnedToggleValues, getActivePromptOverlayTemplate, getActivePromptOverlayToggleTemplate, getCurrentChat, pinToggleValuesToChat, resetPinnedToggleValues, saveTogglesToChat, unpinToggleValuesFromChat } from "src/ts/storage/database.svelte";
     import { getToggleValueDifferences } from "src/ts/storage/togglePresetBaseline";
     import { alertConfirmMulti, alertTogglePresets, notifySuccess } from "src/ts/alert";
     import { tooltip } from "src/ts/gui/tooltip";
@@ -96,7 +96,7 @@
         })
 
     let hasJailbreakPrompt = $derived.by(() => {
-        const template = DBState.db.promptTemplate
+        const template = getActivePromptOverlayTemplate()
         if (!template) {
             return (DBState.db.jailbreak ?? '').trim().length > 0
         }
@@ -112,7 +112,7 @@
         void DBState.db.moduleIntergration
 
         const ungrouped = parseToggleSyntax(
-            DBState.db.customPromptTemplateToggle + '\n' +
+            getActivePromptOverlayToggleTemplate() + '\n' +
             getModuleToggles() + '\n' +
             ((DBState.db?.characters?.[$selectedCharID] as character)?.customModuleToggle ?? '')
         )

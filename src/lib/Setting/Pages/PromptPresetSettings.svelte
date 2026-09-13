@@ -5,6 +5,7 @@
     import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
     import PromptV2Workspace from "./PromptPreset/PromptV2Workspace.svelte";
+    import PromptBlockOverlayWorkspace from "./PromptPreset/PromptBlockOverlayWorkspace.svelte";
     import { InfoIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import {
@@ -27,7 +28,7 @@
 
 <SettingPage
     title={language.settingsWorkspace.aiWorkspace.sections['chat-prompt-presets'].title}
-    fullWidth={$PromptPresetSubmenuIndex === 2}
+    fullWidth={$PromptPresetSubmenuIndex === 2 || $PromptPresetSubmenuIndex === 5}
 >
     {#snippet headerActions()}
         <PresetHeader
@@ -42,6 +43,7 @@
             { label: language.basicInfo, value: 0 },
             { label: language.prompt, value: 1 },
             { label: language.promptV2.tab, value: 2 },
+            { label: language.promptOverlay.tab, value: 5 },
             { label: language.parameters, value: 3 },
             { label: language.advancedSettings, value: 4 },
         ]}
@@ -55,6 +57,8 @@
         <SettingRenderer items={promptPresetPromptItems} />
     {:else if $PromptPresetSubmenuIndex === 2}
         <PromptV2Workspace />
+    {:else if $PromptPresetSubmenuIndex === 5}
+        <PromptBlockOverlayWorkspace />
     {:else if $PromptPresetSubmenuIndex === 3}
         <ShAlert className="mt-4 mb-2">
             {#snippet icon()}<InfoIcon />{/snippet}

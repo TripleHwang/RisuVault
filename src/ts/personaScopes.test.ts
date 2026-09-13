@@ -80,6 +80,16 @@ describe('persona scopes', () => {
         )).toBe('selected-id')
     })
 
+    test('leaves new chats unbound when persona pinning is turned off', () => {
+        const selected = persona('Selected', 'selected-id')
+
+        expect(getNewChatPersonaBinding(
+            { personas: [selected], selectedPersona: 0, pinPersonaOnNewChat: false },
+            owner(),
+            { bindedPersona: 'selected-id' },
+        )).toBe('')
+    })
+
     test('reads an absent character repository without mutating reactive state', () => {
         const character = owner()
         const store = getCharacterPersonas(character)

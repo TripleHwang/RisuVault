@@ -11,6 +11,7 @@ export interface PersonaSelection {
 export interface PersonaDatabaseView {
     personas: RisuPersona[]
     selectedPersona: number
+    pinPersonaOnNewChat?: boolean
 }
 
 export function normalizeSelectedPersonaIndex(personaCount: number, selectedPersona: number): number {
@@ -68,6 +69,7 @@ export function getNewChatPersonaBinding(
     character?: character | null,
     previousChat?: Pick<Chat, 'bindedPersona'> | null,
 ): string {
+    if (db.pinPersonaOnNewChat === false) return ''
     return getEffectivePersona(db, character, previousChat)?.persona.id ?? ''
 }
 

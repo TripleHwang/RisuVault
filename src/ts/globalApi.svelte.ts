@@ -925,20 +925,15 @@ export async function saveDb() {
             throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
         }
 
-        // ── database.bin: exclude chat payload (stubs only via encoder) ──
-        await encoder.set(db, safeStructuredClone(toSave))
-        const encoded = encoder.encode()
-        if (!encoded) {
-            await sleep(1000)
-            return 'noop'
-        }
-        const dbData = new Uint8Array(encoded)
-
         let saved = false
         let newEtag: string | undefined
 
         if (supportsPatchSync && !options?.forceFullWrite) {
             const patchData = await patcher.set(db, safeStructuredClone(toSave))
+            if (patchData.patch.length === 0) {
+                updateKnownChatsAfterSuccessfulSave(db, toSave)
+                return 'saved'
+            }
             // Refuse to send patches that would corrupt server-side lazy chats.
             // chatToStub strips chats to metadata before diffing, so the only
             // way these ops appear is a baseline desync. Falling through to a
@@ -1127,6 +1122,27 @@ export async function saveDb() {
             }
         }
         if (!saved) {
+            // Patch-capable runtimes do not need a full database.bin encoding on
+            // successful patch saves. Rebuild only on the uncommon full-write
+            // path so the encoder includes every patch accepted since its last
+            // use. Non-patch runtimes keep the incremental encoder path.
+            if (supportsPatchSync) {
+                encoder = new RisuSaveEncoder()
+                await encoder.init(db, {
+                    compression: false,
+                    skipRemoteSavingOnCharacters: false,
+                })
+            }
+            else {
+                await encoder.set(db, safeStructuredClone(toSave))
+            }
+            const encoded = encoder.encode()
+            if (!encoded) {
+                await sleep(1000)
+                return 'noop'
+            }
+            const dbData = new Uint8Array(encoded)
+
             if (supportsPatchSync && !options?.forceFullWrite) {
                 console.warn('[Save] Patch conflict, falling through to full write...')
             }

@@ -50,6 +50,15 @@ describe('RisuBard settings persistence', () => {
         })
     })
 
+    test('defaults persona pinning for new chats to on', () => {
+        setDatabase({
+            characters: [], formatingOrder: ['main'], loreBook: [],
+            personas: [], username: 'User', userIcon: '', userNote: '',
+        } as any)
+
+        expect(getDatabase().pinPersonaOnNewChat).toBe(true)
+    })
+
     test.each([
         { recent: 250, response: 300, timeout: 7_500, expectedRecent: 250, expectedResponse: 300, expectedTimeout: 7_500 },
         { recent: 0, response: Infinity, timeout: 20_000, expectedRecent: 12, expectedResponse: 12, expectedTimeout: 10_000 },

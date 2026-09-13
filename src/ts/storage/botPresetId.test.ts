@@ -39,8 +39,10 @@ const {
     getActiveBotPresetId,
     getBotPresetById,
     getBotPresetIndexById,
+    changeToPreset,
     setActiveBotPresetById,
     saveCurrentPreset,
+    setPreset,
     withStableActivePreset,
 } = databaseModule
 const { DBState } = storesModule as any
@@ -93,9 +95,80 @@ describe('createBotPresetTemplate', () => {
 
         expect(DBState.db.botPresets[0].description).toBe('설명 https://example.com')
     })
+
+    test('keeps the prompt block overlay when the active preset mirror is saved', () => {
+        const preset = createBotPresetTemplate()
+        const promptBlockOverlay = {
+            enabled: true,
+            profileId: 'memo-profile',
+            includeReferencedToggles: true,
+            rules: [{
+                source: { index: 0, name: '📙 Memo', type: 'plain' },
+                target: { index: 0, name: 'System', type: 'plain' },
+                placement: 'before',
+            }],
+            profileSettings: {
+                'other-profile': {
+                    enabled: true,
+                    includeReferencedToggles: false,
+                    rules: [],
+                },
+            },
+        }
+        DBState.db = {
+            ...preset,
+            promptBlockOverlay,
+            botPresets: [preset],
+            botPresetsId: 0,
+        }
+
+        saveCurrentPreset()
+
+        expect(DBState.db.botPresets[0].promptBlockOverlay).toEqual(promptBlockOverlay)
+        expect(DBState.db.botPresets[0].promptBlockOverlay).not.toBe(promptBlockOverlay)
+    })
+
+    test('loads an isolated prompt block overlay into the active preset mirror', () => {
+        const preset = createBotPresetTemplate()
+        const promptBlockOverlay = {
+            enabled: true,
+            profileId: 'memo-profile',
+            includeReferencedToggles: true,
+            rules: [],
+            profileSettings: {
+                'other-profile': {
+                    enabled: false,
+                    includeReferencedToggles: true,
+                    rules: [],
+                },
+            },
+        }
+        const target = { ...preset, promptBlockOverlay }
+        DBState.db = {
+            ...preset,
+            NAIsettings: {},
+            botPresets: [target],
+            botPresetsId: 0,
+        }
+
+        setPreset(DBState.db, target)
+
+        expect(DBState.db.promptBlockOverlay).toEqual(promptBlockOverlay)
+        expect(DBState.db.promptBlockOverlay).not.toBe(promptBlockOverlay)
+    })
 })
 
 describe('id lookup helpers', () => {
+    test('reselecting the active preset is a no-op', () => {
+        const active = DBState.db.botPresets[1]
+        DBState.db.NAIsettings = {}
+
+        changeToPreset(1)
+
+        expect(DBState.db.botPresets[1]).toBe(active)
+        expect(DBState.db.botPresetsId).toBe(1)
+    })
+
     test('getActiveBotPreset returns the entry at botPresetsId', () => {
         expect(getActiveBotPreset()?.id).toBe('id-b')
     })

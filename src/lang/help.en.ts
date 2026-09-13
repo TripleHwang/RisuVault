@@ -430,9 +430,9 @@ export const helpEn = {
         risuBardArcaChatTitleImageStyle:
             "Choose a large oval, a square crop, or a compact thumbnail placed beside the title.",
         risuBardRecentMessages:
-            "Maximum number of recent user and assistant messages sent to wiki analysis after a response completes.",
+            "Number of recent assistant turns added as context for BardWiki analysis. User messages follow the Analysis user messages setting.",
         risuBardResponseRecentMessages:
-            "Maximum number of recent messages referenced when generating a new response. The current user request counts toward this limit.",
+            "Number of recent assistant turns referenced when generating a new response. The current user request is always included separately.",
         risuBardCanonicalWritingStyle:
             "Writing style for event summaries and canonical Markdown, independent of wiki writing language. Concise is the default.",
         risuBardWikiWritingLanguage:

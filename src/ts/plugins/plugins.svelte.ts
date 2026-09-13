@@ -424,11 +424,7 @@ export async function importPlugin(code:string|null = null, argu:{
 
         console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
         setDatabaseLite(db)
-        if (isUpdate) {
-            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
-        } else {
-            void requestImmediateSave()
-        }
+        await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
 
         await loadPlugins()
         return true

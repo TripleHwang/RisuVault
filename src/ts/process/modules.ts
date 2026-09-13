@@ -1,7 +1,7 @@
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
-import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
+import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleFile, sleep } from "../util"
 import { v4 } from "uuid"
 import { convertExternalLorebook } from "./lorebook.svelte"
@@ -349,11 +349,12 @@ export async function importModule(){
             }
             const module = convertCharacterToModule(char)
             db.modules.push(module)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
+            notifySuccess(language.successImport)
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
         }
-        notifySuccess(language.successImport)
         return
     }
     if(f.name.endsWith('.risum')){
@@ -361,6 +362,7 @@ export async function importModule(){
             const buf = Buffer.from(fileData)
             const module = await readModule(buf)
             db.modules.push(module)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
         } catch (error) {
             console.error(error)
@@ -387,6 +389,7 @@ export async function importModule(){
                 }
             }
             db.modules.push(importData)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -401,6 +404,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -413,6 +417,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -425,6 +430,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }

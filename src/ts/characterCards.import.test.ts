@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
     alerts: [] as Array<{ type: string; msg: string; submsg?: string }>,
     doneCalls: 0,
     completion: Promise.resolve(),
+    requestImmediateSave: vi.fn(),
     db: {
         statics: { imports: 0 },
         characters: [],
@@ -21,7 +22,7 @@ vi.mock('./alert', () => ({
     alertTOS: vi.fn(),
     alertWait: vi.fn((msg) => state.alerts.push({ type: 'wait', msg })),
     notifyError: vi.fn(),
-    notifySuccess: vi.fn(),
+    notifySuccess: vi.fn(() => state.events.push('notified')),
 }))
 
 vi.mock('./storage/database.svelte', () => ({
@@ -76,6 +77,7 @@ vi.mock('./globalApi.svelte', () => ({
     forageStorage: {},
     loadAsset: vi.fn(),
     readImage: vi.fn(),
+    requestImmediateSave: state.requestImmediateSave,
     saveAsset: vi.fn(),
 }))
 
@@ -105,6 +107,14 @@ vi.mock('src/lang', () => ({
 
 import { createBaseV2, createBaseV3, importCharacterProcess } from './characterCards'
 import { createBardLoreSettings, fingerprintLegacyLore, upgradeLegacyLorebook } from './lorebook/bardLore'
+
+beforeEach(() => {
+    state.events = []
+    state.requestImmediateSave.mockReset()
+    state.requestImmediateSave.mockImplementation(async () => {
+        state.events.push('saved')
+    })
+})
 
 function cardFixture(spec: 'chara_card_v2'|'chara_card_v3', risuai: Record<string, unknown>|undefined, postHistory = 'legacy card global note') {
     return {
@@ -165,6 +175,13 @@ describe('character import localization', () => {
 })
 
 describe('legacy character-card replace-global-note compatibility', () => {
+    test('persists an imported card before reporting success', async () => {
+        await importFixture(cardFixture('chara_card_v3', undefined))
+
+        expect(state.requestImmediateSave).toHaveBeenCalledWith({ flushServer: true, rejectOnFailure: true })
+        expect(state.events).toEqual(['saved', 'notified'])
+    })
+
     test.each(['chara_card_v2', 'chara_card_v3'] as const)('restores legacy replaceGlobalNote from %s cards with a Risu extension that does not own it', async (spec) => {
         const imported = await importFixture(cardFixture(spec, {}))
 

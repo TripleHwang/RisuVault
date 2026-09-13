@@ -660,25 +660,26 @@ describe('selectNarrativeWorkingMessages', () => {
         ])
     })
 
-    it('counts eight as total slots and always retains the current user request', () => {
+    it('counts configured history as assistant turns and retains the current user request', () => {
         const messages = Array.from({ length: 8 }, (_, index) => [
             { id: `user-${index + 1}`, role: 'user' },
             { id: `assistant-${index + 1}`, role: 'char' },
         ]).flat().concat({ id: 'user-current', role: 'user' })
 
         const withUsers = selectNarrativeWorkingMessages(
-            messages, 8, true
+            messages, 2, true
         )
-        expect(withUsers.filter((message) => message.role === 'user')).toHaveLength(4)
-        expect(withUsers.filter((message) => message.role === 'char')).toHaveLength(4)
+        expect(withUsers.map((message) => message.id)).toEqual([
+            'user-7', 'assistant-7', 'user-8', 'assistant-8', 'user-current',
+        ])
 
         const withoutHistoricalUsers = selectNarrativeWorkingMessages(
-            messages, 8, false
+            messages, 2, false
         )
         expect(withoutHistoricalUsers.filter((message) => message.role === 'user'))
             .toEqual([{ id: 'user-current', role: 'user' }])
         expect(withoutHistoricalUsers.filter((message) => message.role === 'char'))
-            .toHaveLength(7)
+            .toHaveLength(2)
     })
 
     it('keeps the first greeting inside the message budget', () => {

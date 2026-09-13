@@ -188,15 +188,15 @@
                 <input id="bardwiki-target-limit" type="number" min="1" value={settings.risuBardCanonicalTargetLimit} onchange={(event) => setNumber('risuBardCanonicalTargetLimit', event)} />
             </div>
             <div class="setting-field" data-chat-setting-field="risuBardRecentMessageCount">
-                {@render settingTitle('risuBardRecentMessageCount', '분석 최근 메시지', 'bardwiki-analysis-messages')}
+                {@render settingTitle('risuBardRecentMessageCount', '분석할 턴 수', 'bardwiki-analysis-messages')}
                 <input id="bardwiki-analysis-messages" type="number" min="1" value={settings.risuBardRecentMessageCount} onchange={(event) => setNumber('risuBardRecentMessageCount', event)} />
             </div>
             <div class="setting-field" data-chat-setting-field="risuBardResponseMessageCount">
-                {@render settingTitle('risuBardResponseMessageCount', '응답 최근 메시지', 'bardwiki-response-messages')}
+                {@render settingTitle('risuBardResponseMessageCount', '응답용 턴 수', 'bardwiki-response-messages')}
                 <input id="bardwiki-response-messages" type="number" min="1" value={settings.risuBardResponseMessageCount} onchange={(event) => setNumber('risuBardResponseMessageCount', event)} />
             </div>
             <div class="setting-field" data-chat-setting-field="risuBardResponseExcludeUserMessages">
-                {@render settingTitle('risuBardResponseExcludeUserMessages', '응답 생성에서 사용자 메시지 제외', 'bardwiki-response-exclude-user')}
+                {@render settingTitle('risuBardResponseExcludeUserMessages', '응답 사용자 메시지', 'bardwiki-response-exclude-user')}
                 <label class="toggle-control" for="bardwiki-response-exclude-user">
                     <input id="bardwiki-response-exclude-user" type="checkbox" checked={settings.risuBardResponseExcludeUserMessages}
                         onchange={(event) => setValue('risuBardResponseExcludeUserMessages', (event.currentTarget as HTMLInputElement).checked)} />
@@ -204,7 +204,7 @@
                 </label>
             </div>
             <div class="setting-field" data-chat-setting-field="risuBardAnalysisExcludeUserMessages">
-                {@render settingTitle('risuBardAnalysisExcludeUserMessages', '위키 분석에서 사용자 메시지 제외', 'bardwiki-analysis-exclude-user')}
+                {@render settingTitle('risuBardAnalysisExcludeUserMessages', '분석 사용자 메시지', 'bardwiki-analysis-exclude-user')}
                 <label class="toggle-control" for="bardwiki-analysis-exclude-user">
                     <input id="bardwiki-analysis-exclude-user" type="checkbox" checked={settings.risuBardAnalysisExcludeUserMessages}
                         onchange={(event) => setValue('risuBardAnalysisExcludeUserMessages', (event.currentTarget as HTMLInputElement).checked)} />

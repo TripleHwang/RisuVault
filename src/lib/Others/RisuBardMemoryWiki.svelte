@@ -13,6 +13,7 @@
         SquareTerminalIcon,
         MonitorIcon,
         SmartphoneIcon,
+        WrenchIcon,
         XCircleIcon,
     } from '@lucide/svelte'
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
@@ -73,7 +74,7 @@
         open?: boolean
         characterId: string
         chatId: string
-        onForceWikiUpdate?: () => Promise<boolean>
+        onBatchWikiUpdate?: () => Promise<boolean>
         rebootJob?: WikiRebootJob
         onStartWikiReboot?: (
             batchSize: WikiRebootBatchSize,
@@ -95,7 +96,7 @@
         open = $bindable(false),
         characterId,
         chatId,
-        onForceWikiUpdate,
+        onBatchWikiUpdate,
         rebootJob,
         onStartWikiReboot,
         onStopWikiReboot,
@@ -120,6 +121,9 @@
     let workspaceSplitElement = $state<HTMLElement | null>(null)
     let activeView = $state<'workspace' | 'story' | 'arc-plot' | 'log'>('workspace')
     let findReplaceOpen = $state(false)
+    let toolsOpen = $state(false)
+    let toolsTriggerElement = $state<HTMLElement | null>(null)
+    let toolsFlyoutElement = $state<HTMLElement | null>(null)
     let settingsOpen = $state(false)
     let settingsPopoverElement = $state<HTMLElement | null>(null)
     let layoutMode = $state<MemoryWikiLayout>('desktop')
@@ -243,7 +247,17 @@
         }
         syncLayout()
         media?.addEventListener('change', syncLayout)
-        return () => media?.removeEventListener('change', syncLayout)
+        const closeToolsOutside = (event: PointerEvent) => {
+            if (!(event.target instanceof Node)
+                || toolsTriggerElement?.contains(event.target)
+                || toolsFlyoutElement?.contains(event.target)) return
+            toolsOpen = false
+        }
+        document.addEventListener('pointerdown', closeToolsOutside)
+        return () => {
+            media?.removeEventListener('change', syncLayout)
+            document.removeEventListener('pointerdown', closeToolsOutside)
+        }
     })
 
     function toggleLayout() {
@@ -358,7 +372,7 @@
         loading = false
     }
 
-    async function forceWikiUpdate() {
+    async function runBatchWikiUpdate() {
         if (forceUpdating || rebootJob) return
         const targetTurn = currentChat?.message.filter((message) =>
             message.role === 'char'
@@ -372,7 +386,7 @@
         forceUpdateError = ''
         forceUpdateMeta = null
         try {
-            const updated = await onForceWikiUpdate?.()
+            const updated = await onBatchWikiUpdate?.()
             forceUpdateStatus = updated ? 'success' : 'empty'
             if (updated && targetTurn > 0) {
                 forceUpdateMeta = {
@@ -723,51 +737,19 @@
             {#if wiki?.mode === 'markdown'}
                 <button
                     type="button"
-                    class="force-update-button"
-                    class:running={forceUpdating}
-                    data-risubard-force-wiki-update
-                    title={language.risuBardMemoryForceUpdate}
-                    aria-label={language.risuBardMemoryForceUpdate}
-                    aria-busy={forceUpdating}
-                    onclick={forceWikiUpdate}
-                    disabled={forceUpdating || Boolean(rebootJob)
-                        || !onForceWikiUpdate}
+                    class="tools-trigger"
+                    class:active={toolsOpen}
+                    data-wiki-tools-trigger
+                    bind:this={toolsTriggerElement}
+                    aria-haspopup="menu"
+                    aria-expanded={toolsOpen}
+                    onmouseenter={() => toolsOpen = true}
+                    onclick={() => toolsOpen = !toolsOpen}
                 >
-                    <img class="force-update-idle" src={forceUpdateIdle} alt="" />
-                    <img class="force-update-hover" src={forceUpdateHover} alt="" />
-                    <span>{forceUpdating
-                        ? language.risuBardMemoryForceUpdating
-                        : language.risuBardMemoryForceUpdate}</span>
+                    <WrenchIcon size={17} />
+                    <span>도구 모음</span>
+                    <ChevronDownIcon size={14} />
                 </button>
-                <button
-                    type="button"
-                    class="find-replace-button"
-                    data-wiki-open-find-replace
-                    title="찾기/바꾸기"
-                    aria-label="찾기/바꾸기"
-                    onclick={() => findReplaceOpen = true}
-                    disabled={Boolean(rebootJob)}
-                >
-                    <SolarBoldIcon name="magnifier" size={16} />
-                    <span>찾기/바꾸기</span>
-                </button>
-                <button
-                    type="button"
-                    class="reboot-button"
-                    class:active={Boolean(rebootJob)}
-                    data-risubard-wiki-reboot
-                    title={rebootJob
-                        ? `${rebootButtonLabel} · ${rebootJob.completedAssistantMessageIds.length}/${rebootJob.targetAssistantMessageIds.length}`
-                        : language.risuBardWikiRebootDescription}
-                    aria-busy={rebootActionBusy
-                        || rebootJob?.status === 'running'
-                        || rebootJob?.status === 'finalizing'}
-                    onclick={handleRebootAction}
-                    disabled={rebootActionBusy
-                        || rebootJob?.status === 'stop-requested'
-                        || rebootJob?.status === 'finalizing'
-                        || (!rebootJob && !onStartWikiReboot)}
-                ><span>{rebootButtonLabel}</span></button>
                 {#if rebootJob && (rebootJob.status === 'paused'
                     || rebootJob.status === 'failed')}
                     <button
@@ -865,6 +847,71 @@
             {/if}
         </nav>
         {#if wiki?.mode === 'markdown'}
+            <div
+                class="tools-flyout"
+                data-wiki-tools-flyout
+                bind:this={toolsFlyoutElement}
+                role="menu"
+                tabindex="-1"
+                hidden={!toolsOpen}
+                onmouseenter={() => toolsOpen = true}
+            >
+                <button
+                    type="button"
+                    class="tool-action batch-action"
+                    class:running={forceUpdating}
+                    data-risubard-batch-wiki-update
+                    role="menuitem"
+                    aria-busy={forceUpdating}
+                    onclick={() => {
+                        toolsOpen = false
+                        void runBatchWikiUpdate()
+                    }}
+                    disabled={forceUpdating || Boolean(rebootJob)
+                        || !onBatchWikiUpdate}
+                >
+                    <img class="force-update-idle" src={forceUpdateIdle} alt="" />
+                    <img class="force-update-hover" src={forceUpdateHover} alt="" />
+                    <span>{forceUpdating
+                        ? language.risuBardMemoryForceUpdating
+                        : language.risuBardMemoryForceUpdate}</span>
+                </button>
+                <button
+                    type="button"
+                    class="tool-action reboot-action"
+                    class:active={Boolean(rebootJob)}
+                    data-risubard-wiki-reboot
+                    role="menuitem"
+                    title={rebootJob
+                        ? `${rebootButtonLabel} · ${rebootJob.completedAssistantMessageIds.length}/${rebootJob.targetAssistantMessageIds.length}`
+                        : language.risuBardWikiRebootDescription}
+                    aria-busy={rebootActionBusy
+                        || rebootJob?.status === 'running'
+                        || rebootJob?.status === 'finalizing'}
+                    onclick={() => {
+                        toolsOpen = false
+                        void handleRebootAction()
+                    }}
+                    disabled={rebootActionBusy
+                        || rebootJob?.status === 'stop-requested'
+                        || rebootJob?.status === 'finalizing'
+                        || (!rebootJob && !onStartWikiReboot)}
+                ><RefreshCwIcon size={20} /><span>{rebootButtonLabel}</span></button>
+                <button
+                    type="button"
+                    class="tool-action find-replace-action"
+                    data-wiki-open-find-replace
+                    role="menuitem"
+                    onclick={() => {
+                        toolsOpen = false
+                        findReplaceOpen = true
+                    }}
+                    disabled={Boolean(rebootJob)}
+                >
+                    <SolarBoldIcon name="magnifier" size={20} />
+                    <span>찾기/바꾸기</span>
+                </button>
+            </div>
             <section
                 class="settings-popover"
                 data-memory-settings-popover
@@ -1447,9 +1494,7 @@
         list-style: none;
     }
     .dock-views button { width: 2.35rem; min-height: 2.25rem; padding: .35rem; }
-    .dock-views .force-update-button,
-    .dock-views .find-replace-button,
-    .dock-views .reboot-button,
+    .dock-views .tools-trigger,
     .dock-views .reboot-cancel-button {
         flex: 0 0 auto;
         width: auto;
@@ -1459,22 +1504,20 @@
         font-size: .75rem;
         border-color: color-mix(in srgb, var(--risu-theme-primary) 32%, var(--risu-theme-darkborderc));
     }
-    .dock-views .force-update-button { justify-content: flex-start; gap: .4rem; color: var(--risu-theme-textcolor); background: color-mix(in srgb, var(--risu-theme-primary) 13%, var(--risu-theme-darkbg)); }
+    .dock-views .tools-trigger { justify-content: flex-start; gap: .42rem; color: var(--risu-theme-textcolor); background: color-mix(in srgb, var(--risu-theme-primary) 13%, var(--risu-theme-darkbg)); }
     .dock-views .reboot-cancel-button {
         min-width: auto;
         color: var(--risu-theme-draculared);
     }
-    .force-update-button img { display: block; flex: 0 0 auto; width: 24px; height: 24px; object-fit: contain; image-rendering: auto; }
+    .batch-action img { display: block; flex: 0 0 auto; width: 28px; height: 28px; object-fit: contain; image-rendering: auto; }
     .force-update-hover { display: none !important; }
-    .force-update-button:hover:not(:disabled) .force-update-idle,
-    .force-update-button.running .force-update-idle { display: none; }
-    .force-update-button:hover:not(:disabled) .force-update-hover,
-    .force-update-button.running .force-update-hover { display: block !important; }
+    .batch-action:hover:not(:disabled) .force-update-idle,
+    .batch-action.running .force-update-idle { display: none; }
+    .batch-action:hover:not(:disabled) .force-update-hover,
+    .batch-action.running .force-update-hover { display: block !important; }
     .dock-view-actions svg { display: block; width: 22px; height: 22px; fill: currentColor; }
     .dock-views button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    .dock-views .force-update-button span,
-    .dock-views .find-replace-button span,
-    .dock-views .reboot-button span,
+    .dock-views .tools-trigger span,
     .dock-views .reboot-cancel-button span {
         position: static;
         width: auto;
@@ -1490,6 +1533,43 @@
     }
     .dock-views button.active { color: var(--color-accenttext); border-color: color-mix(in srgb, var(--risu-theme-primary) 72%, transparent); background: var(--risu-theme-primary); }
     .dock-views button:disabled { opacity: .48; cursor: default; }
+    .tools-flyout {
+        position: absolute;
+        z-index: 55;
+        top: calc(100% + .22rem);
+        left: .35rem;
+        display: grid;
+        width: min(20rem, calc(100vw - 1rem));
+        gap: .38rem;
+        padding: .48rem;
+        border: 1px solid var(--risu-theme-darkborderc);
+        border-radius: .55rem;
+        background: var(--risu-theme-bgcolor);
+        box-shadow: 0 16px 38px color-mix(in srgb, var(--risu-theme-darkbg) 68%, transparent);
+    }
+    .tools-flyout[hidden] { display: none; }
+    .tools-flyout .tool-action {
+        display: grid;
+        grid-template-columns: 2.2rem minmax(0, 1fr);
+        align-items: center;
+        width: 100%;
+        min-height: 3.25rem;
+        gap: .72rem;
+        padding: .55rem .78rem;
+        border: 1px solid color-mix(in srgb, var(--risu-theme-primary) 24%, var(--risu-theme-darkborderc));
+        border-radius: .46rem;
+        color: var(--risu-theme-textcolor);
+        background: color-mix(in srgb, var(--risu-theme-primary) 8%, var(--risu-theme-darkbg));
+        text-align: left;
+        cursor: pointer;
+    }
+    .tools-flyout .tool-action:hover:not(:disabled),
+    .tools-flyout .tool-action.active {
+        border-color: color-mix(in srgb, var(--risu-theme-primary) 58%, var(--risu-theme-darkborderc));
+        background: color-mix(in srgb, var(--risu-theme-primary) 18%, var(--risu-theme-darkbg));
+    }
+    .tools-flyout .tool-action:disabled { opacity: .48; cursor: default; }
+    .tools-flyout .tool-action span { font-size: .86rem; font-weight: 650; }
     .settings-popover {
         position: absolute;
         z-index: 50;
@@ -1887,24 +1967,12 @@
         min-height: 2.75rem;
         padding-inline: .45rem;
     }
-    .memory-wiki-dock.mobile-layout .dock-views .force-update-button,
-    .memory-wiki-dock.mobile-layout .dock-views .find-replace-button {
-        width: 2.75rem;
-        min-width: 2.75rem;
+    .memory-wiki-dock.mobile-layout .dock-views .tools-trigger {
+        width: auto;
+        min-width: 6.4rem;
         height: 2.75rem;
-        justify-content: center;
-        padding-inline: 0;
+        padding-inline: .7rem;
     }
-    .memory-wiki-dock.mobile-layout .dock-views .force-update-button span,
-    .memory-wiki-dock.mobile-layout .dock-views .find-replace-button span {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-    .memory-wiki-dock.mobile-layout .dock-views .reboot-button,
     .memory-wiki-dock.mobile-layout .dock-views .reboot-cancel-button {
         min-width: auto;
         height: 2.75rem;

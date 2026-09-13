@@ -1,5 +1,5 @@
 import { alertError, alertStore, alertWait, alertMd, alertConfirm, alertConfirmMulti, alertClear, waitAlert, notifySuccess, notifyInfo, notifyError } from "../alert";
-import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
+import { downloadFile, LocalWriter, forageStorage, requestImmediateSave } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
@@ -21,6 +21,10 @@ async function pickNativeBackupFile(fallbackName: string): Promise<FileSystemFil
             accept: { 'application/octet-stream': ['.bin'] },
         }],
     })
+}
+
+async function persistCurrentStateForBackup() {
+    await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
 }
 
 async function streamBackupToDisk(
@@ -67,6 +71,7 @@ export async function SaveLocalBackup(){
         const fallbackName = `risu-backup-${Date.now()}.bin`
         const nativeFile = await pickNativeBackupFile(fallbackName)
         alertWait("Saving local backup...")
+        await persistCurrentStateForBackup()
         const response = await forageStorage.exportBackup()
         await streamBackupToDisk(response, fallbackName, nativeFile)
         notifySuccess('Success')
@@ -98,6 +103,7 @@ export async function SaveSettingsOnlyBackup(){
     let includeModuleAssets = true
     try {
         alertWait(language.backupSettingsOnlyEstimating)
+        await persistCurrentStateForBackup()
         const estimate = await forageStorage.settingsBackupEstimate()
         alertClear()
 
@@ -151,6 +157,7 @@ export async function SaveSettingsOnlyBackup(){
 export async function SaveLocalBackupForUpstream(){
     try {
         alertWait("Saving local backup...")
+        await persistCurrentStateForBackup()
         const response = await forageStorage.exportBackup({ target: 'upstream' })
         await streamBackupToDisk(response, `risu-backup-${Date.now()}-upstream.bin`)
         notifySuccess('Success')
@@ -442,6 +449,7 @@ export async function CleanupMigratedFiles() {
 export async function SaveServerBackup() {
     try {
         alertWait(language.serverBackupSaving)
+        await persistCurrentStateForBackup()
         const result = await forageStorage.saveServerBackup((current, total, bytes) => {
             const pct = total > 0 ? ((current / total) * 100).toFixed(1) : '0'
             const bytesStr = formatBytes(bytes)

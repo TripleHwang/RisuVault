@@ -1019,6 +1019,7 @@ export const languageChineseTraditional = {
     "doYouWantToBindCurrentPersona": "要將目前人設綁定至此對話嗎？",
     "doYouWantToUnbindCurrentPersona": "要解除此對話的人設綁定嗎？",
     "personaBindingLabel": "人設綁定",
+    "pinPersonaOnNewChat": "建立新聊天時固定人設",
     "personaBindedSuccess": "人設綁定已完成",
     "personaUnbindedSuccess": "人設綁定已解除",
     "personaBindChange": "更換人設",

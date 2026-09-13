@@ -28,6 +28,7 @@ import {
 } from '../../../packages/risubard-core/src/modelResponse'
 import {
     loadNarrativeInquiry,
+    selectNarrativeWorkingMessages,
 } from './narrativeContext'
 import {
     loadNarrativeMemoryWiki,
@@ -143,6 +144,14 @@ function fitAnalysisInput(
         )
     }
     const root = payload as Record<string, unknown>
+    const requiredMessageIds = new Set(
+        (Array.isArray(root.rebootTurns) ? root.rebootTurns : [])
+            .flatMap((turn) => {
+                if (!turn || typeof turn !== 'object') return []
+                const id = (turn as Record<string, unknown>).assistantMessageId
+                return typeof id === 'string' ? [id] : []
+            })
+    )
     for (let pass = 0; pass < 48; pass += 1) {
         const serialized = JSON.stringify(root)
         if (countAnalysisTokens(`${system}\n${serialized}`) <= limit) {
@@ -168,13 +177,17 @@ function fitAnalysisInput(
                 return
             }
             for (const [key, item] of Object.entries(value)) {
+                const owner = value as Record<string, unknown>
                 if (typeof item === 'string'
                     && item.length > 256
                     && ['content', 'markdown', 'confirmedEvent',
                         'acceptedText', 'removedText', 'priorContext',
-                        'currentContext'].includes(key)) {
+                        'currentContext'].includes(key)
+                    && !(key === 'content'
+                        && typeof owner.messageId === 'string'
+                        && requiredMessageIds.has(owner.messageId))) {
                     reducible.push({
-                        holder: value as Record<string, unknown>,
+                        holder: owner,
                         key,
                         value: item,
                         keepEnd: key === 'content' && 'role' in value,
@@ -517,16 +530,20 @@ export function projectRecentMemoryMessages(
             && message.chatId.trim().length > 0
             && !message.isComment
             && !message.disabled
-            && (includeUserMessages || message.role !== 'user')
         )
-    const projected: MemoryAnalysisMessage[] = eligible
-        .slice(-boundedLimit)
-        .map((message) => ({
+    const projected: MemoryAnalysisMessage[] = selectNarrativeWorkingMessages(
+        eligible,
+        boundedLimit,
+        true,
+    )
+        .map((message): MemoryAnalysisMessage => ({
             messageId: message.chatId as string,
             role: message.role === 'user' ? 'user' : 'assistant',
             content: message.data as string,
         }))
-    return firstMessage && eligible.length <= boundedLimit
+        .filter((message) => includeUserMessages || message.role !== 'user')
+    const turnCount = eligible.filter((message) => message.role === 'char').length
+    return firstMessage && turnCount <= boundedLimit
         ? [firstMessage, ...projected]
         : projected
 }

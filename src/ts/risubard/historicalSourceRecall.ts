@@ -37,6 +37,26 @@ export interface HistoricalSourceMatch {
     occurredAt: number
 }
 
+function beforeRecentAssistantTurns<T>(
+    items: readonly T[],
+    requestedTurns: number,
+    roleOf: (item: T) => unknown
+): T[] {
+    const turnCount = Math.max(1, requestedTurns)
+    const assistantIndices = items.flatMap((item, index) =>
+        roleOf(item) === 'assistant' || roleOf(item) === 'char' ? [index] : [])
+    if (assistantIndices.length === 0) {
+        return items.slice(0, Math.max(0, items.length - turnCount))
+    }
+    const firstAssistant = assistantIndices[
+        Math.max(0, assistantIndices.length - turnCount)
+    ] ?? 0
+    let start = firstAssistant
+    while (start > 0 && roleOf(items[start - 1] as T) !== 'assistant'
+        && roleOf(items[start - 1] as T) !== 'char') start -= 1
+    return items.slice(0, start)
+}
+
 export function resolveHistoricalSourceMatchesById(input: {
     messageIds: readonly string[]
     messages: readonly HistoricalSourceMessage[]
@@ -60,9 +80,10 @@ export function resolveHistoricalSourceMatchesById(input: {
     const requestedRecent = Number.isSafeInteger(input.excludeRecentMessages)
         ? input.excludeRecentMessages as number
         : 12
-    const historical = active.slice(
-        0,
-        Math.max(0, active.length - Math.max(1, requestedRecent))
+    const historical = beforeRecentAssistantTurns(
+        active,
+        requestedRecent,
+        ({ message }) => message.role
     )
     const byId = new Map(historical.map(({ message, occurredAt }) => [
         message.chatId as string,
@@ -166,8 +187,11 @@ export function findHistoricalSourceMatches(input: {
     const requestedRecent = Number.isSafeInteger(input.excludeRecentMessages)
         ? input.excludeRecentMessages as number
         : 12
-    const recentCount = Math.max(1, requestedRecent)
-    const historical = active.slice(0, Math.max(0, active.length - recentCount))
+    const historical = beforeRecentAssistantTurns(
+        active,
+        requestedRecent,
+        (message) => message.role
+    )
     if (historical.length === 0) return []
 
     const termWeights = new Map(terms.map((term) => {

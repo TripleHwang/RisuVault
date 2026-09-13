@@ -40,7 +40,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         helpKey: 'risuBardResponseRecentMessages',
         bindKey: 'risuBardResponseMessageCount',
         options: { min: 1, step: 1 },
-        keywords: ['recent messages', 'chat history', '최근 채팅', '대화 내역'],
+        keywords: ['response turns', 'chat history', '응답용 턴', '대화 내역'],
     },
     {
         id: 'risubard.chat.excludeUserMessages',
@@ -48,7 +48,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         labelKey: 'risuBardResponseExcludeUsers',
         helpKey: 'risuBardResponseExcludeUsers',
         bindKey: 'risuBardResponseExcludeUserMessages',
-        keywords: ['exclude user messages', '사용자 메시지 제외'],
+        keywords: ['response user messages', '응답 사용자 메시지'],
     },
     {
         id: 'risubard.common.wikiAnalysis',
@@ -64,7 +64,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         helpKey: 'risuBardRecentMessages',
         bindKey: 'risuBardRecentMessageCount',
         options: { min: 1, step: 1 },
-        keywords: ['analysis', 'wiki', 'recent messages', '분석', '위키', '최근 대화'],
+        keywords: ['analysis turns', 'wiki', '분석할 턴', '위키'],
     },
     {
         id: 'risubard.chat.analysisExcludeUserMessages',
@@ -72,7 +72,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         labelKey: 'risuBardAnalysisExcludeUsers',
         helpKey: 'risuBardAnalysisExcludeUsers',
         bindKey: 'risuBardAnalysisExcludeUserMessages',
-        keywords: ['analysis', 'exclude user messages', '분석', '사용자 메시지 제외'],
+        keywords: ['analysis', 'analysis user messages', '분석 사용자 메시지'],
     },
     {
         id: 'risubard.chat.bardChan',
