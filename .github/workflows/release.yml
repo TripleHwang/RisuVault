@@ -141,7 +141,8 @@ jobs:
         run: |
           cd portable
           LOG_FILE="$(mktemp)"
-          PORT=0 RISU_UPDATE_CHECK=false node server/node/server.cjs >"$LOG_FILE" 2>&1 &
+          SMOKE_DATA="$(mktemp -d)"
+          PORT=0 RISU_UPDATE_CHECK=false RISUBARD_DATA_ROOT="$SMOKE_DATA" node server/node/server.cjs >"$LOG_FILE" 2>&1 &
           SERVER_PID=$!
           cleanup() {
             kill "$SERVER_PID" 2>/dev/null || true
@@ -329,7 +330,7 @@ jobs:
           SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
           cd "$SCRIPT_DIR"
           bin/node scripts/updater.cjs
-          rm -rf .update-tmp 2>/dev/null
+          exit $?
           EOF
           cp scripts/portable/V2-to-V1.sh portable/V2-to-V1.sh
           chmod +x portable/start.sh portable/update.sh portable/V2-to-V1.sh
@@ -340,6 +341,7 @@ jobs:
           mkdir -p portable/scripts
           cp scripts/updater.cjs portable/scripts/updater.cjs 2>/dev/null || true
           cp scripts/updater-recovery.cjs portable/scripts/updater-recovery.cjs
+          cp portable/server/node/portable-update.cjs portable/scripts/portable-update.cjs
           cp scripts/convert-v2-to-v0925.cjs portable/scripts/convert-v2-to-v0925.cjs
           touch portable/.portable
 
@@ -361,6 +363,23 @@ jobs:
           mv portable "$NAME"
           tar -czf "${NAME}.tar.gz" "$NAME"
           rm -rf "$NAME"
+
+      - name: Verify the extracted release archive
+        shell: bash
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          NAME="RisuBard-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
+          VERIFY_DIR="$(mktemp -d)"
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            7z x -y "${NAME}.zip" "-o${VERIFY_DIR}"
+            ROOT="$VERIFY_DIR"
+            NODE="$ROOT/bin/node.exe"
+          else
+            tar -xzf "${NAME}.tar.gz" -C "$VERIFY_DIR"
+            ROOT="$VERIFY_DIR/$NAME"
+            NODE="$ROOT/bin/node"
+          fi
+          "$NODE" scripts/portable-smoke.cjs "$ROOT" "$VERSION"
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v7

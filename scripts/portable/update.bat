@@ -9,6 +9,8 @@ if errorlevel 1 goto :fail
 if not exist "%~dp0.update-tmp\skip-bin-update" goto :fail
 )
 if not exist "%~dp0.update-tmp\latest-version" goto :fail
+"%~dp0bin\node.exe" "%~dp0scripts\portable-update.cjs" --validate "%~dp0."
+if errorlevel 1 goto :fail
 copy /Y "%~dp0.update-tmp\latest-version" "%~dp0.installed-version" >nul
 if errorlevel 1 goto :fail
 rmdir /s /q "%~dp0.update-tmp" 2>nul

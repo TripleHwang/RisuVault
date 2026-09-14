@@ -13,30 +13,29 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync, execSync } = require('child_process');
 const { rollbackInterruptedUpdate } = require('./updater-recovery.cjs');
+const { validatePackage, restoreEntries } = require(fs.existsSync(path.join(__dirname, 'portable-update.cjs'))
+    ? './portable-update.cjs' : '../server/node/portable-update.cjs');
 
 const REPO = 'rpaddict/RisuBard';
 const ROOT = path.resolve(__dirname, '..');
 
 const isWin = process.platform === 'win32';
-const REQUIRED_ENTRIES = ['dist', 'server', 'package.json'];
+const REQUIRED_ENTRIES = ['dist', 'server', 'package.json', 'node_modules'];
 const REQUIRED_DIST_FILES = ['index.html'];
 const REQUIRED_WIN_ENTRIES = ['bin'];
 const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
 
-function log(msg) { process.stdout.write(`[updater] ${msg}\n`); }
-function error(msg) { process.stderr.write(`[ERROR] ${msg}\n`); process.exit(1); }
+function log(msg) {
+    process.stdout.write(`[updater] ${msg}\n`);
+    try { fs.appendFileSync(path.join(ROOT, 'update.log'), `${new Date().toISOString()} ${msg}\n`); } catch {}
+}
+function error(msg) { log(`[ERROR] ${msg}`); process.exit(1); }
 
 function getCurrentVersion() {
-    const markerPath = path.join(ROOT, '.installed-version');
-    if (fs.existsSync(markerPath)) {
-        return fs.readFileSync(markerPath, 'utf-8').trim();
-    }
     try {
         const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
         return 'v' + pkg.version;
-    } catch {
-        return 'unknown';
-    }
+    } catch { return 'unknown'; }
 }
 
 // If the user moved the server-backup directory to a custom location *inside*
@@ -133,6 +132,7 @@ function resolveExtractedRoot(extractedDir) {
 }
 
 function validateExtractedRoot(extractedRoot) {
+    validatePackage(extractedRoot);
     for (const entry of REQUIRED_ENTRIES) {
         if (!fs.existsSync(path.join(extractedRoot, entry))) {
             throw new Error(`Downloaded package is missing required entry: ${entry}`);
@@ -154,18 +154,7 @@ function validateExtractedRoot(extractedRoot) {
 
 function restoreBackupIntoRoot(backupDir, overwrite = true) {
     if (!fs.existsSync(backupDir)) return;
-    for (const entry of fs.readdirSync(backupDir)) {
-        const src = path.join(backupDir, entry);
-        const dest = path.join(ROOT, entry);
-        try {
-            if (overwrite && fs.existsSync(dest)) {
-                fs.rmSync(dest, { recursive: true, force: true });
-            }
-            if (!fs.existsSync(dest)) {
-                fs.renameSync(src, dest);
-            }
-        } catch { /* best effort */ }
-    }
+    restoreEntries(ROOT, backupDir, fs.readdirSync(backupDir).filter(entry => entry !== 'update.bat'));
 }
 
 function assertNoOtherWindowsRuntimeProcesses() {
@@ -174,7 +163,8 @@ function assertNoOtherWindowsRuntimeProcesses() {
     const script = [
         "$target = [IO.Path]::GetFullPath($env:RISUBARD_RUNTIME_DIR).TrimEnd('\\')",
         '$selfPid = [int]$env:RISUBARD_UPDATER_PID',
-        "$running = @(Get-Process -Name node,cloudflared -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $selfPid -and $_.Path -and [IO.Path]::GetFullPath((Split-Path -Parent $_.Path)).TrimEnd('\\') -ieq $target })",
+        "$launcher = Join-Path $env:RISUBARD_INSTALL_DIR 'RisuBard.exe'",
+        "$running = @(Get-Process -Name node,cloudflared,RisuBard -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $selfPid -and $_.Path -and ([IO.Path]::GetFullPath((Split-Path -Parent $_.Path)).TrimEnd('\\') -ieq $target -or $_.Path -ieq $launcher) })",
         "if ($running.Count -gt 0) { $running | ForEach-Object { Write-Output ('{0} (PID {1})' -f $_.Path, $_.Id) }; exit 23 }",
     ].join('; ');
 
@@ -184,6 +174,7 @@ function assertNoOtherWindowsRuntimeProcesses() {
             env: {
                 ...process.env,
                 RISUBARD_RUNTIME_DIR: path.join(ROOT, 'bin'),
+                RISUBARD_INSTALL_DIR: ROOT,
                 RISUBARD_UPDATER_PID: String(process.pid),
             },
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -238,9 +229,21 @@ function areDirectoriesEquivalent(a, b) {
 }
 
 async function main() {
+    assertNoOtherWindowsRuntimeProcesses();
+    const interrupted = path.join(ROOT, '.update-tmp', 'backup');
+    if (fs.existsSync(interrupted)) {
+        const statePath = path.join(ROOT, '.update-tmp', 'install-state.json');
+        const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;
+        if (state?.phase === 'complete') {
+            validatePackage(ROOT);
+            fs.rmSync(path.join(ROOT, '.update-tmp'), { recursive: true, force: true });
+        } else {
+        log('Recovering interrupted installation before checking its version...');
+        restoreBackupIntoRoot(interrupted);
+        }
+    }
     const current = getCurrentVersion();
     log(`Current version: ${current}`);
-    assertNoOtherWindowsRuntimeProcesses();
     log('Checking for updates...');
 
     const data = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
@@ -250,8 +253,11 @@ async function main() {
     if (!latest) error('Could not determine latest version.');
 
     if (current === latest) {
-        log(`Already up to date (${current}).`);
-        return;
+        try {
+            validatePackage(ROOT);
+            log(`Already up to date (${current}); dependencies verified.`);
+            return;
+        } catch { log('Current installation is incomplete; downloading the same version to repair it.'); }
     }
 
     log(`New version available: ${latest}`);
@@ -289,6 +295,10 @@ async function main() {
     const extractedDir = path.join(tmpDir, 'extracted');
     const extractedRoot = resolveExtractedRoot(extractedDir);
     validateExtractedRoot(extractedRoot);
+    const certificate = path.join(ROOT, 'server', 'node', 'ssl', 'certificate');
+    if (fs.existsSync(certificate)) {
+        fs.cpSync(certificate, path.join(extractedRoot, 'server', 'node', 'ssl', 'certificate'), { recursive: true });
+    }
     const currentBin = path.join(ROOT, 'bin');
     const newBin = path.join(extractedRoot, 'bin');
     const skipBinReplacement = fs.existsSync(currentBin)
@@ -300,7 +310,7 @@ async function main() {
 
     // Phase 1: move old files to backup (safer than immediate delete)
     log('Replacing files...');
-    const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
+    const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable', 'update.log', 'update.bat']);
     if (isWin || skipBinReplacement) keep.add('bin');
     const customBackupKeep = getCustomBackupKeepEntry();
     if (customBackupKeep && !keep.has(customBackupKeep)) {
@@ -326,7 +336,7 @@ async function main() {
 
     // Phase 2: move new files from extracted to root
     const moved = [];
-    const skipMove = new Set(['save', 'scripts']);
+    const skipMove = new Set(['save', 'scripts', 'update.bat']);
     if (isWin || skipBinReplacement) skipMove.add('bin');
     try {
         for (const entry of fs.readdirSync(extractedRoot)) {
@@ -349,6 +359,7 @@ async function main() {
                 throw new Error(`Required file was not installed: dist/${file}`);
             }
         }
+        validatePackage(ROOT);
     } catch (e) {
         // Restore from backup on failure
         log(`Error moving files: ${e.message}`);

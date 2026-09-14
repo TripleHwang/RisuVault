@@ -1,4 +1,5 @@
 const express = require('express');
+const { validatePackage, stageWindowsUpdate, restoreEntries } = require('./portable-update.cjs');
 const app = express();
 const http = require('http');
 const https = require('https');
@@ -6411,7 +6412,7 @@ app.post('/api/self-update', async (req, res) => {
         }
 
         // 4. Validate extracted package (mirrors updater.cjs validateExtractedRoot)
-        const REQUIRED_ENTRIES = ['dist', 'server', 'package.json'];
+        const REQUIRED_ENTRIES = ['dist', 'server', 'package.json', 'node_modules'];
         const REQUIRED_DIST_FILES = ['index.html'];
         for (const entry of REQUIRED_ENTRIES) {
             try { await fs.access(path.join(sourceDir, entry)); }
@@ -6426,7 +6427,25 @@ app.post('/api/self-update', async (req, res) => {
             catch { throw new Error('Downloaded Windows package is missing bin/'); }
         }
 
-        // 5. Replace files (follows updater.cjs Phase 1-4 pattern)
+        validatePackage(sourceDir);
+        if (process.platform === 'win32') {
+            send('replacing', null, 'Preparing update; files will be replaced after server shutdown...');
+            stopTunnel();
+            await flushPendingDb();
+            const helper = await stageWindowsUpdate(process.cwd(), sourceDir, process.pid);
+            try { await flushPendingDb(); }
+            catch (error) { helper.kill(); throw error; }
+            send('restarting', null, 'Installing and checking the new server. See update.log if restart fails.');
+            res.end();
+            // Staging is complete on the installation volume. Download cleanup
+            // is independent of the installer's backup and journal.
+            fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+            tmpDir = null;
+            setTimeout(() => process.exit(0), 100);
+            return;
+        }
+
+        // 5. Replace files (Unix)
         // Stop tunnel before replacing files to avoid file lock issues
         stopTunnel();
         send('replacing', null, 'Replacing files...');
@@ -6436,11 +6455,10 @@ app.post('/api/self-update', async (req, res) => {
 
         // Restore from a previous interrupted update if leftover exists
         const prevBackup = path.join(updateTmp, 'backup');
-        try {
-            await fs.access(prevBackup);
+        if (existsSync(prevBackup)) {
             console.log('[Update] Restoring files from previous interrupted update...');
             await restoreBackup(prevBackup, appDir);
-        } catch { /* no leftover */ }
+        }
         await fs.rm(updateTmp, { recursive: true, force: true }).catch(() => {});
         await fs.mkdir(updateTmp, { recursive: true });
 
@@ -6454,7 +6472,7 @@ app.post('/api/self-update', async (req, res) => {
         } catch { /* no user certs */ }
 
         // Keep set — matches updater.cjs + user data/config that must survive updates
-        const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
+        const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable', 'update.log']);
         if (isWin) keep.add('bin');
 
         // Phase 1: move old files to backup — rollback immediately on any failure
@@ -6500,6 +6518,7 @@ app.post('/api/self-update', async (req, res) => {
                     throw new Error(`Required file was not installed: dist/${file}`);
                 }
             }
+            validatePackage(appDir);
         } catch (moveErr) {
             logger.error(`[Update] Move failed: ${moveErr.message}`);
             console.log('[Update] Restoring from backup...');
@@ -6547,47 +6566,7 @@ app.post('/api/self-update', async (req, res) => {
 
             const port = process.env.PORT || DEFAULT_PORT;
 
-            if (isWin) {
-                // Windows: use a .bat script to apply bin/, finalize version, and restart.
-                // A bat script can replace bin/node.exe after the Node process exits,
-                // avoiding file-lock issues that a Node child process would hit.
-                const batScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.bat`);
-                const utmp = path.join(appDir, '.update-tmp');
-                const binDir = path.join(appDir, 'bin');
-                const binBackup = path.join(utmp, 'old-bin');
-                const batLines = [
-                    '@echo off',
-                    'timeout /t 3 /nobreak >nul',
-                    // Apply staged bin/: backup current → copy new → on failure restore backup
-                    `if exist "${path.join(utmp, 'new-bin')}\\" (`,
-                    `  if exist "${binDir}\\" (`,
-                    `    xcopy /E /I /Y "${binDir}\\*" "${binBackup}\\" >nul`,
-                    `  )`,
-                    `  xcopy /E /I /Y "${path.join(utmp, 'new-bin')}\\*" "${binDir}\\" >nul`,
-                    `  if errorlevel 1 (`,
-                    `    echo [Update] bin/ copy failed, restoring backup...`,
-                    `    if exist "${binBackup}\\" (`,
-                    `      xcopy /E /I /Y "${binBackup}\\*" "${binDir}\\" >nul`,
-                    `    )`,
-                    `    echo [Update] bin/ restored. Staged files kept for retry.`,
-                    `    goto start`,
-                    `  )`,
-                    `)`,
-                    // Finalize version marker only after successful bin/ copy
-                    `if exist "${path.join(utmp, 'latest-version')}" (`,
-                    `  copy /Y "${path.join(utmp, 'latest-version')}" "${path.join(appDir, '.installed-version')}" >nul`,
-                    `)`,
-                    // Cleanup .update-tmp (includes old-bin backup)
-                    `rmdir /s /q "${utmp}" 2>nul`,
-                    ':start',
-                    // Start server with correct working directory
-                    `cd /d "${appDir}"`,
-                    `start "" "${path.join(appDir, 'bin', 'node.exe')}" "${path.join(appDir, 'server', 'node', 'server.cjs')}"`,
-                    'exit /b 0',
-                ];
-                writeFileSync(batScript, batLines.join('\r\n'));
-                spawn('cmd.exe', ['/c', batScript], { detached: true, stdio: 'ignore' }).unref();
-            } else {
+            {
                 // Unix: Node restart helper with port-check to avoid clashing with process managers
                 const restartScript = path.join(os.tmpdir(), `risu-restart-${Date.now()}.cjs`);
                 writeFileSync(restartScript, [
@@ -6644,15 +6623,8 @@ async function moveAcrossVolumes(src, dest) {
 
 // Helper: restore files from backup directory into app root (mirrors updater.cjs restoreBackupIntoRoot)
 async function restoreBackup(backupDir, rootDir) {
-    try { await fs.access(backupDir); } catch { return; }
-    for (const entry of await fs.readdir(backupDir)) {
-        const src = path.join(backupDir, entry);
-        const dest = path.join(rootDir, entry);
-        try {
-            await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
-            await moveAcrossVolumes(src, dest);
-        } catch { /* best effort */ }
-    }
+    if (!existsSync(backupDir)) return;
+    restoreEntries(rootDir, backupDir, await fs.readdir(backupDir));
 }
 
 // ── Cloudflare Quick Tunnel API ──────────────────────────────────────────────
