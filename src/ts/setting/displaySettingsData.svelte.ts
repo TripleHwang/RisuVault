@@ -20,7 +20,7 @@ export const displayThemeSettingsItems: SettingItem[] = [
         onChange: () => updateTextThemeAndCSS(),
         options: {
             selectOptions: [
-                { value: '', label: 'RisuBard Standard' },
+                { value: '', label: 'RisuVault Standard' },
                 { value: 'standardRisu', label: 'Standard Risu' },
                 { value: 'waifu', label: 'Waifulike' },
                 { value: 'mobilechat', label: 'Mobile Chat' },

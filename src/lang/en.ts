@@ -60,7 +60,7 @@ export const languageEnglish = {
         vertexAuthError: "Vertex AI authentication details are missing.",
         networkFetch: "This happens when the network is unstable or the server is down.",
         networkFetchWeb:
-            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of RisuBard.",
+            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of RisuVault.",
         networkFetchPlain: "This can be a plain fetch error. try disabling force plain fetch option in settings.",
         requestLogRemoved: "This request log is removed.",
         requestLogRemovedDesc: "This request log removes when client is refreshed or reloaded.",
@@ -90,13 +90,13 @@ export const languageEnglish = {
         themeDescClassic: "Suitable for All devices",
         texttheme: "Select your text color",
         inputName: "Lastly, Input your Nickname.",
-        welcome: "Welcome to RisuBard! I am Airisu, I am here guide you to setup RisuBard. First, What may I call you?",
+        welcome: "Welcome to RisuVault! I am Airisu, I am here guide you to setup RisuVault. First, What may I call you?",
         welcome2: "Hello {username}! before we start, I will ask you some questions. You can change these settings later in settings.\n\nFirst select the AI provider.",
         openRouterProvider: "OpenRouter has a lot of models, some of them unfiltered and some of them free, but it is not as good as OpenAI.",
         hordeProvider: "Horde is a free provider, but the response time is long and the quality is low.",
         setProviderLater: "There are other providers, but you can set it later in settings. select this if you want to set it later.",
         setupOpenAI:
-            "To use OpenAI, you need to get an API key. \n1. go to https://beta.openai.com/ \n2. login with your account \n3. go to https://beta.openai.com/account/api-keys \n4. click 'Create New API Key' and name your key whatever you want. \n5. copy the key in the website.\n6. go back to RisuBard\n7. paste it, and click send button.",
+            "To use OpenAI, you need to get an API key. \n1. go to https://beta.openai.com/ \n2. login with your account \n3. go to https://beta.openai.com/account/api-keys \n4. click 'Create New API Key' and name your key whatever you want. \n5. copy the key in the website.\n6. go back to RisuVault\n7. paste it, and click send button.",
         setupClaude: "To use Claude, you need to get an API key.",
         setupClaudeSteps: [
             "Go to this URL and Login as Google",
@@ -113,7 +113,7 @@ export const languageEnglish = {
             "Copy the key, and paste it in here and send it.",
         ],
         setupOpenRouter:
-            "To use OpenRouter, you need to get an API key. \n1. go to https://openrouter.ai/keys\n2. click 'Create Key'\n3. set key name whatever you want.\n4. copy the key in the website\n5. go back to RisuBard\n6. paste it, and click send button.",
+            "To use OpenRouter, you need to get an API key. \n1. go to https://openrouter.ai/keys\n2. click 'Create Key'\n3. set key name whatever you want.\n4. copy the key in the website\n5. go back to RisuVault\n6. paste it, and click send button.",
         allDone: "All Done! please wait a moment.",
         setupLaterMessage: "Welcome {username}! do you want me to guide you to setup or do it yourself?",
         setupMessageOption1: "Guide me to setup",
@@ -869,8 +869,8 @@ export const languageEnglish = {
     chatWidthStandard: "Standard",
     chatWidthWide: "Wide",
     chatWidthFull: "No Limit",
-    customCSSWarning: "RisuBard's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom CSS may break the layout or behave unexpectedly. Use only when you know what you are overriding.",
-    customHTMLWarning: "RisuBard's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom Chat HTML may not render correctly. Use only when you know what you are overriding.",
+    customCSSWarning: "RisuVault's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom CSS may break the layout or behave unexpectedly. Use only when you know what you are overriding.",
+    customHTMLWarning: "RisuVault's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom Chat HTML may not render correctly. Use only when you know what you are overriding.",
     sayNothing: "Input 'say nothing' when no string inputed",
     regexScript: "Regex Script",
     type: "Type",
@@ -906,7 +906,7 @@ export const languageEnglish = {
         aiWorkspace: {
             eyebrow: "Generation workspace",
             title: "AI & generation",
-            description: "Choose how RisuBard generates, structures, and supports text. Existing settings remain intact, now organized by purpose in one workspace.",
+            description: "Choose how RisuVault generates, structures, and supports text. Existing settings remain intact, now organized by purpose in one workspace.",
             sectionNavigation: "AI settings sections",
             currentSection: "Current section",
             recommended: "Recommended",
@@ -1329,7 +1329,7 @@ export const languageEnglish = {
     webdeeplwarn: "This option is not recommended for use with web version, as it can cause CORS errors.",
     saveBackupLocal: "Save Backup Locally",
     saveBackupForUpstream: "Save Backup for Original RisuAI",
-    saveBackupForUpstreamConfirm: "This backup is intended for moving your data to the original RisuAI (web/Tauri). Inlay images are excluded because their entry names use a layout that the original RisuAI cannot import. Other data (database, character assets, cold storage) is included.\n\nFor moving data between RisuBard installations, use the regular local backup instead.\n\nProceed?",
+    saveBackupForUpstreamConfirm: "This backup is intended for moving your data to the original RisuAI (web/Tauri). Inlay images are excluded because their entry names use a layout that the original RisuAI cannot import. Other data (database, character assets, cold storage) is included.\n\nFor moving data between RisuVault installations, use the regular local backup instead.\n\nProceed?",
     loadBackupLocal: "Load Backup Locally",
     topP: "Top P",
     genTimes: "Generation Choices",
@@ -1419,7 +1419,7 @@ export const languageEnglish = {
     antiClaudeOverload: "Anti-Claude Overload",
     activeTabChange: "Current tab is inactivated since other tab is active. to activate this tab, click OK",
     sessionHandoffReload: "Refreshed to the latest state because another device was in use.",
-    canonicalFilesChangedReload: "External file edits were detected. RisuBard kept the newer files and refreshed them.",
+    canonicalFilesChangedReload: "External file edits were detected. RisuVault kept the newer files and refreshed them.",
     addCharacter: "Add Character",
     importFromRealm: "Choose from RisuRealm",
     importFromRealmDesc: "Choose over 1000 characters in RisuRealm",
@@ -1449,8 +1449,8 @@ export const languageEnglish = {
     share: "Share",
     manageCharacter: "Manage",
     shareExport: "Share/Export",
-    risupresetDesc: "Risupreset format is a format specifically designed for RisuBard presets.",
-    risuMDesc: "RisuM format is a format that is specifically designed for RisuBard modules.",
+    risupresetDesc: "Risupreset format is a format specifically designed for RisuVault presets.",
+    risuMDesc: "RisuM format is a format that is specifically designed for RisuVault modules.",
     jsonDesc: "JSON format is a format that is easy to read and write for both humans and machines.",
     nickname: "Nickname",
     useRegexLorebook: "Use Regex",
@@ -1736,7 +1736,7 @@ export const languageEnglish = {
     home: "Home",
     showSavingIcon: "Show Saving Icon",
     pluginVersionWarn:
-        "This is {{plugin_version}} version of the plugin. which is not compatible with this version of RisuBard. please update the plugin to {{required_version}} version.",
+        "This is {{plugin_version}} version of the plugin. which is not compatible with this version of RisuVault. please update the plugin to {{required_version}} version.",
     imageTranslation: "Image Translation",
     banCharacterset: "Auto Regenerate On Characterset",
     realmDirectOpen: "Directly open character in RisuRealm",
@@ -1969,7 +1969,7 @@ export const languageEnglish = {
     modelModeLockLegacy: "Lock to legacy model mode",
     modelModeLockLegacyDesc: "Use the original RisuAI model system",
     modelModeLockPreset: "Lock to model preset mode",
-    modelModeLockPresetDesc: "Use RisuBard's model preset binding system",
+    modelModeLockPresetDesc: "Use RisuVault's model preset binding system",
     modelModeLockNone: "No lock",
     modelModeLockNoneDesc: "Choose the mode per chat",
     newChatModelModeLabel: "Default model mode for new chats",
@@ -2067,10 +2067,10 @@ export const languageEnglish = {
     nightlyWarning:
         "## Nightly Builds\n\nYou are connecting to a nightly build of the software. This version is meant for testing and most likely contains bugs. **In this version, even if you encounter issues, we do not support resolving them directly.**",
     loginSionyw: "Login with Sionyw Account",
-    pluginRiskDetectedAlert: "RisuBard detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. we recommend you to NOT INSTALL THIS PLUGIN.",
+    pluginRiskDetectedAlert: "RisuVault detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. we recommend you to NOT INSTALL THIS PLUGIN.",
     doNotInstall: "Do Not Install",
     continueAnyway: "Continue Anyway",
-    pluginNoRiskButAlert: "RisuBard did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
+    pluginNoRiskButAlert: "RisuVault did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
 
     pluginRisksInuserFriendly: {
         eval: "Evaluating Code from Strings",
@@ -2135,8 +2135,8 @@ export const languageEnglish = {
     partialBackupFirstConfirm: "⚠️ WARNING: Partial Local Backup ⚠️\n\nThis backup quickly saves only essential information.\n\nIncluded:\n- Database (chat history, characters, modules, plugins, prompts, settings, etc.)\n- Character profile icons (main images)\n- User icons and custom backgrounds\n- Persona icons\n- Folder images\n- Bot preset images\n\n⚠️ NOT Included:\n- Emotion images\n- Additional character assets\n- VITS voice files\n- All other additional media files\n\nThis backup file does NOT include all character assets!\nIf you need a complete backup, use the regular local backup.\n\nDo you want to continue?",
     partialBackupSecondConfirm: "⚠️⚠️ FINAL WARNING ⚠️⚠️\n\nThis backup saves only character profile images and does NOT save most other assets!\n\nWhat will be saved:\n- Database (chat history, characters, modules, plugins, prompts, settings, etc.)\n- Character profile icons (main images)\n- User icons and custom backgrounds\n- Persona icons\n- Folder images\n- Bot preset images\n\nWhat will NOT be saved:\n- Emotion images\n- Additional character assets\n- VITS voice files\n- All other media files\n\n⚠️ Proceed ONLY if you don't need character assets in your backup file! ⚠️\n\nAre you really sure you want to proceed with partial backup?",
     savePartialLocalBackup: "Save Partial Backup Locally (Excluding Character Assets)",
-    serverBackupHeader: "RisuBard Server Backup",
-    serverBackupDesc: "Save and restore backup files directly on the device (server) where RisuBard is installed, without downloading.",
+    serverBackupHeader: "RisuVault Server Backup",
+    serverBackupDesc: "Save and restore backup files directly on the device (server) where RisuVault is installed, without downloading.",
     serverBackupSave: "Save Backup to Server",
     serverBackupManage: "Manage Server Backups",
     serverBackupSaving: "Saving backup to server...",
@@ -2235,7 +2235,7 @@ export const languageEnglish = {
     togglePresetExported: (name: string) => `Preset "${name}" exported.`,
     longPressToPopupEditor: "Long press to open popup editor",
     showInputActionBar: "Show input action bar",
-    importSaveFolderHeader: "Load Save into RisuBard",
+    importSaveFolderHeader: "Load Save into RisuVault",
     importSaveZip: "Load from Save Folder (Zip Upload)",
     importSaveZipDesc: "Compress your existing RisuAI project's save folder into a zip file and upload it here to import your data. Uploading may fail if the zip file is too large — in that case, copy the save folder directly into the server's save directory and restart to migrate automatically.",
     importSaveFolderScanning: "Scanning save folder...",
@@ -2299,7 +2299,7 @@ export const languageEnglish = {
     searchSettingsHint: "Search by setting name or keyword",
     // Remote Access (Cloudflare Quick Tunnel)
     remoteAccess: "Remote Access",
-    remoteAccessDesc: "Use a remote access link to connect to this RisuBard server from another device.",
+    remoteAccessDesc: "Use a remote access link to connect to this RisuVault server from another device.",
     remoteAccessOpen: "Open Remote Access",
     remoteAccessClose: "Close Remote Access",
     remoteAccessCloseConfirm: "Close remote access? The link will expire.",
@@ -2479,7 +2479,7 @@ export const languageEnglish = {
     storageDiskHeaderUnknown: "Disk size unavailable",
     storageDiskOther: "Other (system & apps)",
     storageDiskFree: "Free",
-    storageDiskRisuTotal: (size: number) => `RisuBard total: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    storageDiskRisuTotal: (size: number) => `RisuVault total: ${(size / 1024 / 1024).toFixed(1)} MB`,
 
     // Per-row labels (shown in the breakdown list with ⓘ explanations)
     storageRowDbFile: "File data root",
@@ -2507,7 +2507,7 @@ export const languageEnglish = {
     storageRowReclaimable: (size: number) =>
         `${(size / 1024 / 1024).toFixed(1)} MB reclaimable — run Optimize to compact.`,
     storageInternalOnly: "Show with full disk",
-    storageInternalOnlyHint: "Off shows only RisuBard items; on includes system & free space relative to the disk.",
+    storageInternalOnlyHint: "Off shows only RisuVault items; on includes system & free space relative to the disk.",
 
     // 2 GB BLOB limit (separate section)
     storageBlobLimit: "Compatibility projection size",
@@ -2576,7 +2576,7 @@ export const languageEnglish = {
 
     // Data migration (formerly "Account & Files")
     migration: "Data Migration",
-    migrationDesc: "Move data between RisuAI (or compatible systems) and RisuBard: import from upstream, or export to upstream-compatible format.",
+    migrationDesc: "Move data between RisuAI (or compatible systems) and RisuVault: import from upstream, or export to upstream-compatible format.",
     migrationInfoBackupMoved: "Full backup export and settings backup have moved to [System → Backups].",
     migrationGotoBackupTab: "Open Backups tab",
     migrationLegacyAccordion: "RisuAI-style backup (legacy)",
@@ -2691,7 +2691,7 @@ export const languageEnglish = {
     moveInsteadOfCopyOnCMPConvert: "Move Instead of Copy on CMP Convert",
 
     showRequestStatus: "Show request status",
-    risuBardMemoryWiki: "BARDWIKI - RisuBard Memory",
+    risuBardMemoryWiki: "BARDWIKI - RisuVault Memory",
     risuBardMemoryWikiDescription: "Inspect current memory and stage explicit writer changes for this chat.",
     risuBardSettings: {
     common: {
@@ -2743,7 +2743,7 @@ export const languageEnglish = {
         remove: "Remove",
         blockPlaceholder: "Tell the wiki-writing AI what this block must track or organize.",
         lockedInjectionDescription: "The Wiki Guide for the current scope is injected here at runtime.",
-        lockedCoreDescription: "Required block that preserves RisuBard's evidence, analysis, and output contracts.",
+        lockedCoreDescription: "Required block that preserves RisuVault's evidence, analysis, and output contracts.",
         injectionTitle: "Wiki Guide Injection",
         injectionDescription: "Character instructions are applied first, followed by the current chat instructions. They are not added to chat-generation prompts.",
         characterGuide: "Character Wiki Guide",
@@ -2804,7 +2804,7 @@ export const languageEnglish = {
     risuBardActiveFacts: "Active facts",
     risuBardEvents: "Events",
     risuBardInvalidatedFacts: "Invalidated facts",
-    risuBardMemoryEmpty: "No RisuBard memory has been created for this chat yet.",
+    risuBardMemoryEmpty: "No RisuVault memory has been created for this chat yet.",
     risuBardMemoryLoadFailed: "Could not load this chat's memory.",
     risuBardMemoryRefresh: "Refresh",
     risuBardMemoryOpenManual: "Open BARDWIKI",

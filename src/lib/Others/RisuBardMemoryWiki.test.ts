@@ -180,7 +180,7 @@ describe('RisuBardMemoryWiki', () => {
         expect(pluginFabs).toBeGreaterThan(chatPaneStart)
         expect(pluginFabs).toBeLessThan(chatPaneEnd)
         expect(korean).toContain(
-            'risuBardMemoryWiki: "BARDWIKI - 리스바드 메모리"'
+            'risuBardMemoryWiki: "BARDWIKI - RisuVault 메모리"'
         )
     })
 

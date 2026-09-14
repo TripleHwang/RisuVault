@@ -1,5 +1,5 @@
 /**
- * RisuBard NodeOnly — Simplified Chinese help texts (`language.help`).
+ * RisuVault NodeOnly — Simplified Chinese help texts (`language.help`).
  *
  * Extracted from `src/lang/cn.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via `lodash/merge` (see `src/lang/index.ts`).

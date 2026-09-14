@@ -58,7 +58,7 @@ export const languageKorean = {
     networkFetch:
       "네트워크가 불안정하거나 서버가 응답하지 않을 때 자주 발생합니다.",
     networkFetchWeb:
-      "이것은 CORS 오류일 수 있습니다. 이는 브라우저의 제한으로 인해 웹 버전을 사용할 때만 발생합니다. 데스크톱 로컬 버전이나 다른 버전의 리스바드를 사용해보세요.",
+      "이것은 CORS 오류일 수 있습니다. 이는 브라우저의 제한으로 인해 웹 버전을 사용할 때만 발생합니다. 데스크톱 로컬 버전이나 다른 버전의 RisuVault를 사용해보세요.",
     networkFetchPlain:
       "이것은 요청 오류일 수 있습니다. 설정에서 직접 요청 보내기 옵션을 비활성화해 보세요.",
     requestLogRemoved: "요청 로그가 삭제되었습니다.",
@@ -101,9 +101,9 @@ export const languageKorean = {
     texttheme: "텍스트 색상을 선택해주세요",
     inputName: "마지막으로, 닉네임을 입력해 주세요",
     welcome:
-      "리스바드에 오신 것을 환영해요! 저는 리스바드 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
+      "RisuVault에 오신 것을 환영해요! 저는 RisuVault 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
     welcome2:
-      "{username}님 안녕하세요! 리스바드를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
+      "{username}님 안녕하세요! RisuVault를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
     openRouterProvider:
       "OpenRouter는 여러 무료/유료 모델이 있습니다. 기본적으로 무료로 설정됩니다.",
     hordeProvider:
@@ -945,9 +945,9 @@ export const languageKorean = {
   chatWidthWide: "넓게",
   chatWidthFull: "제한 없음",
   customCSSWarning:
-    "리스바드는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 CSS가 레이아웃을 깨거나 의도와 다르게 동작할 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
+    "RisuVault는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 CSS가 레이아웃을 깨거나 의도와 다르게 동작할 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
   customHTMLWarning:
-    "리스바드는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 Chat HTML이 정상적으로 렌더되지 않을 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
+    "RisuVault는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 Chat HTML이 정상적으로 렌더되지 않을 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
   sayNothing: "어떤 문자열도 입력되지 않을 시 'say nothing' 입력",
   regexScript: "정규식 스크립트",
   type: "타입",
@@ -983,7 +983,7 @@ export const languageKorean = {
     aiWorkspace: {
       eyebrow: "생성 작업공간",
       title: "AI 및 생성",
-      description: "리스바드가 글을 생성하고 구성하며 보조하는 방식을 설정합니다. 기존 설정값은 그대로 유지하면서 목적별로 한곳에 정리했습니다.",
+      description: "RisuVault가 글을 생성하고 구성하며 보조하는 방식을 설정합니다. 기존 설정값은 그대로 유지하면서 목적별로 한곳에 정리했습니다.",
       sectionNavigation: "AI 설정 섹션",
       currentSection: "현재 섹션",
       recommended: "권장",
@@ -1413,7 +1413,7 @@ export const languageKorean = {
   saveBackupLocal: "로컬 백업 저장",
   saveBackupForUpstream: "원본 리스용 백업 내보내기",
   saveBackupForUpstreamConfirm:
-    "이 백업은 원본 RisuAI(웹·Tauri)로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\n포켓리스 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
+    "이 백업은 원본 RisuAI(웹·Tauri)로 데이터를 옮기기 위한 용도입니다. 인레이 이미지는 entry 이름 형식이 원본 RisuAI 임포트와 호환되지 않아 제외됩니다. 그 외 데이터(데이터베이스, 캐릭터 에셋, 콜드 스토리지)는 포함됩니다.\n\nRisuVault 사이의 데이터 이동에는 일반 로컬 백업을 사용하세요.\n\n계속하시겠습니까?",
   loadBackupLocal: "로컬 백업 불러오기",
   topP: "Top P",
   genTimes: "생성 횟수",
@@ -1547,8 +1547,8 @@ export const languageKorean = {
   manageCharacter: "관리",
   shareExport: "공유/엑스포트",
   risupresetDesc:
-    "Risupreset 포맷은 포맷을 공유하기 위한 리스바드 전용 포맷입니다.",
-  risuMDesc: "RisuM 포맷은 리스바드 모듈을 위해 특별히 설계된 포맷입니다.",
+    "Risupreset 포맷은 포맷을 공유하기 위한 RisuVault 전용 포맷입니다.",
+  risuMDesc: "RisuM 포맷은 RisuVault 모듈을 위해 특별히 설계된 포맷입니다.",
   jsonDesc: "JSON은 데이터를 저장하고 불러오기 위한 일반적인 포맷입니다.",
   nickname: "닉네임",
   useRegexLorebook: "정규식 사용",
@@ -1847,7 +1847,7 @@ export const languageKorean = {
   home: "홈",
   showSavingIcon: "저장 아이콘 표시",
   pluginVersionWarn:
-    "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 리스바드와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
+    "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 RisuVault와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
   imageTranslation: "이미지 번역",
   banCharacterset: "문자 집합으로 자동 재생성",
   realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
@@ -2091,7 +2091,7 @@ export const languageKorean = {
   modelModeLockLegacy: "레거시 모델 모드 고정",
   modelModeLockLegacyDesc: "기존 RisuAI의 모델 시스템을 사용합니다",
   modelModeLockPreset: "모델 프리셋 모드 고정",
-  modelModeLockPresetDesc: "포켓리스의 모델 프리셋 바인딩 시스템을 사용합니다",
+  modelModeLockPresetDesc: "RisuVault의 모델 프리셋 바인딩 시스템을 사용합니다",
   modelModeLockNone: "고정 없음",
   modelModeLockNoneDesc: "채팅별로 설정을 지정합니다",
   newChatModelModeLabel: "신규 채팅 기본 모델 모드",
@@ -2196,11 +2196,11 @@ export const languageKorean = {
     "## 나이틀리 빌드\n\n나이틀리 빌드에 연결하려고 합니다. 이 버전은 테스트용이며 버그가 포함되어 있을 수 있습니다. **이 버전에서는 버그 등 문제가 발생하더라도 직접적으로 해결하는 것을 지원하지 않습니다.**",
   loginSionyw: "Sionyw 계정으로 로그인",
   pluginRiskDetectedAlert:
-    "리스바드가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
+    "RisuVault가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
   doNotInstall: "설치하지 않음",
   continueAnyway: "무시하고 계속",
   pluginNoRiskButAlert:
-    "리스바드가 위험한 코드를 감지하지 못했지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
+    "RisuVault가 위험한 코드를 감지하지 못했지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
   pluginRisksInuserFriendly: {
     eval: "문자열에서 코드 실행",
     globalAccess: "글로벌 변수 접근",
@@ -2279,9 +2279,9 @@ export const languageKorean = {
   partialBackupSecondConfirm:
     "⚠️⚠️ 최종 경고 ⚠️⚠️\n\n이 백업은 캐릭터의 프로필 이미지만 저장하며, 나머지 대부분의 에셋은 저장하지 않습니다!\n\n저장되는 것:\n- 데이터베이스 (채팅 기록, 캐릭터, 모듈, 플러그인, 프롬프트, 설정 등)\n- 캐릭터 프로필 아이콘 (메인 이미지)\n- 사용자 아이콘 및 커스텀 배경\n- 페르소나 아이콘\n- 폴더 이미지\n- 봇 프리셋 이미지\n\n저장되지 않는 것:\n- 감정 이미지\n- 추가 캐릭터 에셋\n- VITS 음성 파일\n- 기타 모든 미디어 파일\n\n⚠️ 백업 파일에 캐릭터 에셋이 필요하지 않은 경우에만 진행하세요! ⚠️\n\n정말로 부분 백업을 진행하시겠습니까?",
   savePartialLocalBackup: "부분 로컬 백업 저장 (캐릭터 에셋 제외)",
-  serverBackupHeader: "포켓리스 서버 백업",
+  serverBackupHeader: "RisuVault 서버 백업",
   serverBackupDesc:
-    "다운로드 없이 포켓리스가 설치된 기기(서버)에 직접 백업 파일을 저장하고 복원합니다.",
+    "다운로드 없이 RisuVault가 설치된 기기(서버)에 직접 백업 파일을 저장하고 복원합니다.",
   serverBackupSave: "서버에 백업 저장",
   serverBackupManage: "서버 백업 관리",
   serverBackupSaving: "서버에 백업 저장 중...",
@@ -2376,7 +2376,7 @@ export const languageKorean = {
   togglePresetDuplicated: (name: string) => `"${name}"으로 복제되었습니다.`,
   togglePresetDeleted: (name: string) => `"${name}" 프리셋을 삭제했습니다.`,
   togglePresetExported: (name: string) => `"${name}" 프리셋을 내보냈습니다.`,
-  importSaveFolderHeader: "포켓리스로 세이브 불러오기",
+  importSaveFolderHeader: "RisuVault로 세이브 불러오기",
   importSaveZip: "Save 폴더에서 불러오기 (Zip 업로드)",
   importSaveZipDesc:
     "사용하던 RisuAI 프로젝트의 save 폴더를 zip으로 압축한 뒤 여기에 업로드하면 데이터를 불러올 수 있습니다. 압축 파일 용량이 큰 경우 업로드에 실패할 수 있으며, 이 경우엔 서버의 save 폴더에 직접 복사한 후 재시작하면 자동으로 마이그레이션됩니다.",
@@ -2451,7 +2451,7 @@ export const languageKorean = {
   // 원격 접속 (Cloudflare Quick Tunnel)
   remoteAccess: "원격 접속",
   remoteAccessDesc:
-    "원격 접속 링크를 사용하여 다른 기기에서 이 포켓리스 서버에 접속할 수 있습니다.",
+    "원격 접속 링크를 사용하여 다른 기기에서 이 RisuVault 서버에 접속할 수 있습니다.",
   remoteAccessOpen: "원격 접속 열기",
   remoteAccessClose: "원격 접속 닫기",
   remoteAccessCloseConfirm: "원격 접속을 닫을까요? 링크가 만료됩니다.",
@@ -2649,7 +2649,7 @@ export const languageKorean = {
   storageDiskOther: "기타 (시스템 및 다른 앱)",
   storageDiskFree: "여유 공간",
   storageDiskRisuTotal: (size: number) =>
-    `리스바드 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    `RisuVault 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
 
   // 항목별 라벨 (분포 리스트의 ⓘ 설명)
   storageRowDbFile: "파일 데이터 루트",
@@ -2687,7 +2687,7 @@ export const languageKorean = {
     `${(size / 1024 / 1024).toFixed(1)} MB 회수 가능 — Optimize로 압축.`,
   storageInternalOnly: "저장공간과 함께보기",
   storageInternalOnlyHint:
-    "끄면 리스바드 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
+    "끄면 RisuVault 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
   // 2 GB BLOB 한계 (별도 섹션)
   storageBlobLimit: "호환 투영본 크기",
@@ -2768,7 +2768,7 @@ export const languageKorean = {
   // 데이터 이전 (구 "계정 & 파일")
   migration: "데이터 이전",
   migrationDesc:
-    "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 리스바드 데이터를 원본 호환 형식으로 내보냅니다.",
+    "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 RisuVault 데이터를 원본 호환 형식으로 내보냅니다.",
   migrationInfoBackupMoved:
     "전체 백업 내보내기와 설정 백업은 [시스템 → 백업] 탭으로 이동했습니다.",
   migrationGotoBackupTab: "백업 탭 열기",
@@ -2777,7 +2777,7 @@ export const languageKorean = {
     "원본 RisuAI 호환 포맷으로 백업·내보내기를 수행하는 보조 기능들입니다. 일반적인 백업 작업은 백업 탭을 사용하세요.",
   migrationSaveFolderAccordion: "노드리스에서 save 폴더 가져오기",
   migrationSaveFolderDesc:
-    "이전에 사용하던 노드리스/RisuAI 인스턴스의 save 폴더를 리스바드로 가져올 때 사용합니다.",
+    "이전에 사용하던 노드리스/RisuAI 인스턴스의 save 폴더를 RisuVault로 가져올 때 사용합니다.",
   migrationLoadUpstreamBackup: "원본 리스 로컬 백업 불러오기",
 
   // 시스템 → 백업 탭
@@ -2895,7 +2895,7 @@ export const languageKorean = {
   hideRecentChats: "대화 목록 숨기기",
 
   showRequestStatus: "요청 상태 표시",
-  risuBardMemoryWiki: "BARDWIKI - 리스바드 메모리",
+  risuBardMemoryWiki: "BARDWIKI - RisuVault 메모리",
   risuBardMemoryWikiDescription: "현재 메모리를 살펴보고 명시적인 작가 변경을 준비할 수 있습니다.",
   risuBardSettings: {
     common: {
@@ -2947,7 +2947,7 @@ export const languageKorean = {
     remove: "삭제",
     blockPlaceholder: "이 블록에서 위키 작성 AI가 추적하거나 정리할 항목을 지시하세요.",
     lockedInjectionDescription: "실행 시 현재 범위의 Wiki Guide가 여기에 주입됩니다.",
-    lockedCoreDescription: "리스바드의 근거·분석·출력 계약을 유지하는 필수 블록입니다.",
+    lockedCoreDescription: "RisuVault의 근거·분석·출력 계약을 유지하는 필수 블록입니다.",
     injectionTitle: "Wiki Guide Injection",
     injectionDescription: "캐릭터 지시를 먼저 적용하고 현재 챗 지시를 그 뒤에 추가합니다. 대화 생성 프롬프트에는 들어가지 않습니다.",
     characterGuide: "캐릭터 Wiki Guide",
@@ -3008,7 +3008,7 @@ export const languageKorean = {
   risuBardActiveFacts: "활성 사실",
   risuBardEvents: "사건 기록",
   risuBardInvalidatedFacts: "무효화된 사실",
-  risuBardMemoryEmpty: "이 채팅에는 아직 리스바드 메모리가 없습니다.",
+  risuBardMemoryEmpty: "이 채팅에는 아직 RisuVault 메모리가 없습니다.",
   risuBardMemoryLoadFailed: "이 채팅의 메모리를 불러오지 못했습니다.",
   risuBardMemoryRefresh: "새로고침",
   risuBardMemoryOpenManual: "BARDWIKI 열기",
