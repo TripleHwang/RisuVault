@@ -68,6 +68,15 @@ describe('RisuRealm browser experience', () => {
         expect(popup).not.toContain('role="button" tabindex="0" onclick={() => {\n    openedData = null')
     })
 
+    test('keeps the Realm detail actions reachable on short mobile viewports', () => {
+        const popup = source('RealmPopUp.svelte')
+
+        expect(popup).toContain('max-h-[calc(100dvh-1rem)]')
+        expect(popup).toContain('bodyClass="min-h-0 min-w-0 flex-1 overflow-y-auto"')
+        expect(popup).toContain('max-h-none')
+        expect(popup).toContain('md:max-h-64 md:overflow-y-auto')
+    })
+
     test('uses current theme-token surfaces for the browser and cards', () => {
         const main = source('RealmMain.svelte')
         const card = source('RealmHubIcon.svelte')

@@ -1,3 +1,4 @@
+import { buildChatTurnNavigation } from './chatTurnNavigation'
 import type { Database, LoreBuilderPromptPreset, character, loreBook } from './storage/database.svelte'
 import type { RequestInjectionSource } from './status/requestStatus'
 
@@ -46,6 +47,8 @@ export interface LoreBuilderSelections {
     characterDescription: boolean
     characterLorebook: boolean
     moduleLorebook: boolean
+    messages: boolean
+    messageRange: string
 }
 
 const LORE_BUILDER_SELECTIONS_STORAGE_KEY = 'risubard:lore-builder-selections:v1'
@@ -61,9 +64,12 @@ export function loadLoreBuilderSelections(storage = defaultStorage()): LoreBuild
         const value = JSON.parse(storage.getItem(LORE_BUILDER_SELECTIONS_STORAGE_KEY) ?? 'null')
         if (!value || typeof value !== 'object') return null
         const keys = ['systemPrompt', 'characterDescription', 'characterLorebook', 'moduleLorebook'] as const
-        return keys.every((key) => typeof value[key] === 'boolean')
-            ? Object.fromEntries(keys.map((key) => [key, value[key]])) as unknown as LoreBuilderSelections
-            : null
+        if (!keys.every((key) => typeof value[key] === 'boolean')) return null
+        return {
+            ...Object.fromEntries(keys.map((key) => [key, value[key]])),
+            messages: typeof value.messages === 'boolean' ? value.messages : false,
+            messageRange: typeof value.messageRange === 'string' ? value.messageRange : '',
+        } as LoreBuilderSelections
     }
     catch { return null }
 }
@@ -79,8 +85,32 @@ export interface LoreBuilderSourceSnapshot {
     characterDescription: string
     characterLorebook: string
     moduleLorebook: string
+    messages: LoreBuilderAssistantMessage[]
     characterLorebookSources?: RequestInjectionSource[]
     moduleLorebookSources?: RequestInjectionSource[]
+}
+
+export interface LoreBuilderAssistantMessage {
+    turn: number
+    content: string
+}
+
+export function selectLoreBuilderMessages(
+    messages: readonly LoreBuilderAssistantMessage[],
+    range: string,
+): LoreBuilderAssistantMessage[] {
+    const value = range.trim()
+    if (/^-[1-9]\d*$/.test(value)) return messages.slice(-Number(value.slice(1)))
+    if (/^[1-9]\d*$/.test(value)) {
+        const turn = Number(value)
+        return messages.filter((message) => message.turn === turn)
+    }
+    const match = value.match(/^([1-9]\d*)\s*-\s*([1-9]\d*)$/)
+    if (!match) return []
+    const start = Number(match[1])
+    const end = Number(match[2])
+    if (start > end) return []
+    return messages.filter((message) => message.turn >= start && message.turn <= end)
 }
 
 interface LorebookSnapshot {
@@ -150,11 +180,18 @@ export function collectLoreBuilderSources(input: {
         .filter((entry) => entry.id !== input.targetEntryId).map((entry) => ({ entry })))
     const moduleLorebook = formatLorebooks(input.moduleLorebooks
         .filter(({ entry }) => entry.id !== input.targetEntryId))
+    const chatMessages = input.character?.chats?.[input.character.chatPage]?.message ?? []
+    const navigation = buildChatTurnNavigation(chatMessages)
+    const messages = navigation.messageIndexByTurn.map((messageIndex) => ({
+        turn: navigation.turnByMessageIndex.get(messageIndex)!,
+        content: chatMessages[messageIndex].data.trim(),
+    })).filter((message) => message.content)
     return {
         systemPrompt: resolveSystemPrompt(input.database, input.character, input.parsePrompt),
         characterDescription: resolveCharacterDescription(input.character),
         characterLorebook: characterLorebook.content,
         moduleLorebook: moduleLorebook.content,
+        messages,
         characterLorebookSources: characterLorebook.sources,
         moduleLorebookSources: moduleLorebook.sources,
     }
@@ -222,6 +259,21 @@ export function buildLoreBuilderMessages(input: {
                 : [{ kind, name: title, role: 'user' as const, content }]))
             return content
         })
+    if (input.selections.messages) {
+        const selectedMessages = selectLoreBuilderMessages(input.sources.messages, input.selections.messageRange)
+        if (selectedMessages.length) {
+            const messageContent = selectedMessages
+                .map((message) => `## 턴 ${message.turn}\n${message.content}`)
+                .join('\n\n')
+            contexts.push(block('context', 'assistant_messages', '메시지', messageContent))
+            userSources.push(...selectedMessages.map((message) => ({
+                kind: 'chatHistory' as const,
+                name: `턴 ${message.turn}`,
+                role: 'assistant' as const,
+                content: message.content,
+            })))
+        }
+    }
     const draft = input.draft.trim() ? block('draft', 'current_lore', '현재 로어 본문', input.draft) : ''
     if (draft) userSources.push({ kind: 'lorebook', name: '현재 로어 본문', role: 'user', content: draft })
     const instruction = `# 사용자 OOC 지시\n${escapeBlockClosers(input.userInstruction.trim())}`

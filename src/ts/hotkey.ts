@@ -38,7 +38,7 @@ export function initHotkey(){
             }
             switch(hotkey.action){
                 case 'reroll':{
-                    clickQuery('.button-icon-reroll')
+                    clickQuery('[data-hotkey-action="reroll"]')
                     break
                 }
                 case 'unreroll':{

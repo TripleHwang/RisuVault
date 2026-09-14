@@ -117,7 +117,6 @@ import { completeMemoryWikiFork } from '../risubard/memoryWikiFork';
 import {
     beginWikiGeneration,
     endWikiGeneration,
-    isWikiGenerating,
 } from '../risubard/wikiGenerationState';
 import { composePromptBlockOverlay } from '../promptBlockOverlay';
 
@@ -1113,11 +1112,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     preview?:boolean
     previewPrompt?:boolean
 } = {}):Promise<boolean> {
-
-    if (!arg.preview && !arg.previewPrompt && get(isWikiGenerating)) {
-        alertError(language.risuBardWikiGenerationChatLocked)
-        return false
-    }
 
     const selected = DBState.db.characters[get(selectedCharID)]
     const selectedConversation = selected?.chats[selected.chatPage]

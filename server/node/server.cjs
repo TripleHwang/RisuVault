@@ -13,6 +13,10 @@ const zlib = require('zlib')
 const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
 const Vips = require('wasm-vips')
+const { resolveDataRoot } = require('./data-root.cjs');
+const { acquireDataRootLock } = require('./data-root-lock.cjs');
+const processDataRoot = resolveDataRoot();
+acquireDataRootLock(processDataRoot);
 let _vipsPromise = null
 const getVips = () => {
     if (!_vipsPromise) {
@@ -32,7 +36,6 @@ const {
 } = require('./logs.cjs');
 const { createRequestLogs } = require('./request-logs.cjs');
 const { createSaveObservation } = require('./save-observation.cjs');
-const { resolveDataRoot } = require('./data-root.cjs');
 const { commitTransaction, moveToTrash } = require('./file-store.cjs');
 const { createRuntimeMemoryService } = require('./risubard-memory-runtime.cjs');
 const { openServerBrowser } = require('./open-server-browser.cjs');
@@ -916,7 +919,7 @@ const hubURL = 'https://sv.risuai.xyz';
 let password = ''
 
 // Ensure /save/ exists for password file and migration source
-const savePath = resolveDataRoot()
+const savePath = processDataRoot
 if(!existsSync(savePath)){
     mkdirSync(savePath)
 }

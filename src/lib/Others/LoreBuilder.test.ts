@@ -7,12 +7,14 @@ const source = (path: string): string => readFileSync(resolve(process.cwd(), pat
 const optionalSource = (path: string): string => existsSync(resolve(process.cwd(), path)) ? source(path) : ''
 
 describe('lore builder UI contract', () => {
-    it('offers lore presets, four explicit context switches, and iterative draft controls', () => {
+    it('offers lore presets, five explicit context switches, and iterative draft controls', () => {
         const builder = source('src/lib/Others/LoreBuilder.svelte')
 
         expect(builder).toContain('LorePromptPresetEditor')
         expect(builder).toContain('data-lore-builder-context')
-        expect(builder.match(/type="checkbox"/g)).toHaveLength(4)
+        expect(builder.match(/type="checkbox"/g)).toHaveLength(5)
+        expect(builder).toContain('data-lore-builder-message-range')
+        expect(builder).toContain('copy.messageRangeHint')
         expect(builder).toContain('data-lore-builder-instruction')
         expect(builder).toContain('data-lore-builder-send')
         expect(builder).toContain('data-lore-builder-reset')

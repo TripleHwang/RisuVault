@@ -1076,7 +1076,7 @@
             }}>
                 <ArrowRight size={22}/>
             </button>
-            <button class="flex items-center shrink-0 hover:text-primary transition-colors button-icon-reroll" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'} onclick={async () => {
+            <button data-hotkey-action="reroll" class="flex items-center shrink-0 hover:text-primary transition-colors button-icon-reroll" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'} onclick={async () => {
                 if (!DBState.db.confirmReroll || await alertConfirm(language.rerollConfirm)) onReroll()
             }}>
                 <RefreshCcwIcon size={20}/>

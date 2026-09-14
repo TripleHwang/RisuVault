@@ -47,10 +47,11 @@
     let previousDraft = $state('')
     let canUndoDraft = $state(false)
     let sources = $state<LoreBuilderSourceSnapshot>({
-        systemPrompt: '', characterDescription: '', characterLorebook: '', moduleLorebook: '',
+        systemPrompt: '', characterDescription: '', characterLorebook: '', moduleLorebook: '', messages: [],
     })
     let selections = $state<LoreBuilderSelections>(loadLoreBuilderSelections() ?? {
         systemPrompt: false, characterDescription: true, characterLorebook: true, moduleLorebook: false,
+        messages: false, messageRange: '',
     })
     let currentCharacter = $state<character | undefined>()
     let generating = $state(false)
@@ -82,6 +83,8 @@
             characterDescription: !!sources.characterDescription,
             characterLorebook: !!sources.characterLorebook,
             moduleLorebook: false,
+            messages: false,
+            messageRange: '',
         }
         const selectedStylePreset = resolveLoreBuilderPromptPreset(
             DBState.db.loreBuilderPromptPresets ?? [],
@@ -239,6 +242,16 @@
                     <input type="checkbox" bind:checked={selections.moduleLorebook} disabled={!sources.moduleLorebook} />
                     <span>{copy.moduleLorebook}{#if !sources.moduleLorebook}<small>{copy.contextUnavailable}</small>{/if}</span>
                 </label>
+                <div class="message-option" class:unavailable={!sources.messages.length}>
+                    <label>
+                        <input type="checkbox" bind:checked={selections.messages} disabled={!sources.messages.length} />
+                        <span>{copy.messages}{#if !sources.messages.length}<small>{copy.contextUnavailable}</small>{/if}</span>
+                    </label>
+                    <input data-lore-builder-message-range class="message-range" type="text"
+                        bind:value={selections.messageRange} disabled={!sources.messages.length}
+                        aria-label={copy.messageRangeLabel} placeholder="5, -3, 10-13" />
+                    <small>{copy.messageRangeHint}</small>
+                </div>
             </div>
             {#if !currentCharacter}<p>{copy.noCharacterContext}</p>{/if}
         </fieldset>
@@ -326,6 +339,11 @@
     .context-panel label span { display: flex; min-width: 0; flex-direction: column; font-size: .75rem; line-height: 1.3; overflow-wrap: anywhere; }
     .context-panel label small { color: var(--color-textcolor2); font-size: .75rem; font-weight: 400; }
     .context-panel p { margin: .55rem 0 0; color: var(--color-textcolor2); font-size: .78rem; }
+    .message-option { display: grid; grid-template-columns: minmax(0, 1fr) minmax(7rem, .75fr); gap: .35rem .5rem; }
+    .message-option > label { grid-row: 1 / span 2; }
+    .message-option.unavailable { opacity: .42; }
+    .message-option > small { color: var(--color-textcolor2); font-size: .7rem; line-height: 1.25; }
+    .message-range { min-width: 0; border: 1px solid var(--color-darkborderc); border-radius: .4rem; padding: .35rem .45rem; color: var(--color-textcolor); background: var(--color-surface-base); font-size: .75rem; }
     .builder-section { display: flex; flex-direction: column; gap: .55rem; }
     .instruction-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: .55rem; }
     .instruction-actions { display: flex; flex-direction: column; justify-content: space-between; gap: .55rem; }

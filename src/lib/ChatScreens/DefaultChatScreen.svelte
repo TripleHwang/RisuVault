@@ -168,9 +168,6 @@ import { isMobile } from 'src/ts/platform'
     let wikiRebootBlocksGeneration = $derived(
         blocksChatGeneration(currentChatSlot?.risuBardWikiReboot)
     )
-    let wikiBlocksGeneration = $derived(
-        wikiRebootBlocksGeneration || $isWikiGenerating
-    )
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
@@ -652,10 +649,8 @@ import { isMobile } from 'src/ts/platform'
         if($doingChat){
             return
         }
-        if (wikiBlocksGeneration) {
-            alertError($isWikiGenerating
-                ? language.risuBardWikiGenerationChatLocked
-                : language.risuBardWikiRebootChatLocked)
+        if (wikiRebootBlocksGeneration) {
+            alertError(language.risuBardWikiRebootChatLocked)
             return
         }
 
@@ -776,10 +771,8 @@ import { isMobile } from 'src/ts/platform'
 
     async function reroll() {
         if($doingChat) return
-        if (wikiBlocksGeneration) {
-            alertError($isWikiGenerating
-                ? language.risuBardWikiGenerationChatLocked
-                : language.risuBardWikiRebootChatLocked)
+        if (wikiRebootBlocksGeneration) {
+            alertError(language.risuBardWikiRebootChatLocked)
             return
         }
         const lastMsg = getLastCharMsg()
@@ -892,7 +885,7 @@ import { isMobile } from 'src/ts/platform'
     async function sendChatMain(continued:boolean = false) {
 
         messageInput = ''
-        if (wikiBlocksGeneration) return false
+        if (wikiRebootBlocksGeneration) return false
         const genKey = currentChatGenKey()
         // Mirror sendChat's per-chat guard BEFORE any side effects: a blocked
         // send must not run the unconditional conclude below, which would tear
@@ -936,7 +929,7 @@ import { isMobile } from 'src/ts/platform'
     // server-side CLAIM must succeed — the atomic claim is what makes the
     // re-run at-most-once across devices, tabs and reloads.
     async function resumeInterruptedSend(chatId: string) {
-        if (wikiBlocksGeneration) {
+        if (wikiRebootBlocksGeneration) {
             markResumable(chatId)
             return
         }
@@ -1539,11 +1532,9 @@ import { isMobile } from 'src/ts/platform'
                 {:else}
                     <button
                             onclick={send}
-                            disabled={wikiBlocksGeneration}
-                            title={wikiBlocksGeneration
-                                ? ($isWikiGenerating
-                                    ? language.risuBardWikiGenerationChatLocked
-                                    : language.risuBardWikiRebootChatLocked)
+                            disabled={wikiRebootBlocksGeneration}
+                            title={wikiRebootBlocksGeneration
+                                ? language.risuBardWikiRebootChatLocked
                                 : undefined}
                             aria-label={willResend ? language.reroll : language.send}
                             class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full bg-primary text-accenttext hover:bg-primary/80 transition-colors button-icon-send disabled:opacity-45 disabled:cursor-not-allowed"
@@ -1943,11 +1934,9 @@ import { isMobile } from 'src/ts/platform'
             ></textarea>
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"
-                        disabled={wikiBlocksGeneration}
-                        title={wikiBlocksGeneration
-                            ? ($isWikiGenerating
-                                ? language.risuBardWikiGenerationChatLocked
-                                : language.risuBardWikiRebootChatLocked)
+                        disabled={wikiRebootBlocksGeneration}
+                        title={wikiRebootBlocksGeneration
+                            ? language.risuBardWikiRebootChatLocked
                             : undefined}
                         class="flex items-center gap-1 px-4 h-10 rounded-full bg-primary text-accenttext hover:bg-primary/80 transition-colors disabled:opacity-45 disabled:cursor-not-allowed">
                     <Send size={18} />

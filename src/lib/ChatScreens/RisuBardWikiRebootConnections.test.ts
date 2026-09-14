@@ -44,10 +44,10 @@ describe('BardWiki reboot connections', () => {
             .toBeLessThan(finalize.indexOf('delete chat.risuBardWikiReboot'))
     })
 
-    test('blocks response paths and shares the wiki generation indicator', () => {
+    test('blocks response paths only for reboot and shares the wiki generation indicator', () => {
         expect(chatSource).toContain('wikiRebootBlocksGeneration')
-        expect(chatSource).toContain('if (wikiBlocksGeneration)')
-        expect(chatSource).toContain('disabled={wikiBlocksGeneration}')
+        expect(chatSource).toContain('if (wikiRebootBlocksGeneration)')
+        expect(chatSource).toContain('disabled={wikiRebootBlocksGeneration}')
         expect(chatSource).toContain('class:wiki-generating={$isWikiGenerating}')
     })
 
@@ -66,24 +66,21 @@ describe('BardWiki reboot connections', () => {
         expect(failure).toContain('위키 리부트 실패:')
     })
 
-    test('blocks new responses while any BardWiki write is active', () => {
+    test('allows responses during ordinary BardWiki work while still blocking reboot', () => {
         const sendChat = processSource.slice(
             processSource.indexOf('export async function sendChat'),
             processSource.indexOf('const stageTimings =',
                 processSource.indexOf('export async function sendChat'))
         )
-        expect(sendChat).toContain('get(isWikiGenerating)')
-        expect(sendChat.indexOf('get(isWikiGenerating)'))
+        expect(sendChat).not.toContain('get(isWikiGenerating)')
+        expect(sendChat).toContain('selectedConversation?.risuBardWikiReboot')
+        expect(sendChat.indexOf('selectedConversation?.risuBardWikiReboot'))
             .toBeLessThan(sendChat.indexOf('chatProcessStage.set(0)'))
 
-        expect(chatSource).toContain('let wikiBlocksGeneration = $derived(')
-        expect(chatSource).toContain(
-            'wikiRebootBlocksGeneration || $isWikiGenerating'
-        )
-        expect(chatSource).toContain('if (wikiBlocksGeneration)')
-        expect(chatSource).toContain('disabled={wikiBlocksGeneration}')
-        expect(koSource).toContain('risuBardWikiGenerationChatLocked')
-        expect(enSource).toContain('risuBardWikiGenerationChatLocked')
+        expect(chatSource).not.toContain('let wikiBlocksGeneration = $derived(')
+        expect(chatSource).toContain('if (wikiRebootBlocksGeneration)')
+        expect(chatSource).toContain('disabled={wikiRebootBlocksGeneration}')
+        expect(chatSource).toContain('{#if $isWikiGenerating}')
     })
 
     test('offers text lifecycle controls and one-turn or two-turn choices', () => {

@@ -10,6 +10,7 @@ import {
     loadLoreBuilderSelections,
     overwriteLoreBuilderUserPreset,
     resolveLoreBuilderPromptPreset,
+    selectLoreBuilderMessages,
     saveLoreBuilderSelections,
 } from './loreBuilder'
 
@@ -122,12 +123,19 @@ describe('lore builder prompt contract', () => {
                 characterDescription: true,
                 characterLorebook: false,
                 moduleLorebook: true,
+                messages: true,
+                messageRange: '2-3',
             },
             sources: {
                 systemPrompt: 'excluded system',
                 characterDescription: 'included character',
                 characterLorebook: 'excluded character lore',
                 moduleLorebook: 'included module lore',
+                messages: [
+                    { turn: 1, content: 'excluded first response' },
+                    { turn: 2, content: 'included second response' },
+                    { turn: 3, content: 'included third response' },
+                ],
             },
         })
 
@@ -136,6 +144,9 @@ describe('lore builder prompt contract', () => {
         expect(messages[0].content).toContain('style contract')
         expect(messages[1].content).toContain('included character')
         expect(messages[1].content).toContain('included module lore')
+        expect(messages[1].content).toContain('included second response')
+        expect(messages[1].content).toContain('included third response')
+        expect(messages[1].content).not.toContain('excluded first response')
         expect(messages[1].content).toContain('# Existing lore')
         expect(messages[1].content).toContain('tighten the secret section')
         expect(messages[1].content).not.toContain('excluded system')
@@ -157,6 +168,45 @@ describe('lore builder prompt contract', () => {
             .toThrow('lore-builder-preset-readonly')
     })
 
+    it('collects only enabled non-comment assistant turns from the current chat', () => {
+        const sources = collectLoreBuilderSources({
+            database: {} as Database,
+            character: {
+                name: 'Character',
+                globalLore: [],
+                chatPage: 0,
+                chats: [{ message: [
+                    { role: 'user', data: 'excluded user' },
+                    { role: 'char', data: 'assistant one' },
+                    { role: 'char', data: 'excluded comment', isComment: true },
+                    { role: 'char', data: 'excluded disabled', disabled: true },
+                    { role: 'char', data: 'assistant two' },
+                ] }],
+            } as character,
+            moduleLorebooks: [],
+            targetEntryId: 'target',
+        })
+
+        expect(sources.messages).toEqual([
+            { turn: 1, content: 'assistant one' },
+            { turn: 2, content: 'assistant two' },
+        ])
+    })
+
+    it('selects assistant messages by one-based turn, recent count, and inclusive range', () => {
+        const messages = Array.from({ length: 14 }, (_, index) => ({
+            turn: index + 1,
+            content: `assistant ${index + 1}`,
+        }))
+
+        expect(selectLoreBuilderMessages(messages, '5').map((message) => message.turn)).toEqual([5])
+        expect(selectLoreBuilderMessages(messages, '-3').map((message) => message.turn)).toEqual([12, 13, 14])
+        expect(selectLoreBuilderMessages(messages, '10-13').map((message) => message.turn)).toEqual([10, 11, 12, 13])
+        expect(selectLoreBuilderMessages(messages, '0')).toEqual([])
+        expect(selectLoreBuilderMessages(messages, '13-10')).toEqual([])
+        expect(selectLoreBuilderMessages(messages, 'invalid')).toEqual([])
+    })
+
     it('round-trips context switch preferences and ignores malformed storage', () => {
         const storage = localStorage
         storage.clear()
@@ -165,10 +215,26 @@ describe('lore builder prompt contract', () => {
             characterDescription: false,
             characterLorebook: false,
             moduleLorebook: true,
+            messages: true,
+            messageRange: '-3',
         }
 
         saveLoreBuilderSelections(selections, storage)
         expect(loadLoreBuilderSelections(storage)).toEqual(selections)
+        storage.setItem('risubard:lore-builder-selections:v1', JSON.stringify({
+            systemPrompt: true,
+            characterDescription: false,
+            characterLorebook: true,
+            moduleLorebook: false,
+        }))
+        expect(loadLoreBuilderSelections(storage)).toEqual({
+            systemPrompt: true,
+            characterDescription: false,
+            characterLorebook: true,
+            moduleLorebook: false,
+            messages: false,
+            messageRange: '',
+        })
         storage.setItem('risubard:lore-builder-selections:v1', '{broken')
         expect(loadLoreBuilderSelections(storage)).toBeNull()
     })

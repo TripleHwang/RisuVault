@@ -184,45 +184,86 @@ function cleanupJournal(journalPath, stageDir) {
     fsyncDirectory(path.dirname(journalPath));
 }
 
+function matchesChecksum(target, digest) {
+    try {
+        return fs.existsSync(target) && checksumFile(target) === digest;
+    } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+    }
+}
+
+function assertUnchangedPreconditions(root, entries) {
+    for (const entry of entries) {
+        const target = resolveInside(root, entry.path);
+        if (matchesChecksum(target, entry.checksum)) continue;
+        const error = new Error(`Canonical file changed during transaction: ${entry.path}`);
+        error.code = 'CANONICAL_FILES_CHANGED';
+        throw error;
+    }
+}
+
 function commitTransaction(root, operations, options = {}) {
     if (!Array.isArray(operations) || operations.length === 0) {
         return { committed: 0, published: 0, skipped: 0, stagedBytes: 0 };
     }
+    const prepared = operations.map((operation) => {
+        const target = resolveInside(root, operation.path);
+        let data;
+        let digest;
+        let sourcePath;
+        if (operation.sourcePath) {
+            sourcePath = resolveInside(root, path.relative(root, operation.sourcePath));
+            if (operation.validate) {
+                throw new Error(`Transaction file validation is unsupported: ${operation.path}`);
+            }
+            digest = checksumFile(sourcePath);
+        } else {
+            data = Buffer.isBuffer(operation.data) ? operation.data : Buffer.from(operation.data);
+            if (operation.validate && operation.validate(data) !== true) {
+                throw new Error(`Transaction validation failed: ${operation.path}`);
+            }
+            digest = checksum(data);
+        }
+        return { path: operation.path, data, sourcePath, checksum: digest, unchanged: matchesChecksum(target, digest) };
+    });
+    const unchanged = prepared.filter(entry => entry.unchanged);
+    const pending = prepared.filter(entry => !entry.unchanged);
     const journalDir = resolveInside(root, '.journal');
     fs.mkdirSync(journalDir, { recursive: true });
     const id = crypto.randomUUID();
     const stageDir = path.join(journalDir, `${id}.stage`);
     fs.mkdirSync(stageDir, { recursive: true });
-    const entries = operations.map((operation, index) => {
-        resolveInside(root, operation.path);
+    const entries = pending.map((operation, index) => {
         const staged = path.join(stageDir, `${index}.data`);
-        let digest;
         if (operation.sourcePath) {
-            const sourcePath = resolveInside(root, path.relative(root, operation.sourcePath));
-            if (operation.validate) {
-                throw new Error(`Transaction file validation is unsupported: ${operation.path}`);
-            }
-            digest = checksumFile(sourcePath);
-            copySynced(sourcePath, staged);
+            copySynced(operation.sourcePath, staged);
         } else {
-            const data = Buffer.isBuffer(operation.data) ? operation.data : Buffer.from(operation.data);
-            if (operation.validate && operation.validate(data) !== true) {
-                throw new Error(`Transaction validation failed: ${operation.path}`);
-            }
-            writeSynced(staged, data);
-            digest = checksum(data);
+            writeSynced(staged, operation.data);
         }
-        if (checksumFile(staged) !== digest) throw new Error(`Transaction checksum failed: ${operation.path}`);
-        return { path: operation.path, staged, checksum: digest };
+        if (checksumFile(staged) !== operation.checksum) throw new Error(`Transaction checksum failed: ${operation.path}`);
+        return { path: operation.path, staged, checksum: operation.checksum };
     });
     fsyncDirectory(stageDir);
+    try {
+        assertUnchangedPreconditions(root, unchanged);
+    } catch (error) {
+        fs.rmSync(stageDir, { recursive: true, force: true });
+        fsyncDirectory(journalDir);
+        throw error;
+    }
     const journalPath = path.join(journalDir, `${id}.json`);
     const journal = { schemaVersion: 1, id, state: 'prepared', createdAt: Date.now(), entries };
     writeJournal(journalPath, journal);
     const stagedBytes = entries.reduce((total, entry) => total + fs.statSync(entry.staged).size, 0);
     const published = publishTransaction(root, journal, options);
     cleanupJournal(journalPath, stageDir);
-    return { committed: entries.length, ...published, stagedBytes };
+    return {
+        committed: operations.length,
+        published: published.published,
+        skipped: unchanged.length + published.skipped,
+        stagedBytes,
+    };
 }
 
 function recoverTransactions(root) {

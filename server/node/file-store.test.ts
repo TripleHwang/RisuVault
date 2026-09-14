@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +22,7 @@ function tempRoot() {
 }
 
 afterEach(() => {
+    vi.restoreAllMocks()
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
 
@@ -82,7 +83,7 @@ describe('crash-safe canonical writes', () => {
 })
 
 describe('journal recovery and trash', () => {
-    it('reports published and unchanged files without changing transaction behavior', () => {
+    it('stages only files whose content changed', () => {
         const root = tempRoot()
         atomicWriteFile(root, 'settings/app.json', Buffer.from('{"same":true}'))
 
@@ -95,10 +96,42 @@ describe('journal recovery and trash', () => {
             committed: 2,
             published: 1,
             skipped: 1,
-            stagedBytes: 30,
+            stagedBytes: 17,
         })
         expect(fs.readFileSync(path.join(root, 'settings/app.json'), 'utf8')).toBe('{"same":true}')
         expect(fs.readFileSync(path.join(root, 'presets/preset-1.json'), 'utf8')).toBe('{"id":"preset-1"}')
+    })
+
+    it('aborts before publishing when an unchanged precondition changes', () => {
+        const root = tempRoot()
+        const unchangedPath = path.join(root, 'settings', 'app.json')
+        atomicWriteFile(root, 'settings/app.json', Buffer.from('{"same":true}'))
+
+        const originalWrite = fs.writeSync
+        let changed = false
+        vi.spyOn(fs, 'writeSync').mockImplementation(((...args: any[]) => {
+            const result = (originalWrite as any)(...args)
+            if (!changed && Buffer.isBuffer(args[1]) && args[1].toString('utf8') === '{"id":"preset-1"}') {
+                fs.writeFileSync(unchangedPath, '{"external":true}')
+                changed = true
+            }
+            return result
+        }) as typeof fs.writeSync)
+
+        let caught: unknown
+        try {
+            commitTransaction(root, [
+                { path: 'settings/app.json', data: Buffer.from('{"same":true}') },
+                { path: 'presets/preset-1.json', data: Buffer.from('{"id":"preset-1"}') },
+            ])
+        } catch (error) {
+            caught = error
+        }
+
+        expect(changed).toBe(true)
+        expect(caught).toMatchObject({ code: 'CANONICAL_FILES_CHANGED' })
+        expect(fs.readFileSync(unchangedPath, 'utf8')).toBe('{"external":true}')
+        expect(fs.existsSync(path.join(root, 'presets', 'preset-1.json'))).toBe(false)
     })
 
     it('commits staged source files without requiring in-memory operation data', () => {
