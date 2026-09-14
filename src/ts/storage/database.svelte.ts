@@ -36,6 +36,7 @@ import {
 import {
     normalizeRisuBardAdditionalSearchLimit,
     normalizeRisuBardAnalysisTokenLimit,
+    normalizeRisuBardCanonicalConcurrencyLimit,
     normalizeRisuBardCanonicalCustomStyle,
     normalizeRisuBardCanonicalTargetLimit,
     normalizeRisuBardCanonicalWritingStyle,
@@ -925,6 +926,10 @@ export function setDatabase(data:Database){
     data.risuBardCanonicalTargetLimit = normalizeRisuBardCanonicalTargetLimit(
         data.risuBardCanonicalTargetLimit
     )
+    data.risuBardCanonicalConcurrencyLimit =
+        normalizeRisuBardCanonicalConcurrencyLimit(
+            data.risuBardCanonicalConcurrencyLimit
+        )
     const chatInquiryTokenBudget = normalizeRisuBardInquiryTokenBudget(
         data.risuBardInquiryTargetTokenBudget,
         data.risuBardInquiryMaximumTokenBudget
@@ -1673,6 +1678,7 @@ export interface Database{
     risuBardAnalysisTokenLimit?: number
     risuBardAdditionalSearchLimit?: number
     risuBardCanonicalTargetLimit?: number
+    risuBardCanonicalConcurrencyLimit?: number
     risuBardInquiryTargetTokenBudget?: number
     risuBardInquiryMaximumTokenBudget?: number
     risuBardCanonicalWritingStyle?: import('../risubard/risuBardSettings').RisuBardCanonicalWritingStyle

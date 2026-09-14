@@ -1288,6 +1288,9 @@ describe('stored response memory analysis', () => {
                 content: '여러 인물의 지속 정보가 확정되었다.',
             }],
             analysisTokenLimit: 2_048,
+            // Sequential batches: a later batch with slack would otherwise be
+            // issued before the first batch's limit failure is observed.
+            canonicalConcurrencyLimit: 1,
         })
 
         expect(onError).toHaveBeenCalledWith(expect.objectContaining({

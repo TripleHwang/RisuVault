@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { get_encoding } from '@dqbd/tiktoken'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ModelOutputError } from '../../packages/risubard-core/src/modelResponse'
+import { formatCanonicalUpdateFailureWarning } from '../../src/ts/risubard/canonicalTurnReceipt'
 import type {
     MemoryAnalysisInput,
     MemoryAnalysisModelRequest,
@@ -490,7 +491,9 @@ describe('memory analysis runner', () => {
                 recordRebootBatchReceipt },
             onError: vi.fn(), analyze,
         })
-        const result = await runner.run({ characterId: 'character', chatId: 'chat', messages: [{ messageId: 'assistant-1', role: 'assistant', content: 'A and B arrived.' }] })
+        // At the sequential cap the attempt count stays bounded per target in
+        // order; overlapping regenerations are covered by the concurrency tests.
+        const result = await runner.run({ characterId: 'character', chatId: 'chat', messages: [{ messageId: 'assistant-1', role: 'assistant', content: 'A and B arrived.' }], canonicalConcurrencyLimit: 1 })
         expect(batchSizes).toEqual(failure === 'provider' ? [2] : [2, 1, 1])
         expect(saveConfirmedTurn).toHaveBeenCalledOnce()
         const failed = failure === 'provider' || failure === 'incomplete-single'
@@ -2934,5 +2937,420 @@ describe('memory analysis runner', () => {
                 '<!-- risubard-story-arc-checkpoint: event.8 -->'
             ),
         }))
+    })
+})
+
+interface CanonicalHarnessTarget {
+    title: string
+    type?: 'character' | 'location'
+    /** A create candidate has no loaded document and starts from `## title`. */
+    create?: boolean
+}
+
+interface CanonicalHarnessCall {
+    titles: string[]
+    signal: AbortSignal | undefined
+    /** Resolves with a full rewrite for every requested target. */
+    respond(): void
+    /** Resolves with an empty section list for every requested target. */
+    respondEmpty(): void
+    reject(error: unknown): void
+}
+
+/**
+ * A canonical-batch fake that leaves every model request pending until the
+ * test settles it, so overlap, completion order, and sibling aborts can be
+ * observed. Every large document is several thousand tokens, so at
+ * `analysisTokenLimit: 3_072` each target becomes its own batch; small
+ * documents share one batch under the default limit.
+ */
+function createCanonicalHarness(options: {
+    targets: readonly CanonicalHarnessTarget[]
+    large?: boolean
+    auto?: boolean
+    reboot?: boolean
+    rejectSave?: readonly string[]
+}) {
+    const events: string[] = []
+    const calls: CanonicalHarnessCall[] = []
+    let inFlight = 0
+    let maxInFlight = 0
+    const documents = options.targets
+        .filter((target) => !target.create)
+        .map((target, index) => ({
+            id: `${target.type ?? 'character'}.${index}`,
+            type: target.type ?? 'character' as const,
+            title: target.title,
+            relativePath: `${target.type ?? 'character'}s/${index}.md`,
+            content: `## ${target.title}\n\n${'상태 정보. '.repeat(options.large ? 1_000 : 5)}`,
+            contentHash: `hash-${target.title}`,
+            sourceMessageIds: [],
+        }))
+    const rewrite = (titles: string[]) => canonicalBatch(...titles.map((title) =>
+        `## ${title}\n\n### 현재 상태\n\n- 갱신됨.`))
+    const analyze = vi.fn(async (
+        request: MemoryAnalysisModelRequest,
+        signal?: AbortSignal,
+    ): Promise<string> => {
+        if (request.format !== 'canonical-batch') {
+            const draft = {
+                schemaVersion: 1,
+                stateChanges: [], characterKnowledge: [],
+                persistentFacts: [], openContinuity: [],
+                canonicalUpdateCandidates: options.targets.map((target) => {
+                    const document = documents.find((entry) =>
+                        entry.title === target.title)
+                    return {
+                        type: target.type ?? 'character', title: target.title,
+                        reason: '상태 갱신',
+                        action: document ? 'update' : 'create',
+                        targetDocumentId: document?.id ?? null,
+                        confidence: 0.95,
+                    }
+                }),
+            }
+            return JSON.stringify(options.reboot
+                ? { ...draft, turns: [{ assistantMessageId: 'assistant-1', title: '상태 갱신', establishedEvents: ['상태가 바뀌었다.'] }] }
+                : { ...draft, title: '상태 갱신', establishedEvents: ['상태가 바뀌었다.'] })
+        }
+        const titles = (JSON.parse(request.input).targets as Array<{
+            target: { title: string }
+        }>).map((entry) => entry.target.title)
+        const key = titles.join('+')
+        events.push(`analyze:start:${key}`)
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        try {
+            if (options.auto) return rewrite(titles)
+            return await new Promise<string>((resolve, reject) => {
+                // The production transport reports an abort as its own
+                // failure, not as the signal's reason.
+                signal?.addEventListener('abort', () => {
+                    reject(new Error('Memory analysis model request failed: Aborted'))
+                }, { once: true })
+                calls.push({
+                    titles, signal,
+                    respond: () => resolve(rewrite(titles)),
+                    respondEmpty: () => resolve(canonicalPatchBatch(
+                        ...titles.map(() => [])
+                    )),
+                    reject,
+                })
+            })
+        }
+        finally {
+            inFlight -= 1
+            events.push(`analyze:end:${key}`)
+        }
+    })
+    const saveCanonicalDocument = vi.fn(async (input) => {
+        events.push(`save:${input.title}`)
+        // A real save crosses the event loop; `saved:` marks its completion so
+        // a request issued during the save is distinguishable from one issued
+        // after it.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        events.push(`saved:${input.title}`)
+        if (options.rejectSave?.includes(input.title)) {
+            throw new Error(`disk full: ${input.title}`)
+        }
+        return {
+            id: input.documentId ?? `created.${input.title}`,
+            type: input.type,
+            title: input.title,
+            relativePath: `${input.title}.md`,
+            contentHash: `after-${input.title}`,
+        }
+    })
+    const onError = vi.fn(async (error: unknown) => {
+        events.push(`error:${error instanceof Error ? error.message : String(error)}`)
+    })
+    const runner = createMemoryAnalysisRunner({
+        memoryService: { loadState: vi.fn(), applyDelta: vi.fn() },
+        nativeV2Analysis: true,
+        markdownWikiService: {
+            inquire: vi.fn(async () => ({ graphRevision: 0, sources: [] })),
+            loadDocuments: vi.fn(async () => documents),
+            saveConfirmedTurn: vi.fn(async () => undefined),
+            saveCanonicalDocument,
+            beginRebootBatch: vi.fn(async () => ({ canonicalCount: 0 })),
+            recordRebootBatchReceipt: vi.fn(async (input) => input.receipt),
+        },
+        onError,
+        analyze,
+    })
+    const run = (
+        input: Partial<MemoryAnalysisInput> = {},
+        signal?: AbortSignal,
+    ) => runner.run({
+        characterId: 'character', chatId: 'chat',
+        messages: [{
+            messageId: 'assistant-1', role: 'assistant',
+            content: '상태가 바뀌었다.',
+        }],
+        ...(options.large ? { analysisTokenLimit: 3_072 } : {}),
+        additionalSearchLimit: 0,
+        ...(options.reboot ? {
+            rebootTurns: [{
+                assistantMessageId: 'assistant-1',
+                sourceMessageIds: ['assistant-1'],
+            }],
+        } : {}),
+        ...input,
+    }, signal)
+    /** Waits until `count` canonical requests have been issued in total. */
+    const pendingCalls = async (count: number) => {
+        await vi.waitFor(() => expect(calls).toHaveLength(count))
+        return calls
+    }
+    return {
+        events, calls, analyze, saveCanonicalDocument, onError, run,
+        pendingCalls,
+        inFlight: () => inFlight,
+        maxInFlight: () => maxInFlight,
+    }
+}
+
+describe('canonical batch concurrency', () => {
+    test('cap 1 keeps the sequential request and write order', async () => {
+        const harness = createCanonicalHarness({
+            targets: [{ title: '라비안' }, { title: '베로니카' }, { title: '세라' }],
+            large: true, auto: true,
+        })
+        const result = await harness.run({ canonicalConcurrencyLimit: 1 })
+        expect(harness.maxInFlight()).toBe(1)
+        expect(harness.events).toEqual([
+            'analyze:start:라비안', 'analyze:end:라비안', 'save:라비안', 'saved:라비안',
+            'analyze:start:베로니카', 'analyze:end:베로니카', 'save:베로니카', 'saved:베로니카',
+            'analyze:start:세라', 'analyze:end:세라', 'save:세라', 'saved:세라',
+        ])
+        expect(result.canonicalReceipt).toEqual({
+            sourceMessageIds: ['assistant-1'],
+            eventIds: [],
+            changes: ['라비안', '베로니카', '세라'].map((title, index) => ({
+                documentId: `character.${index}`, type: 'character', title,
+                relativePath: `${title}.md`, action: 'update',
+                afterHash: `after-${title}`,
+            })),
+            warnings: [],
+            recordedAt: expect.any(String),
+        })
+    })
+
+    test('cap 1 regenerates a failed multi-document batch one target at a time', async () => {
+        const harness = createCanonicalHarness({
+            targets: [{ title: 'A' }, { title: 'B' }, { title: 'C' }],
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 1 })
+        const [batch] = await harness.pendingCalls(1)
+        expect(batch.titles).toEqual(['A', 'B', 'C'])
+        batch.reject(new ModelOutputError('truncated'))
+        for (const title of ['A', 'B', 'C']) {
+            const calls = await harness.pendingCalls(harness.calls.length + 1)
+            const call = calls[calls.length - 1]
+            expect(call.titles).toEqual([title])
+            expect(harness.inFlight()).toBe(1)
+            call.respond()
+        }
+        const result = await promise
+        expect(harness.events).toEqual([
+            'analyze:start:A+B+C', 'analyze:end:A+B+C',
+            'analyze:start:A', 'analyze:end:A',
+            'analyze:start:B', 'analyze:end:B',
+            'analyze:start:C', 'analyze:end:C',
+            'save:A', 'saved:A', 'save:B', 'saved:B', 'save:C', 'saved:C',
+        ])
+        expect(result.canonicalReceipt?.warnings).toEqual([])
+        expect(result.canonicalReceipt?.changes.map((change) => change.title))
+            .toEqual(['A', 'B', 'C'])
+    })
+    test('cap 3 issues batches concurrently and starts the next batch after a write', async () => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C', 'D'].map((title) => ({ title })),
+            large: true,
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 3 })
+        const calls = await harness.pendingCalls(3)
+        expect(calls.map((call) => call.titles)).toEqual([['A'], ['B'], ['C']])
+        expect(harness.inFlight()).toBe(3)
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
+        // The fourth batch waits for the first write, not the first response.
+        calls[1].respond()
+        await vi.waitFor(() => expect(harness.events).toContain('analyze:end:B'))
+        expect(harness.calls).toHaveLength(3)
+        calls[0].respond()
+        const [, , , fourth] = await harness.pendingCalls(4)
+        expect(fourth.titles).toEqual(['D'])
+        expect(harness.events.indexOf('save:A'))
+            .toBeLessThan(harness.events.indexOf('analyze:start:D'))
+        calls[2].respond()
+        fourth.respond()
+        const result = await promise
+        expect(harness.maxInFlight()).toBe(3)
+        expect(result.canonicalReceipt?.changes.map((change) => change.title))
+            .toEqual(['A', 'B', 'C', 'D'])
+    })
+
+    test('writes in batch order when responses arrive out of order', async () => {
+        const harness = createCanonicalHarness({
+            targets: [
+                { title: 'A' },
+                { title: '항구', type: 'location', create: true },
+                { title: 'C' },
+                { title: 'D' },
+            ],
+            large: true,
+            rejectSave: ['C'],
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 4 })
+        const calls = await harness.pendingCalls(4)
+        expect(calls.map((call) => call.titles)).toEqual([['A'], ['항구'], ['C'], ['D']])
+        calls[3].respond()
+        calls[2].respond()
+        calls[1].respondEmpty()
+        await vi.waitFor(() => expect(harness.events).toContain('analyze:end:항구'))
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
+        calls[0].respond()
+        const result = await promise
+        expect(harness.events.filter((event) => !event.startsWith('analyze:')))
+            .toEqual([
+                'save:A', 'saved:A', 'save:C', 'saved:C', 'error:disk full: C',
+                'save:D', 'saved:D',
+            ])
+        expect(result.canonicalReceipt?.changes.map((change) => change.title))
+            .toEqual(['A', 'D'])
+        expect(result.canonicalReceipt?.warnings).toEqual([
+            '새 정본의 초기 절 누락: 항구',
+            '정본 문서 저장 실패: C',
+        ])
+        expect(harness.onError).toHaveBeenCalledOnce()
+    })
+
+    test.each([false, true])('a failed batch aborts its siblings and the run settles on that error (reboot=%s)', async (reboot) => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C'].map((title) => ({ title })),
+            large: true,
+            reboot,
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 3 })
+        // The rejection is asserted after the sibling signals settle; observe
+        // it now so the wait in between is not an unhandled rejection.
+        promise.catch(() => {})
+        const calls = await harness.pendingCalls(3)
+        const failure = new Error('Authentication failed')
+        expect(calls.every((call) => call.signal?.aborted === false)).toBe(true)
+        calls[1].reject(failure)
+        await vi.waitFor(() => expect(calls[0].signal?.aborted).toBe(true))
+        expect(calls[2].signal?.aborted).toBe(true)
+        expect(calls[0].signal?.reason).toBe(failure)
+        if (reboot) {
+            await expect(promise).rejects.toBe(failure)
+        }
+        else {
+            const result = await promise
+            expect(result.canonicalReceipt?.warnings).toEqual([
+                formatCanonicalUpdateFailureWarning(failure),
+            ])
+        }
+        expect(harness.onError).toHaveBeenCalledExactlyOnceWith(failure)
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
+        expect(harness.calls).toHaveLength(3)
+    })
+
+    test('keeps the batches written before a later batch fails', async () => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C'].map((title) => ({ title })),
+            large: true,
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 2 })
+        const calls = await harness.pendingCalls(2)
+        calls[0].respond()
+        await vi.waitFor(() => expect(harness.events).toContain('save:A'))
+        const [, , third] = await harness.pendingCalls(3)
+        const failure = new Error('Authentication failed')
+        calls[1].reject(failure)
+        const result = await promise
+        expect(third.signal?.aborted).toBe(true)
+        expect(result.canonicalReceipt?.changes.map((change) => change.title))
+            .toEqual(['A'])
+        expect(result.canonicalReceipt?.warnings).toEqual([
+            formatCanonicalUpdateFailureWarning(failure),
+        ])
+    })
+
+    test('regenerates a retryably failed batch per document under the cap', async () => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C'].map((title) => ({ title })),
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 3 })
+        const [batch] = await harness.pendingCalls(1)
+        expect(batch.titles).toEqual(['A', 'B', 'C'])
+        batch.reject(new ModelOutputError('truncated'))
+        const calls = await harness.pendingCalls(4)
+        expect(calls.slice(1).map((call) => call.titles)).toEqual([['A'], ['B'], ['C']])
+        expect(harness.inFlight()).toBe(3)
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
+        calls[3].respond()
+        calls[1].respond()
+        calls[2].respond()
+        const result = await promise
+        expect(harness.maxInFlight()).toBe(3)
+        expect(harness.events.filter((event) => event.startsWith('save:')))
+            .toEqual(['save:A', 'save:B', 'save:C'])
+        expect(result.canonicalReceipt?.warnings).toEqual([])
+    })
+
+    test('a per-document regeneration failure aborts the other regenerations', async () => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C'].map((title) => ({ title })),
+        })
+        const promise = harness.run({ canonicalConcurrencyLimit: 2 })
+        const [batch] = await harness.pendingCalls(1)
+        batch.reject(new ModelOutputError('truncated'))
+        const calls = await harness.pendingCalls(3)
+        expect(calls.slice(1).map((call) => call.titles)).toEqual([['A'], ['B']])
+        const failure = new Error('Authentication failed')
+        calls[2].reject(failure)
+        const result = await promise
+        expect(calls[1].signal?.aborted).toBe(true)
+        expect(harness.calls).toHaveLength(3)
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
+        expect(result.canonicalReceipt?.warnings).toEqual([
+            formatCanonicalUpdateFailureWarning(failure),
+        ])
+    })
+
+    test.each([false, true])('an outer abort stops every in-flight batch (reboot=%s)', async (reboot) => {
+        const harness = createCanonicalHarness({
+            targets: ['A', 'B', 'C'].map((title) => ({ title })),
+            large: true,
+            reboot,
+        })
+        const controller = new AbortController()
+        const promise = harness.run({ canonicalConcurrencyLimit: 2 }, controller.signal)
+        const calls = await harness.pendingCalls(2)
+        const reason = new Error('cancelled by user')
+        controller.abort(reason)
+        expect(calls.every((call) => call.signal?.aborted)).toBe(true)
+        expect(calls.every((call) => call.signal?.reason === reason)).toBe(true)
+        // As before the batches overlapped, the run settles on the transport's
+        // abort failure: a rejection for a reboot, a receipt warning for a turn.
+        const settled = await promise.then(
+            (result) => ({ result }),
+            (error: unknown) => ({ error }),
+        )
+        expect(harness.onError).toHaveBeenCalledOnce()
+        const [[reported]] = harness.onError.mock.calls
+        expect(reported).toBeInstanceOf(Error)
+        expect((reported as Error).message)
+            .toBe('Memory analysis model request failed: Aborted')
+        if (reboot) {
+            expect(settled).toEqual({ error: reported })
+        }
+        else {
+            expect('result' in settled && settled.result.canonicalReceipt?.warnings)
+                .toEqual([formatCanonicalUpdateFailureWarning(reported)])
+        }
+        expect(harness.calls).toHaveLength(2)
+        expect(harness.saveCanonicalDocument).not.toHaveBeenCalled()
     })
 })

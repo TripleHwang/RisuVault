@@ -3,6 +3,15 @@ import { buildWikiWritingLanguageGuard, normalizeWikiWritingLanguage, type WikiW
 export const RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT = 8_192
 export const RISUBARD_ADDITIONAL_SEARCH_LIMIT_DEFAULT = 1
 export const RISUBARD_CANONICAL_TARGET_LIMIT_DEFAULT = 8
+/**
+ * Canonical rewrite batches of one memory update are independent model
+ * requests over the same fixed input, so several may be in flight at once.
+ * Three keeps a typical update (2-4 batches) to one or two round trips
+ * without stacking enough parallel requests to trip provider rate limits.
+ * A limit of 1 is the strictly sequential order the runner used before.
+ */
+export const RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT = 3
+export const RISUBARD_CANONICAL_CONCURRENCY_LIMIT_MAXIMUM = 8
 export const RISUBARD_INQUIRY_TARGET_TOKEN_BUDGET_DEFAULT = 2_000
 export const RISUBARD_INQUIRY_MAXIMUM_TOKEN_BUDGET_DEFAULT = 6_000
 export const RISUBARD_CANONICAL_WRITING_STYLE_DEFAULT = 'concise' as const
@@ -22,6 +31,7 @@ export interface RisuBardChatSettings {
     risuBardAnalysisTokenLimit?: number
     risuBardAdditionalSearchLimit?: number
     risuBardCanonicalTargetLimit?: number
+    risuBardCanonicalConcurrencyLimit?: number
     risuBardRecentMessageCount?: number
     risuBardResponseMessageCount?: number
     risuBardResponseExcludeUserMessages?: boolean
@@ -45,6 +55,7 @@ export interface ResolvedRisuBardChatSettings {
     risuBardAnalysisTokenLimit: number
     risuBardAdditionalSearchLimit: number
     risuBardCanonicalTargetLimit: number
+    risuBardCanonicalConcurrencyLimit: number
     risuBardRecentMessageCount: number
     risuBardResponseMessageCount: number
     risuBardResponseExcludeUserMessages: boolean
@@ -96,6 +107,10 @@ export function resolveRisuBardChatSettings(
         risuBardCanonicalTargetLimit: normalizeRisuBardCanonicalTargetLimit(
             value('risuBardCanonicalTargetLimit')
         ),
+        risuBardCanonicalConcurrencyLimit:
+            normalizeRisuBardCanonicalConcurrencyLimit(
+                value('risuBardCanonicalConcurrencyLimit')
+            ),
         risuBardRecentMessageCount: boundedInteger(
             value('risuBardRecentMessageCount'), 12, 1
         ),
@@ -146,6 +161,17 @@ export function normalizeRisuBardCanonicalTargetLimit(value: unknown): number {
         value,
         RISUBARD_CANONICAL_TARGET_LIMIT_DEFAULT,
         1
+    )
+}
+
+export function normalizeRisuBardCanonicalConcurrencyLimit(
+    value: unknown
+): number {
+    return boundedInteger(
+        value,
+        RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT,
+        1,
+        RISUBARD_CANONICAL_CONCURRENCY_LIMIT_MAXIMUM
     )
 }
 

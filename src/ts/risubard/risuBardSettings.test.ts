@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest'
 import {
     RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT,
     RISUBARD_ADDITIONAL_SEARCH_LIMIT_DEFAULT,
+    RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT,
+    RISUBARD_CANONICAL_CONCURRENCY_LIMIT_MAXIMUM,
     RISUBARD_CANONICAL_TARGET_LIMIT_DEFAULT,
     RISUBARD_CANONICAL_WRITING_STYLE_DEFAULT,
     RISUBARD_INQUIRY_MAXIMUM_TOKEN_BUDGET_DEFAULT,
@@ -10,6 +12,7 @@ import {
     buildRisuBardEventWritingPolicy,
     normalizeRisuBardAnalysisTokenLimit,
     normalizeRisuBardAdditionalSearchLimit,
+    normalizeRisuBardCanonicalConcurrencyLimit,
     normalizeRisuBardCanonicalCustomStyle,
     normalizeRisuBardCanonicalTargetLimit,
     normalizeRisuBardCanonicalWritingStyle,
@@ -60,6 +63,24 @@ describe('RisuBard analysis settings', () => {
         expect(normalizeRisuBardCanonicalTargetLimit(99)).toBe(99)
         expect(normalizeRisuBardAnalysisTokenLimit(Infinity)).toBe(RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT)
         expect(normalizeRisuBardAnalysisTokenLimit(Number.MAX_SAFE_INTEGER + 1)).toBe(RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT)
+    })
+
+    test('bounds the canonical request concurrency between sequential and a fixed ceiling', () => {
+        expect(RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT).toBe(3)
+        expect(normalizeRisuBardCanonicalConcurrencyLimit(undefined))
+            .toBe(RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT)
+        expect(normalizeRisuBardCanonicalConcurrencyLimit('4'))
+            .toBe(RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT)
+        expect(normalizeRisuBardCanonicalConcurrencyLimit(0)).toBe(1)
+        expect(normalizeRisuBardCanonicalConcurrencyLimit(1)).toBe(1)
+        expect(normalizeRisuBardCanonicalConcurrencyLimit(99))
+            .toBe(RISUBARD_CANONICAL_CONCURRENCY_LIMIT_MAXIMUM)
+        expect(resolveRisuBardChatSettings({
+            risuBardCanonicalConcurrencyLimit: 2,
+        }, { risuBardCanonicalConcurrencyLimit: 1 })
+            .risuBardCanonicalConcurrencyLimit).toBe(1)
+        expect(resolveRisuBardChatSettings({}).risuBardCanonicalConcurrencyLimit)
+            .toBe(RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT)
     })
 
     test('normalizes configurable inquiry target and maximum budgets', () => {

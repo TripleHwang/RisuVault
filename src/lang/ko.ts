@@ -2983,6 +2983,7 @@ export const languageKorean = {
   risuBardInquiryMaximumTokenBudget: "위키 조회 토큰 절대 상한",
   risuBardAdditionalSearchLimit: "후보 부족 시 추가 검색 한도",
   risuBardCanonicalTargetLimit: "분석 1회당 자동 정본 대상 한도",
+  risuBardCanonicalConcurrencyLimit: "정본 갱신 동시 요청 수",
   risuBardCanonicalWritingStyle: "정본 집필 문체",
   risuBardWikiWritingLanguage: "위키 작성 언어",
   risuBardWikiLanguageGlobal: "공통 설정 사용",

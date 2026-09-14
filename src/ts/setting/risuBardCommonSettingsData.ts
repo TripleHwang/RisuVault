@@ -111,6 +111,15 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         keywords: ['canonical', 'target', 'limit', '정본', '대상', '한도'],
     },
     {
+        id: 'risubard.chat.canonicalConcurrencyLimit',
+        type: 'number',
+        labelKey: 'risuBardCanonicalConcurrencyLimit',
+        helpKey: 'risuBardCanonicalConcurrencyLimit',
+        bindKey: 'risuBardCanonicalConcurrencyLimit',
+        options: { min: 1, max: 8, step: 1 },
+        keywords: ['canonical', 'concurrency', 'parallel', 'batch', '정본', '동시', '병렬'],
+    },
+    {
         id: 'risubard.common.arcPlotter',
         type: 'header',
         labelKey: 'risuBardArcPlotter',

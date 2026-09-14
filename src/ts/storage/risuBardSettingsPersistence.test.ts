@@ -30,6 +30,7 @@ describe('RisuBard settings persistence', () => {
             risuBardAnalysisTokenLimit: 99_999,
             risuBardAdditionalSearchLimit: 99,
             risuBardCanonicalTargetLimit: 99,
+            risuBardCanonicalConcurrencyLimit: 2,
             risuBardInquiryTargetTokenBudget: 50_000,
             risuBardInquiryMaximumTokenBudget: 99_999,
         } as any)
@@ -41,6 +42,7 @@ describe('RisuBard settings persistence', () => {
             risuBardAnalysisTokenLimit: 99_999,
             risuBardAdditionalSearchLimit: 99,
             risuBardCanonicalTargetLimit: 99,
+            risuBardCanonicalConcurrencyLimit: 2,
             risuBardInquiryTargetTokenBudget: 50_000,
             risuBardInquiryMaximumTokenBudget: 99_999,
         })

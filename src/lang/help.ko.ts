@@ -270,6 +270,7 @@ export const helpKo = {
         "risuBardInquiryMaximumTokenBudget": "상세 조회와 필수 문서를 포함해 한 번의 위키 조회가 절대로 넘을 수 없는 토큰 수입니다. 목표보다 작게 설정하면 목표도 이 값으로 제한됩니다.",
         "risuBardAdditionalSearchLimit": "첫 분석에서 정본 후보가 부족할 때 위키 문서를 추가로 탐색할 최대 횟수입니다.",
         "risuBardCanonicalTargetLimit": "한 번의 자동 분석에서 생성하거나 갱신할 정본 문서의 최대 개수입니다.",
+        "risuBardCanonicalConcurrencyLimit": "한 번의 기억 갱신에서 보조 모델에 동시에 보내는 정본 갱신 요청 수입니다. 1이면 이전처럼 하나씩 순서대로 보내며, 제공자가 병렬 요청을 거부하면 낮추세요.",
         "risuBardArcPlotter": "확정 사건이 설정한 개수만큼 쌓일 때마다 기존 BardWiki writer가 예약 문서 ‘스토리 아크 플롯’을 갱신합니다. 플롯은 전체 대화나 인물 행적을 반복하지 않고 아크·전환점·미해결 줄기와 대표 사건 링크만 남겨, 장기 채팅에서 필요한 과거 사건으로 돌아가는 탐색 경로를 만듭니다. 임베딩이나 별도 AI 호출은 추가하지 않으며, 정확한 세부사항의 근거는 사건 문서와 회수된 원본 채팅이 우선합니다.",
         "risuBardArcPlotterEnabled": "끄면 새 확정 사건이 생겨도 스토리 아크 플롯을 자동 생성하거나 갱신하지 않습니다. 기존 플롯 문서는 보존됩니다.",
         "risuBardArcPlotterCheckpointSize": "플롯을 한 번 갱신할 때 묶는 새 확정 사건 수입니다. 작을수록 자주 갱신하고, 클수록 writer 호출 횟수가 줄어듭니다.",

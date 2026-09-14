@@ -45,10 +45,12 @@ import {
     buildRisuBardEventWritingPolicy,
     normalizeRisuBardAdditionalSearchLimit,
     normalizeRisuBardAnalysisTokenLimit,
+    normalizeRisuBardCanonicalConcurrencyLimit,
     normalizeRisuBardCanonicalCustomStyle,
     normalizeRisuBardCanonicalTargetLimit,
     normalizeRisuBardCanonicalWritingStyle,
     normalizeRisuBardInquiryTokenBudget,
+    RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT,
     type RisuBardCanonicalWritingStyle,
 } from '../../src/ts/risubard/risuBardSettings'
 import { normalizeWikiWritingLanguage, type WikiWritingLanguage } from '../../src/ts/risubard/wikiWritingLanguage'
@@ -109,6 +111,40 @@ function splitCanonicalTargets<T>(
     return batches
 }
 
+/**
+ * A counting semaphore handed out in request order. Canonical batch requests
+ * and the per-document regenerations of a failed batch draw from the same
+ * pool, so the number of model conversations in flight never exceeds the
+ * limit no matter how a batch splits. Grants are queued first-in first-out,
+ * which at a limit of 1 reproduces the strictly sequential order the loop
+ * had before: every regeneration starts only after the previous one settled.
+ */
+function createRequestPermits(limit: number): {
+    acquire(): Promise<() => void>
+} {
+    let available = Math.max(1, Math.floor(limit))
+    const waiting: Array<(release: () => void) => void> = []
+    const grant = (): (() => void) => {
+        let released = false
+        return () => {
+            if (released) return
+            released = true
+            const next = waiting.shift()
+            if (next) next(grant())
+            else available += 1
+        }
+    }
+    return {
+        acquire: () => {
+            if (available > 0) {
+                available -= 1
+                return Promise.resolve(grant())
+            }
+            return new Promise((resolve) => { waiting.push(resolve) })
+        },
+    }
+}
+
 export interface MemoryAnalysisMessage {
     messageId: string
     role: 'user' | 'assistant'
@@ -125,6 +161,7 @@ export interface MemoryAnalysisInput {
     analysisTokenLimit?: number
     additionalSearchLimit?: number
     canonicalTargetLimit?: number
+    canonicalConcurrencyLimit?: number
     inquiryTokenBudget?: {
         target: number
         maximum: number
@@ -375,6 +412,9 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         ...(value.canonicalTargetLimit === undefined
             ? []
             : ['canonicalTargetLimit']),
+        ...(value.canonicalConcurrencyLimit === undefined
+            ? []
+            : ['canonicalConcurrencyLimit']),
         ...(value.inquiryTokenBudget === undefined
             ? []
             : ['inquiryTokenBudget']),
@@ -580,6 +620,9 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         ),
         canonicalTargetLimit: normalizeRisuBardCanonicalTargetLimit(
             value.canonicalTargetLimit
+        ),
+        canonicalConcurrencyLimit: normalizeRisuBardCanonicalConcurrencyLimit(
+            value.canonicalConcurrencyLimit
         ),
         ...(value.inquiryTokenBudget === undefined ? {} : {
             inquiryTokenBudget: normalizeRisuBardInquiryTokenBudget(
@@ -870,15 +913,24 @@ export function createMemoryAnalysisRunner(
         signal?: AbortSignal
     ): Promise<MemoryAnalysisRunResult> => {
         const snapshot = snapshotInput(input)
-        const analyzeRaw = (request: MemoryAnalysisModelRequest) => {
-            signal?.throwIfAborted()
+        // Canonical batches run under a signal derived from `signal` so one
+        // failed batch can stop its siblings; every other request uses the
+        // run's own signal.
+        const analyzeRaw = (
+            request: MemoryAnalysisModelRequest,
+            requestSignal: AbortSignal | undefined = signal,
+        ) => {
+            requestSignal?.throwIfAborted()
             return options.analyze({
                 ...request,
                 sessionChatId: snapshot.modelSessionChatId ?? snapshot.chatId,
-            }, signal)
+            }, requestSignal)
         }
-        const analyzeResponse = async (request: MemoryAnalysisModelRequest): Promise<ModelResponse> => {
-            const response = await analyzeRaw(request)
+        const analyzeResponse = async (
+            request: MemoryAnalysisModelRequest,
+            requestSignal?: AbortSignal,
+        ): Promise<ModelResponse> => {
+            const response = await analyzeRaw(request, requestSignal)
             return typeof response === 'object' && response !== null && 'type' in response
                 ? response : { type: 'success', result: response }
         }
@@ -1362,11 +1414,32 @@ export function createMemoryAnalysisRunner(
                             snapshot.analysisTokenLimit ?? 12_000,
                             canonicalInput,
                         )
-                        for (const canonicalTargets of canonicalBatches) {
-                            const generateBatch = (
-                                targets: typeof canonicalTargets,
-                                maxAttempts: 1 | 2,
-                            ) => runValidatedModelRequest({
+                        // Every batch's model input is fixed here, before any
+                        // request starts, and no batch touches another batch's
+                        // document (targets were deduplicated by targetKey), so
+                        // the batches are independent model requests that may
+                        // be in flight together. Only generation overlaps: the
+                        // receipt's warnings and changes are appended in batch
+                        // order and each save follows the previous one, so the
+                        // writes below stay a single in-order pass over the
+                        // batches, consuming each generation as it is reached
+                        // rather than as it happens to return.
+                        const concurrencyLimit = snapshot.canonicalConcurrencyLimit
+                            ?? RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT
+                        const permits = createRequestPermits(concurrencyLimit)
+                        // One failed batch stops the batches still in flight
+                        // through a signal derived from the run's own, so the
+                        // run settles on the batch's error rather than on the
+                        // abort its siblings observe as a consequence.
+                        const batchAbort = new AbortController()
+                        const onOuterAbort = () => batchAbort.abort(signal?.reason)
+                        if (signal?.aborted) onOuterAbort()
+                        else signal?.addEventListener('abort', onOuterAbort, { once: true })
+                        let firstFailure: { error: unknown } | undefined
+                        const generateBatch = (
+                            targets: (typeof batchTargets)[number][],
+                            maxAttempts: 1 | 2,
+                        ) => runValidatedModelRequest({
                                 maxAttempts,
                                 request: (feedback) => analyzeResponse({
                                 format: 'canonical-batch',
@@ -1379,7 +1452,7 @@ export function createMemoryAnalysisRunner(
                                     ...(feedback ? [modelOutputRepairInstruction(feedback)] : []),
                                 ].join('\n'),
                                 input: canonicalInput(targets),
-                                }),
+                                }, batchAbort.signal),
                                 parse: (text) => {
                                     const parsed = parseCanonicalBatch(text, targets.length)
                                     if (parsed.documents.length !== targets.length) {
@@ -1405,22 +1478,95 @@ export function createMemoryAnalysisRunner(
                                     return parsed
                                 },
                             })
-                            let batch: ReturnType<typeof parseCanonicalBatch>
+                        // A multi-document response that failed retryably is
+                        // not a run failure: it is regenerated per document.
+                        const isSplittableFailure = (
+                            targets: readonly unknown[],
+                            error: unknown,
+                        ) => error instanceof ModelOutputError
+                            && error.retryable && targets.length >= 2
+                        // A permit covers the whole validated request, including
+                        // its repair re-prompt, so one permit is one model
+                        // conversation. A failure aborts the siblings before the
+                        // permit is released. The order is not load-bearing --
+                        // a waiter whose acquire() resolves continues on a
+                        // microtask, after the synchronous abort either way --
+                        // but aborting first is what the intent reads as, and
+                        // it costs nothing.
+                        const generateUnderPermit = async (
+                            targets: (typeof batchTargets)[number][],
+                            maxAttempts: 1 | 2,
+                        ) => {
+                            const release = await permits.acquire()
                             try {
-                                batch = await generateBatch(canonicalTargets, canonicalTargets.length > 1 ? 1 : 2)
+                                return await generateBatch(targets, maxAttempts)
                             }
                             catch (error) {
-                                if (!(error instanceof ModelOutputError)
-                                    || !error.retryable || canonicalTargets.length < 2) throw error
+                                // The first failure is the run's error; later
+                                // rejections are its siblings observing the abort.
+                                if (!firstFailure && !isSplittableFailure(targets, error)) {
+                                    firstFailure = { error }
+                                    batchAbort.abort(error)
+                                }
+                                throw error
+                            }
+                            finally {
+                                release()
+                            }
+                        }
+                        const generateCanonicalBatch = async (
+                            canonicalTargets: (typeof batchTargets)[number][],
+                        ): Promise<ReturnType<typeof parseCanonicalBatch>> => {
+                            try {
+                                return await generateUnderPermit(
+                                    canonicalTargets,
+                                    canonicalTargets.length > 1 ? 1 : 2
+                                )
+                            }
+                            catch (error) {
+                                if (!isSplittableFailure(canonicalTargets, error)) throw error
                                 // A failed multi-document response is discarded in
                                 // full. Generate smaller drafts before any writes,
                                 // keeping each target's original evidence and hash.
-                                batch = { schemaVersion: 1, documents: [] }
-                                for (const [candidateIndex, target] of canonicalTargets.entries()) {
-                                    const single = await generateBatch([target], 2)
-                                    batch.documents.push({ ...single.documents[0], candidateIndex })
-                                }
+                                // The batch's permit is already released, so the
+                                // per-document drafts share the pool with the
+                                // other batches and start in target order.
+                                const documents = await Promise.all(
+                                    canonicalTargets.map(async (target, candidateIndex) => {
+                                        const single = await generateUnderPermit([target], 2)
+                                        return { ...single.documents[0], candidateIndex }
+                                    })
+                                )
+                                return { schemaVersion: 1, documents }
                             }
+                        }
+                        // Up to `concurrencyLimit` generations run ahead of the
+                        // writer. The next batch is started after the current
+                        // batch's writes, not after its generation, so a limit
+                        // of 1 keeps the request-then-write alternation the
+                        // loop always had. Rejections are observed by the
+                        // writer in batch order; the no-op catch keeps an early
+                        // rejection of a later batch from being unhandled.
+                        const pendingBatches: Promise<ReturnType<typeof parseCanonicalBatch>>[] = []
+                        const startBatch = (batchIndex: number) => {
+                            const targets = canonicalBatches[batchIndex]
+                            if (!targets) return
+                            const pending = generateCanonicalBatch(targets)
+                            pending.catch(() => {})
+                            pendingBatches[batchIndex] = pending
+                        }
+                        try {
+                            for (let batchIndex = 0; batchIndex < concurrencyLimit; batchIndex++) {
+                                startBatch(batchIndex)
+                            }
+                            for (const [batchIndex, canonicalTargets] of canonicalBatches.entries()) {
+                                let batch: ReturnType<typeof parseCanonicalBatch>
+                                try {
+                                    batch = await pendingBatches[batchIndex]
+                                }
+                                catch (error) {
+                                    throw firstFailure ? firstFailure.error : error
+                                }
                             const patchesByIndex = new Map(batch.documents.map(
                                 (document) => [document.candidateIndex, document.sections]
                             ))
@@ -1533,6 +1679,17 @@ export function createMemoryAnalysisRunner(
                                 await reportError(error)
                             }
                         }
+                                startBatch(batchIndex + concurrencyLimit)
+                            }
+                        }
+                        catch (error) {
+                            // A write-phase error leaves later generations
+                            // unconsumed; stop them before the run settles.
+                            batchAbort.abort(error)
+                            throw error
+                        }
+                        finally {
+                            signal?.removeEventListener('abort', onOuterAbort)
                         }
                     }
                 }

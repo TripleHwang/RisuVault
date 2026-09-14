@@ -223,6 +223,8 @@ async function confirmProjectedNarrativeTurn(input: {
             analysisTokenLimit: settings.risuBardAnalysisTokenLimit,
             additionalSearchLimit: settings.risuBardAdditionalSearchLimit,
             canonicalTargetLimit: settings.risuBardCanonicalTargetLimit,
+            canonicalConcurrencyLimit:
+                settings.risuBardCanonicalConcurrencyLimit,
             inquiryTokenBudget: {
                 target: settings.risuBardInquiryTargetTokenBudget,
                 maximum: settings.risuBardInquiryMaximumTokenBudget,
@@ -578,6 +580,8 @@ async function runWikiReboot(
                 analysisTokenLimit: settings.risuBardAnalysisTokenLimit,
                 additionalSearchLimit: settings.risuBardAdditionalSearchLimit,
                 canonicalTargetLimit: settings.risuBardCanonicalTargetLimit,
+                canonicalConcurrencyLimit:
+                    settings.risuBardCanonicalConcurrencyLimit,
                 inquiryTokenBudget: {
                     target: settings.risuBardInquiryTargetTokenBudget,
                     maximum: settings.risuBardInquiryMaximumTokenBudget,

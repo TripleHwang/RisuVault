@@ -448,6 +448,8 @@ export const helpEn = {
             "Maximum extra wiki searches when the first analysis does not find enough canonical candidates.",
         risuBardCanonicalTargetLimit:
             "Maximum canonical documents created or updated by one automatic analysis.",
+        risuBardCanonicalConcurrencyLimit:
+            "How many canonical rewrite requests of one memory update the auxiliary model handles at the same time. 1 sends them one after another; lower it if the provider rejects parallel requests.",
         risuBardArcPlotter:
             "Whenever the configured number of confirmed events accumulates, the existing BardWiki writer updates the reserved Story Arc Plot document. The plot keeps only arcs, turning points, open threads, and representative event links instead of repeating the full chat or character histories, providing a route back to relevant past events in very long chats. It adds no embedding or separate AI call. Event documents and retrieved source chat remain the authority for exact details.",
         risuBardArcPlotterEnabled:

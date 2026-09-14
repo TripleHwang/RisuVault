@@ -2779,6 +2779,7 @@ export const languageEnglish = {
     risuBardInquiryMaximumTokenBudget: "Wiki inquiry absolute token limit",
     risuBardAdditionalSearchLimit: "Additional search limit when candidates are insufficient",
     risuBardCanonicalTargetLimit: "Automatic canonical targets per analysis",
+    risuBardCanonicalConcurrencyLimit: "Concurrent canonical rewrite requests",
     risuBardCanonicalWritingStyle: "Canonical writing style",
     risuBardWikiWritingLanguage: "Wiki writing language",
     risuBardWikiLanguageGlobal: "Use common setting",
