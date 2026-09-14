@@ -13,10 +13,10 @@
 ## Task 1: Scaffold the plugin package
 
 **Files:**
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\.codex-plugin\plugin.json`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\SKILL.md`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\risubard-character.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\config.example.json`
+- Create: `<workspace>\risubard-character-author\.codex-plugin\plugin.json`
+- Create: `<workspace>\risubard-character-author\skills\risubard-character-author\SKILL.md`
+- Create: `<workspace>\risubard-character-author\scripts\risubard-character.mjs`
+- Create: `<workspace>\risubard-character-author\config.example.json`
 
 1. Use the official plugin scaffold helper with skills, scripts, and assets enabled.
 2. Set a concise manifest name and description.
@@ -25,9 +25,9 @@
 ## Task 2: Define and validate the portable draft format
 
 **Files:**
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\lib\draft.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\tests\draft.test.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\references\draft-format.md`
+- Create: `<workspace>\risubard-character-author\scripts\lib\draft.mjs`
+- Create: `<workspace>\risubard-character-author\scripts\tests\draft.test.mjs`
+- Create: `<workspace>\risubard-character-author\skills\risubard-character-author\references\draft-format.md`
 
 1. Write failing tests for required character fields, lore defaults, unique asset aliases, absolute/relative asset paths, and renderer defaults.
 2. Run `node --test scripts/tests/draft.test.mjs` and confirm the expected module/test failure.
@@ -37,9 +37,9 @@
 ## Task 3: Compile assets and RisuBard character metadata
 
 **Files:**
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\lib\compiler.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\tests\compiler.test.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\assets\templates\character-draft.example.json`
+- Create: `<workspace>\risubard-character-author\scripts\lib\compiler.mjs`
+- Create: `<workspace>\risubard-character-author\scripts\tests\compiler.test.mjs`
+- Create: `<workspace>\risubard-character-author\assets\templates\character-draft.example.json`
 
 1. Write failing tests for byte-signature format detection, content hashes, `additionalAssets`, lorebook entries, and the generated `editdisplay` regex/CSS.
 2. Verify failure before implementation.
@@ -50,8 +50,8 @@
 ## Task 4: Implement safe file-native publishing
 
 **Files:**
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\lib\publisher.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\tests\publisher.test.mjs`
+- Create: `<workspace>\risubard-character-author\scripts\lib\publisher.mjs`
+- Create: `<workspace>\risubard-character-author\scripts\tests\publisher.test.mjs`
 
 1. Write failing tests against a temporary synthetic save for active-lock refusal, KV object/manifest writes, character metadata/checksum/backup behavior, sidebar registration, and journal cleanup.
 2. Verify failure before implementation.
@@ -62,8 +62,8 @@
 ## Task 5: Expose CLI commands and read-only inspection
 
 **Files:**
-- Modify: `E:\Risuwork\JellyBard\risubard-character-author\scripts\risubard-character.mjs`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\scripts\tests\cli.test.mjs`
+- Modify: `<workspace>\risubard-character-author\scripts\risubard-character.mjs`
+- Create: `<workspace>\risubard-character-author\scripts\tests\cli.test.mjs`
 
 1. Write failing CLI tests for `inspect`, `validate`, `plan`, and guarded `publish --yes`.
 2. Implement config lookup from the plugin root and command-line `--save-root` override.
@@ -74,10 +74,10 @@
 ## Task 6: Write the Codex skill and install personally
 
 **Files:**
-- Modify: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\SKILL.md`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\references\character-contract.md`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\references\asset-rendering.md`
-- Create: `E:\Risuwork\JellyBard\risubard-character-author\skills\risubard-character-author\references\storage-safety.md`
+- Modify: `<workspace>\risubard-character-author\skills\risubard-character-author\SKILL.md`
+- Create: `<workspace>\risubard-character-author\skills\risubard-character-author\references\character-contract.md`
+- Create: `<workspace>\risubard-character-author\skills\risubard-character-author\references\asset-rendering.md`
+- Create: `<workspace>\risubard-character-author\skills\risubard-character-author\references\storage-safety.md`
 - Install: `C:\Users\jsthe\plugins\risubard-character-author\`
 - Update: `C:\Users\jsthe\.agents\plugins\marketplace.json`
 

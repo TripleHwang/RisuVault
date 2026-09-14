@@ -23,6 +23,37 @@ describe('RisuRealm browser experience', () => {
         expect(main).toContain('type="submit"')
     })
 
+    test('searches creator names alongside character text and removes duplicate cards', () => {
+        const main = source('RealmMain.svelte')
+
+        expect(main).toContain('function currentAuthorSearch()')
+        expect(main).toContain('`author:${textQuery}`')
+        expect(main).toContain('Promise.all(searches.map')
+        expect(main).toContain('new Map(results.flat().map((chara) => [chara.id, chara]))')
+        expect(main).toContain('이름, 설명, 제작자 또는 정확한 태그')
+        expect(main).toContain('name, description, creator, or an exact tag')
+    })
+
+    test('keeps the initial unfiltered Realm request when the search field is empty', () => {
+        const main = source('RealmMain.svelte')
+
+        expect(main).toContain('const baseSearch = currentSearch();')
+        expect(main).toContain('const searches = authorSearch && authorSearch !== baseSearch')
+        expect(main).toContain('? [baseSearch, authorSearch]')
+        expect(main).toContain(': [baseSearch];')
+    })
+
+    test('searches immediately when a card creator name is clicked', () => {
+        const main = source('RealmMain.svelte')
+        const card = source('RealmHubIcon.svelte')
+
+        expect(main).toContain('function searchByAuthor(author: string)')
+        expect(main).toContain('onAuthorClick={searchByAuthor}')
+        expect(card).toContain('onAuthorClick?: (author: string) => void')
+        expect(card).toContain('onAuthorClick(chara.authorname)')
+        expect(card).toContain('event.stopPropagation()')
+    })
+
     test('offers a keyboard-driven autocomplete for each space-separated tag', () => {
         const main = source('RealmMain.svelte')
         const util = readFileSync('src/ts/util.ts', 'utf8')

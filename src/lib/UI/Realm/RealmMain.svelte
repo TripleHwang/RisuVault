@@ -24,7 +24,7 @@
     let isKorean = $derived(DBState.db.language === 'ko');
     let ui = $derived(isKorean ? {
         title: 'RisuRealm 둘러보기',
-        subtitle: '이름, 설명 또는 정확한 태그로 공유 캐릭터를 검색하세요.',
+        subtitle: '이름, 설명, 제작자 또는 정확한 태그로 공유 캐릭터를 검색하세요.',
         searchLabel: 'RisuRealm 검색',
         searchPlaceholder: '캐릭터 검색',
         search: '검색',
@@ -45,7 +45,7 @@
         importPrompt: 'URL 또는 ID 입력',
     } : {
         title: 'Explore RisuRealm',
-        subtitle: 'Search shared characters by name, description, or an exact tag.',
+        subtitle: 'Search shared characters by name, description, creator, or an exact tag.',
         searchLabel: 'Search RisuRealm',
         searchPlaceholder: 'Search characters',
         search: 'Search',
@@ -102,13 +102,28 @@
             .join(' ');
     }
 
+    function currentAuthorSearch() {
+        const textQuery = search.trim();
+        if (!textQuery || textQuery.startsWith('author:')) return '';
+        const tags = [...new Set(tagSearch.split(/\s+/).map((tag) => tag.trim()).filter(Boolean))];
+        return [`author:${textQuery}`, ...tags.map((tag) => `tag:${tag}`)]
+            .filter(Boolean)
+            .join(' ');
+    }
+
     async function getHub() {
-        charas = await loadingActivity.read('RisuRealm', () => getRisuHub({
-            search: currentSearch(),
+        const baseSearch = currentSearch();
+        const authorSearch = currentAuthorSearch();
+        const searches = authorSearch && authorSearch !== baseSearch
+            ? [baseSearch, authorSearch]
+            : [baseSearch];
+        const results = await loadingActivity.read('RisuRealm', () => Promise.all(searches.map((current) => getRisuHub({
+            search: current,
             page,
             nsfw,
             sort,
-        }));
+        }))));
+        charas = [...new Map(results.flat().map((chara) => [chara.id, chara])).values()];
     }
 
     function submitSearch(event?: SubmitEvent) {
@@ -134,6 +149,12 @@
 
     function chooseTag(tag: string) {
         completeTag(tag);
+        submitSearch();
+    }
+
+    function searchByAuthor(author: string) {
+        search = author;
+        tagSearch = '';
         submitSearch();
     }
 
@@ -301,7 +322,7 @@
 
 <div class="grid w-full grid-cols-1 gap-3 py-4 lg:grid-cols-2">
     {#each charas as chara (chara.id)}
-        <RealmHubIcon onClick={() => openedData = chara} {chara} />
+        <RealmHubIcon onClick={() => openedData = chara} onAuthorClick={searchByAuthor} {chara} />
     {/each}
 </div>
 

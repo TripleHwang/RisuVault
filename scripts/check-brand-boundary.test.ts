@@ -17,6 +17,7 @@ const legacyTokens = [
             'README.md',
             'patchnote/0.8.14-arca.txt',
             'patchnote/0.9.3-arca.txt',
+            'patchnote/0.9.32-arca.txt',
             'patchnote/0.9.31.md',
             'src/lang/en.ts',
             'src/lang/ko.ts',
