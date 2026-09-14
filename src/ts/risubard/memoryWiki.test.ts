@@ -390,7 +390,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 baseline: null,
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view')
+        })).rejects.toThrow('Invalid RisuVault memory view')
     })
 
     it('rejects a v2 graph outside the requested story scope', async () => {
@@ -410,7 +410,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 },
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view scope')
+        })).rejects.toThrow('Invalid RisuVault memory view scope')
     })
 
     it('loads a node-and-edge-only v2 graph snapshot', async () => {
@@ -458,7 +458,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 },
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view evidence')
+        })).rejects.toThrow('Invalid RisuVault memory view evidence')
     })
 
     it.each([
@@ -492,7 +492,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 },
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view evidence')
+        })).rejects.toThrow('Invalid RisuVault memory view evidence')
     })
 
     it.each([
@@ -548,7 +548,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 },
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view evidence')
+        })).rejects.toThrow('Invalid RisuVault memory view evidence')
     })
 
     it('rejects cross-chat edge evidence in a v2 graph', async () => {
@@ -602,7 +602,7 @@ describe('loadNarrativeMemoryWiki', () => {
                 },
             }))) as unknown as typeof fetch,
             createAuth: async () => 'auth-token',
-        })).rejects.toThrow('Invalid RisuBard memory view evidence')
+        })).rejects.toThrow('Invalid RisuVault memory view evidence')
     })
 
     it('parses body-free runtime inquiry and analysis observability', async () => {

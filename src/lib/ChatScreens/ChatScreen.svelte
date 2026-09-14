@@ -162,7 +162,7 @@
         }
         catch(error){
             chat.risuBardLastAutosaveTurn = previousTurn
-            console.warn('[RisuBard autosave]', error)
+            console.warn('[RisuVault autosave]', error)
         }
     }
 

@@ -615,7 +615,7 @@ ${badgeHtml}
 ${titleBlock}
 <div style="padding-top: 1rem; border-top: 1px solid ${colors.border};">${options.bodyHtml}</div>
 <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid ${colors.border}; text-align: center;">
-<span style="color: ${colors.mutedText}; font-size: 0.75rem;">From RisuBard</span>
+<span style="color: ${colors.mutedText}; font-size: 0.75rem;">From RisuVault</span>
 </div>
 </div>
 </div>

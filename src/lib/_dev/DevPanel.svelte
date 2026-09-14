@@ -386,7 +386,7 @@ function hello(): string {
         latestVersion: '99.99.99-demo',
         hasUpdate: true,
         severity: 'optional',
-        releaseUrl: 'https://github.com/rpaddict/RisuBard/releases',
+        releaseUrl: 'https://github.com/TripleHwang/RisuVault/releases',
         releaseName: 'v99.99.99-demo (Dev Panel sample)',
         publishedAt: new Date().toISOString(),
         canSelfUpdate: true,

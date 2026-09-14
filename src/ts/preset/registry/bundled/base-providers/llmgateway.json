@@ -257,6 +257,6 @@
       "https://api.llmgateway.io/v1/models",
       "https://github.com/theopenco/llmgateway"
     ],
-    "notes": "Model-dependent aggregator. Context and output token limits vary by selected model and routed provider, so RisuBard uses a number input instead of a fixed-limit slider."
+    "notes": "Model-dependent aggregator. Context and output token limits vary by selected model and routed provider, so RisuVault uses a number input instead of a fixed-limit slider."
   }
 }

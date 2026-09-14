@@ -200,7 +200,7 @@
             )
             const stamp = evidence.generatedAt.replaceAll(':', '-').replaceAll('.', '-')
             await downloadFile(
-                `risubard-chat-evidence-${stamp}.md`,
+                `risuvault-chat-evidence-${stamp}.md`,
                 formatChatRequestEvidenceMarkdown(evidence),
             )
         } catch (error) {

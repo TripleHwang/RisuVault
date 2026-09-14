@@ -918,7 +918,7 @@ function persistCanonicalProjection(databaseObject) {
     // import, `/api/write` of database.bin -- are exactly the ones for which
     // the projection is authoritative, so the guard stays live for them.
     if (!sqlIsCanonical() && canonicalProjectionSync.hasExternalChanges()) {
-        const error = new Error('Canonical entity files changed outside RisuBard before projection save')
+        const error = new Error('Canonical entity files changed outside RisuVault before projection save')
         error.code = 'CANONICAL_FILES_CHANGED'
         throw error
     }
@@ -3700,7 +3700,7 @@ function sendStorageEtagConflict(res, currentEtag) {
 
 function sendCanonicalProjectionConflict(res, adopted) {
     res.status(409).send({
-        error: 'Canonical entity files changed outside RisuBard; reload the latest files before saving',
+        error: 'Canonical entity files changed outside RisuVault; reload the latest files before saving',
         code: 'CANONICAL_FILES_CHANGED',
         canonicalFilesChanged: true,
         currentEtag: adopted?.etag ?? dbEtag ?? undefined,
@@ -4569,7 +4569,7 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
 
 // ── Settings-only export ────────────────────────────────────────────────────
 //
-// Multi-instance setups are a common RisuBard pattern, and re-entering every
+// Multi-instance setups are a common RisuVault pattern, and re-entering every
 // setting by hand on each new instance is the pain this removes. A settings-only
 // backup is the full backup minus characters, chats and inlay images: modules,
 // plugins, prompt presets, personas, lorebooks, theme and API keys all travel.

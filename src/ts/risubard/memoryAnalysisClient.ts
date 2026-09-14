@@ -455,7 +455,7 @@ const narrativeGraphDeltaSchema = JSON.stringify({
 async function readJson(response: Response): Promise<unknown> {
     if (!response.ok) {
         throw new Error(
-            `RisuBard memory API failed with status ${response.status}`
+            `RisuVault memory API failed with status ${response.status}`
         )
     }
     return response.json()

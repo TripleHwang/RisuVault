@@ -39,7 +39,7 @@ const authoredPalettes = [
         },
     ]),
     ...[
-        ['text-amber-400', '🐉RisuBard🐉'],
+        ['text-amber-400', '🐉RisuVault🐉'],
         ['text-blue-500', 'P'], ['text-red-500', 'o'], ['text-yellow-500', 'c'],
         ['text-white', 'k'], ['text-black', 'e'], ['text-blue-500', 't'],
         ['text-red-500', 'R'], ['text-yellow-500', 'i'], ['text-white', 's'], ['text-black', 'u'],
@@ -51,7 +51,7 @@ const authoredPalettes = [
     })),
     {
         file: 'src/lib/UI/Title.svelte',
-        expression: '<span class="text-2xl font-extralight italic text-amber-400 hover:text-amber-600 transition">RisuBard {',
+        expression: '<span class="text-2xl font-extralight italic text-amber-400 hover:text-amber-600 transition">RisuVault {',
         utilities: ['text-amber-400', 'text-amber-600'],
         reason: 'The anniversary wordmark is authored brand artwork.',
     },

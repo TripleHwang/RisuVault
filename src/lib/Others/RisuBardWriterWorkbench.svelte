@@ -143,7 +143,7 @@
             <FeatherIcon size={19} />
         </div>
         <div class="writer-heading-copy">
-            <span class="writer-kicker">RisuBard · Authoring</span>
+            <span class="writer-kicker">RisuVault · Authoring</span>
             <h3>{language.risuBardWriterTitle}</h3>
             <p>{language.risuBardWriterDescription}</p>
         </div>

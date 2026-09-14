@@ -210,7 +210,7 @@ export async function loadData() {
             }
             if (createdFreshDatabase) {
                 // Brand-new instance (no save file existed): apply the default
-                // theme preset (#0 = RisuBard Standard) so the active display
+                // theme preset (#0 = RisuVault Standard) so the active display
                 // settings (zoomsize 120, iconsize, line height, etc.) match the
                 // standard theme instead of upstream's raw DB defaults. setDatabase
                 // creates this preset but never applies it. Gated on

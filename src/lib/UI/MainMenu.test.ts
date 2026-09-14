@@ -11,7 +11,7 @@ describe('home screen brand', () => {
     it('shows the RisuBard name and current app version at the top', () => {
         expect(source).toContain("import { nodeOnlyVer } from '../../ts/storage/database.svelte'")
         expect(source).toContain('data-home-brand')
-        expect(source).toContain('>RisuBard</span>')
+        expect(source).toContain('>RisuVault</span>')
         expect(source).toContain('v{nodeOnlyVer}')
     })
 })

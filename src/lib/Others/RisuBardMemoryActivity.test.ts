@@ -443,7 +443,7 @@ describe('RisuBardMemoryActivity', () => {
         expect(document.querySelector('[data-refresh-request-evidence]')).toBeNull()
         markdown?.click()
         await vi.waitFor(() => expect(mocks.downloadFile).toHaveBeenCalledWith(
-            expect.stringMatching(/^risubard-chat-evidence-.*\.md$/),
+            expect.stringMatching(/^risuvault-chat-evidence-.*\.md$/),
             '# evidence',
         ))
     })

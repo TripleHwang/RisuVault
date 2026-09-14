@@ -141,7 +141,7 @@ describe('Arca chat log clipboard composition', () => {
         expect(html).toContain('Alice &lt;Admin&gt;')
         expect(html).toContain('Model &amp; One')
         expect(html).toContain('<p>First <strong>reply</strong></p>')
-        expect(html.match(/From RisuBard/g)).toHaveLength(1)
+        expect(html.match(/From RisuVault/g)).toHaveLength(1)
         expect(html.match(/data:image\/png;base64,/g)).toHaveLength(2)
     })
 

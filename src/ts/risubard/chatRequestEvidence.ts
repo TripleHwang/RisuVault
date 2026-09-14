@@ -345,7 +345,7 @@ function escapeTable(value: string | undefined): string {
 export function formatChatRequestEvidenceMarkdown(evidence: ChatRequestEvidence): string {
     const timeZone = safeTimeZone(evidence.timeZone)
     const lines = [
-        '# RisuBard 채팅 요청 증거 보고서',
+        '# RisuVault 채팅 요청 증거 보고서',
         '',
         `- 표시 시간대: ${timeZone} (${timeZoneOffset(evidence.generatedAt, timeZone)})`,
         `- 생성 시각: ${localTimestamp(evidence.generatedAt, timeZone)}`,

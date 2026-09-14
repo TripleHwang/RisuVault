@@ -114,14 +114,14 @@ function hasExactKeys(
 
 function requireString(value: unknown): string {
     if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error('Invalid RisuBard memory view')
+        throw new Error('Invalid RisuVault memory view')
     }
     return value
 }
 
 function parseEvidence(value: unknown, chatId: string): EvidenceRef[] {
     if (!Array.isArray(value) || value.length === 0) {
-        throw new Error('Invalid RisuBard memory view evidence')
+        throw new Error('Invalid RisuVault memory view evidence')
     }
     return value.map((item) => {
         if (!isRecord(item)
@@ -129,7 +129,7 @@ function parseEvidence(value: unknown, chatId: string): EvidenceRef[] {
             || item.chatId !== chatId
             || typeof item.messageId !== 'string'
             || item.messageId.trim().length === 0) {
-            throw new Error('Invalid RisuBard memory view evidence')
+            throw new Error('Invalid RisuVault memory view evidence')
         }
         return {
             chatId,
@@ -140,13 +140,13 @@ function parseEvidence(value: unknown, chatId: string): EvidenceRef[] {
 
 function requireUnique(values: string[]): void {
     if (new Set(values).size !== values.length) {
-        throw new Error('Invalid RisuBard memory view')
+        throw new Error('Invalid RisuVault memory view')
     }
 }
 
 function requireMetric(value: unknown): number {
     if (!Number.isSafeInteger(value) || (value as number) < 0) {
-        throw new Error('Invalid RisuBard memory observability')
+        throw new Error('Invalid RisuVault memory observability')
     }
     return value as number
 }
@@ -170,7 +170,7 @@ function parseObservability(value: unknown): NarrativeMemoryObservability {
         || !['disabled', 'current', 'missing-or-stale'].includes(
             String(value.cacheStatus)
         )) {
-        throw new Error('Invalid RisuBard memory observability')
+        throw new Error('Invalid RisuVault memory observability')
     }
     let lastInquiry: NarrativeMemoryObservability['lastInquiry'] = null
     if (value.lastInquiry !== null) {
@@ -186,7 +186,7 @@ function parseObservability(value: unknown): NarrativeMemoryObservability {
         if (!isRecord(value.lastInquiry)
             || !hasExactKeys(value.lastInquiry, inquiryKeys)
             || value.lastInquiry.auxiliaryModelCalls !== 0) {
-            throw new Error('Invalid RisuBard memory observability')
+            throw new Error('Invalid RisuVault memory observability')
         }
         lastInquiry = {
             candidateCount: requireMetric(value.lastInquiry.candidateCount),
@@ -214,7 +214,7 @@ function parseObservability(value: unknown): NarrativeMemoryObservability {
             || !['success', 'failed'].includes(
                 String(value.lastAnalysis.status)
             )) {
-            throw new Error('Invalid RisuBard memory observability')
+            throw new Error('Invalid RisuVault memory observability')
         }
         lastAnalysis = {
             status: value.lastAnalysis.status as 'success' | 'failed',
@@ -250,7 +250,7 @@ function parseV1State(
         )
         || !Array.isArray(value.facts)
         || !Array.isArray(value.events)) {
-        throw new Error('Invalid RisuBard memory view')
+        throw new Error('Invalid RisuVault memory view')
     }
     const facts = value.facts.map((item): NarrativeFact => {
         if (!isRecord(item)
@@ -262,7 +262,7 @@ function parseV1State(
                 'invalidatedBy',
             ].includes(key))
             || !['active', 'invalidated'].includes(String(item.status))) {
-            throw new Error('Invalid RisuBard memory view')
+            throw new Error('Invalid RisuVault memory view')
         }
         const fact: NarrativeFact = {
             id: requireString(item.id),
@@ -273,18 +273,18 @@ function parseV1State(
         if (fact.status === 'invalidated') {
             fact.invalidatedBy = parseEvidence(item.invalidatedBy, chatId)
             if (fact.invalidatedBy.length === 0) {
-                throw new Error('Invalid RisuBard memory view evidence')
+                throw new Error('Invalid RisuVault memory view evidence')
             }
         }
         else if (item.invalidatedBy !== undefined) {
-            throw new Error('Invalid RisuBard memory view')
+            throw new Error('Invalid RisuVault memory view')
         }
         return fact
     })
     const events = value.events.map((item): NarrativeEvent => {
         if (!isRecord(item)
             || !hasExactKeys(item, ['id', 'summary', 'evidence'])) {
-            throw new Error('Invalid RisuBard memory view')
+            throw new Error('Invalid RisuVault memory view')
         }
         return {
             id: requireString(item.id),
@@ -323,12 +323,12 @@ export async function loadNarrativeMemoryWiki(input: {
     )
     if (!response.ok) {
         throw new Error(
-            `RisuBard memory view failed with status ${response.status}`
+            `RisuVault memory view failed with status ${response.status}`
         )
     }
     const value: unknown = await response.json()
     if (!isRecord(value)) {
-        throw new Error('Invalid RisuBard memory view')
+        throw new Error('Invalid RisuVault memory view')
     }
     if (value.mode === 'markdown'
         && hasExactKeys(value, ['mode', 'wikiPath', 'documents', 'health'])
@@ -417,7 +417,7 @@ export async function loadNarrativeMemoryWiki(input: {
                     )
                     || typeof document.contentHash !== 'string'
                     || document.contentHash.length === 0) {
-                    throw new Error('Invalid RisuBard Markdown wiki view')
+                    throw new Error('Invalid RisuVault Markdown wiki view')
                 }
                 return {
                     id: requireString(document.id),
@@ -457,7 +457,7 @@ export async function loadNarrativeMemoryWiki(input: {
         }
     }
     if (!validBaseline(value.baseline)) {
-        throw new Error('Invalid RisuBard memory view')
+        throw new Error('Invalid RisuVault memory view')
     }
     if (value.mode === 'v1'
         && value.reason === 'missing-or-stale-v2-index'
@@ -506,7 +506,7 @@ export async function loadNarrativeMemoryWiki(input: {
         })
         if (graph.storyId !== input.characterId
             || graph.branchId !== input.chatId) {
-            throw new Error('Invalid RisuBard memory view scope')
+            throw new Error('Invalid RisuVault memory view scope')
         }
         const evidence = [
             ...graph.nodes.flatMap((node) => [
@@ -516,7 +516,7 @@ export async function loadNarrativeMemoryWiki(input: {
             ...graph.edges.flatMap((edge) => edge.evidence),
         ]
         if (evidence.some((item) => item.chatId !== input.chatId)) {
-            throw new Error('Invalid RisuBard memory view evidence')
+            throw new Error('Invalid RisuVault memory view evidence')
         }
         return {
             mode: 'v2',
@@ -527,7 +527,7 @@ export async function loadNarrativeMemoryWiki(input: {
                 : { observability: parseObservability(value.observability) }),
         }
     }
-    throw new Error('Invalid RisuBard memory view')
+    throw new Error('Invalid RisuVault memory view')
 }
 
 function requiredMutationString(

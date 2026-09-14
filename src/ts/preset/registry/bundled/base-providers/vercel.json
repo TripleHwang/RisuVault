@@ -305,6 +305,6 @@
       "https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-chat-completions/chat-completions",
       "https://raw.githubusercontent.com/vercel/ai/main/packages/gateway/"
     ],
-    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuBard uses a number input instead of a fixed-limit slider."
+    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuVault uses a number input instead of a fixed-limit slider."
   }
 }

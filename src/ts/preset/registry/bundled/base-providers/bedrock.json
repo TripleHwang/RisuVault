@@ -242,6 +242,6 @@
     "sourceUrls": [
       "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html"
     ],
-    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuBard uses a number input instead of a fixed-limit slider."
+    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuVault uses a number input instead of a fixed-limit slider."
   }
 }

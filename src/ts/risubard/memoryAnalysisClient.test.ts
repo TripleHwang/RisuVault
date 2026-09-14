@@ -1042,7 +1042,7 @@ describe('stored response memory analysis', () => {
         ])
         expect(onError).toHaveBeenCalledWith(
             expect.objectContaining({
-                message: 'RisuBard memory API failed with status 500',
+                message: 'RisuVault memory API failed with status 500',
             })
         )
     })

@@ -182,7 +182,7 @@ describe('actual narrative inquiry prompt', () => {
             timeoutMs: 5,
         })).rejects.toMatchObject({
             name: 'AbortError',
-            message: 'RisuBard narrative inquiry timed out after 5 ms',
+            message: 'RisuVault narrative inquiry timed out after 5 ms',
         })
     })
 

@@ -29,7 +29,7 @@ function resolveDataRoot(options = {}) {
         const pathApi = platform === 'win32' ? path.win32 : path.posix;
         const resolved = pathApi.resolve(explicit);
         if ((platform === 'android' || isTermux(env)) && isSharedAndroidPath(resolved)) {
-            throw new Error('Shared Android storage cannot be used as the canonical RisuBard data root');
+            throw new Error('Shared Android storage cannot be used as the canonical RisuVault data root');
         }
         return resolved;
     }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build RisuBard on Termux for smoke testing.
-# Usage (from RisuBard repo root): bash scripts/termux/build.sh
+# Build RisuVault on Termux for smoke testing.
+# Usage (from RisuVault repo root): bash scripts/termux/build.sh
 set -euo pipefail
 
 if [ ! -f package.json ] || [ ! -d server/node ]; then
-    echo "Run from the RisuBard repo root."
+    echo "Run from the RisuVault repo root."
     exit 1
 fi
 

@@ -157,7 +157,7 @@ const storedResponseMemoryAnalysis = createStoredResponseMemoryAnalysis({
     getModelMode: (chatId) =>
         resolvedRisuBardSettings(findRisuBardChat(chatId)).risuBardModelMode,
     onError(error) {
-        console.warn('[RisuBard memory analysis]', error)
+        console.warn('[RisuVault memory analysis]', error)
     },
     // A wait with no explanation looks like a hang, and a reboot can spend a
     // minute of it per turn. Report it on the same live-activity channel the
@@ -484,7 +484,7 @@ async function finalizeWikiReboot(
         fetchImpl: fetch,
         createAuth: () => forageStorage.createAuth(),
     }).catch((error) => {
-        console.warn('[RisuBard wiki reboot cleanup]', error)
+        console.warn('[RisuVault wiki reboot cleanup]', error)
     })
     announceRisuBardMemoryUpdated({ characterId: character.chaId, chatId })
 }
@@ -543,7 +543,7 @@ async function runWikiReboot(
                         fetchImpl: fetch,
                         createAuth: () => forageStorage.createAuth(),
                     }).catch((error) => {
-                        console.warn('[RisuBard wiki reboot batch cleanup]', error)
+                        console.warn('[RisuVault wiki reboot batch cleanup]', error)
                     })
                     continue
                 }
@@ -617,7 +617,7 @@ async function runWikiReboot(
                 fetchImpl: fetch,
                 createAuth: () => forageStorage.createAuth(),
             }).catch((error) => {
-                console.warn('[RisuBard wiki reboot batch cleanup]', error)
+                console.warn('[RisuVault wiki reboot batch cleanup]', error)
             })
         }
         return true
@@ -780,7 +780,7 @@ export function recoverStalledCurrentWikiReboot(): boolean {
     void saveChatToServer(
         current.character.chaId, current.chatIndex, chatId, current.chat
     ).catch((error) => {
-        console.warn('[RisuBard wiki reboot recovery]', error)
+        console.warn('[RisuVault wiki reboot recovery]', error)
     })
     return true
 }
@@ -1799,7 +1799,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         'bounded-v1-fallback'
                     narrativeContextObservation.reason =
                         'inquiry-and-fallback-failed'
-                    console.warn('RisuBard narrative inquiry fallback', error)
+                    console.warn('RisuVault narrative inquiry fallback', error)
                 }
                 finally {
                     narrativeContextObservation.inquiryDurationMs =
@@ -1882,7 +1882,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
         catch (error) {
             narrativeContextObservation.reason = 'context-preparation-failed'
-            console.warn('RisuBard narrative context fallback', error)
+            console.warn('RisuVault narrative context fallback', error)
         }
     }
 
@@ -2982,7 +2982,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return true
     }
 
-    console.info('[RisuBard context mode]', {
+    console.info('[RisuVault context mode]', {
         ...narrativeContextObservation,
         historyPolicy: `bounded-recent-${narrativeWorkingMessageLimit}`,
         finalMessageCount: formated.length,
@@ -3723,7 +3723,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             chatId: narrativeSessionChatId,
             ...narrativeTurnToConfirm,
         }).catch((error) => {
-            console.warn('[RisuBard memory confirmation]', error)
+            console.warn('[RisuVault memory confirmation]', error)
         })
     }
 

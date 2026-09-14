@@ -266,6 +266,6 @@
     "sourceUrls": [
       "https://platform.claude.com/docs/en/build-with-claude/claude-in-amazon-bedrock"
     ],
-    "notes": "Model-dependent provider. Context and output token limits vary by the selected Bedrock model, so RisuBard uses a number input instead of a fixed-limit slider."
+    "notes": "Model-dependent provider. Context and output token limits vary by the selected Bedrock model, so RisuVault uses a number input instead of a fixed-limit slider."
   }
 }

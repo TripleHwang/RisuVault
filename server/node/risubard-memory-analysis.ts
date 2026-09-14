@@ -886,7 +886,7 @@ export function createMemoryAnalysisRunner(
         }
         catch (observerError) {
             console.error(
-                '[RisuBard memory analysis observer failed]',
+                '[RisuVault memory analysis observer failed]',
                 observerError
             )
         }

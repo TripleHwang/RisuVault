@@ -154,7 +154,7 @@ export const searchManifestEntries: ManualSearchEntry[] = [
         id: 'manual.page.risuBardCommon',
         label: () => language.risuBardSettings.common.title,
         help: () => language.risuBardSettings.common.description,
-        keywords: ['risubard', 'common', 'canonical style', 'chat mode', 'recent messages', 'chat history', '공통 설정', '정본 문체', '채팅 모드', '최근 대화', '대화 내역'],
+        keywords: ['risuvault', 'risubard', 'common', 'canonical style', 'chat mode', 'recent messages', 'chat history', '공통 설정', '정본 문체', '채팅 모드', '최근 대화', '대화 내역'],
         route: SettingsRoute.RisuBardCommon,
     },
     {

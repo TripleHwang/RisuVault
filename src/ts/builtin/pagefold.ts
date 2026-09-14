@@ -4,7 +4,7 @@ export const PAGEFOLD_PLUGIN_NAME = "pagefold";
 export const PAGEFOLD_PROVIDER_NAME = "PageFold";
 
 /**
- * PageFold is shipped with RisuBard instead of being copied into every user
+ * PageFold is shipped with RisuVault instead of being copied into every user
  * database. It still runs through the API v3 sandbox, so the provider keeps
  * the same permission and isolation boundaries as an installed plugin.
  *

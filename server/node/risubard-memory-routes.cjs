@@ -1101,7 +1101,7 @@ function registerRisuBardMemoryRoutes(app, options) {
                 || Buffer.byteLength(JSON.stringify(req.body), 'utf8')
                     > 64 * 1_024) {
                 res.status(400).send({
-                    error: 'Invalid RisuBard writer command request',
+                    error: 'Invalid RisuVault writer command request',
                 })
                 return
             }

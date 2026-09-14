@@ -880,7 +880,7 @@
             <div
                 class="memory-observability"
                 data-memory-observability
-                aria-label="RisuBard runtime observability"
+                aria-label="RisuVault runtime observability"
             >
                 <span>prompt {wiki.observability.lastPromptMode}</span>
                 <span>

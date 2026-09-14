@@ -63,7 +63,7 @@ export interface PatchItemResult {
     persistWarning?: PersistWarning
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
-    /** Set when file-native canonical entities changed outside RisuBard. */
+    /** Set when file-native canonical entities changed outside RisuVault. */
     canonicalFilesChanged?: boolean
 }
 

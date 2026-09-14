@@ -393,6 +393,6 @@
       "https://raw.githubusercontent.com/ollama/ollama/main/docs/openai.md",
       "https://raw.githubusercontent.com/ollama/ollama/main/docs/modelfile.md"
     ],
-    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuBard uses a number input instead of a fixed-limit slider."
+    "notes": "Model-dependent provider. Context and output token limits vary by selected model or deployment, so RisuVault uses a number input instead of a fixed-limit slider."
   }
 }

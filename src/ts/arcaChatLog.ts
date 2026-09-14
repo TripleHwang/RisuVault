@@ -186,13 +186,13 @@ ${icon ? `<td style="width:64px;padding:12px 0 12px 14px;vertical-align:middle;"
     return `<div style="margin:1rem 0;color:${colors.text};background:${colors.background};border:1px solid ${colors.border};border-radius:16px;font-family:'Segoe UI',Roboto,Arial,sans-serif;font-size:${fontSizePx}px;line-height:1.6;">
 <div style="padding:22px;">
 <header style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid ${colors.border};">
-<span style="display:block;margin-bottom:5px;color:${colors.mutedText};font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;">RisuBard Chat Log</span>
+<span style="display:block;margin-bottom:5px;color:${colors.mutedText};font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;">RisuVault Chat Log</span>
 <h2 style="margin:0;color:${colors.text};font-size:24px;font-weight:700;line-height:1.3;">${title}</h2>
 <span style="display:block;margin-top:6px;color:${colors.mutedText};font-size:12px;">${options.messages.length} messages</span>
 </header>
 ${messageHtml}
 <footer style="margin-top:18px;padding-top:14px;border-top:1px solid ${colors.border};text-align:center;">
-<span style="color:${colors.mutedText};font-size:11px;">From RisuBard</span>
+<span style="color:${colors.mutedText};font-size:11px;">From RisuVault</span>
 </footer>
 </div>
 </div>

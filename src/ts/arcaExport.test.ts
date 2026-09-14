@@ -475,7 +475,7 @@ describe('buildArcaClipboardHtml', () => {
         expect(html).toContain('&lt;레슬레리아나&gt;');
         expect(html).toContain('<p style="color: #f8f8f2;">본문</p>');
         expect(html).toContain('src="data:image/png;base64,profile"');
-        expect(html).toContain('From RisuBard');
+        expect(html).toContain('From RisuVault');
         expect(html).toContain('font-size: 18px');
         expect(html).toContain('margin: 1rem 0');
         expect(html).not.toContain('max-width: 600px');

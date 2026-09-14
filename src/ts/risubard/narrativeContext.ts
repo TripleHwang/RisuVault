@@ -80,7 +80,7 @@ function boundedMetric(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
         || (value as number) < 0
         || (value as number) > maximum) {
         throw new Error(
-            'RisuBard Memory Wiki 조회 응답에 잘못된 수치가 포함되어 있습니다.'
+            'RisuVault Memory Wiki 조회 응답에 잘못된 수치가 포함되어 있습니다.'
         )
     }
     return value as number
@@ -106,7 +106,7 @@ export async function loadNarrativeInquiry(input: {
     const timeoutMs = input.timeoutMs ?? 5_000
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
         || timeoutMs > 10_000) {
-        throw new Error('Invalid RisuBard narrative inquiry timeout')
+        throw new Error('Invalid RisuVault narrative inquiry timeout')
     }
     const controller = new AbortController()
     const fetchImpl = input.fetchImpl
@@ -151,7 +151,7 @@ export async function loadNarrativeInquiry(input: {
                 )
                 if (!response.ok) {
                     throw new Error(
-                        `RisuBard narrative inquiry failed with status ${response.status}`
+                        `RisuVault narrative inquiry failed with status ${response.status}`
                     )
                 }
                 return response.json()
@@ -160,7 +160,7 @@ export async function loadNarrativeInquiry(input: {
                 timeout = setTimeout(() => {
                     controller.abort()
                     reject(new DOMException(
-                        `RisuBard narrative inquiry timed out after ${timeoutMs} ms`,
+                        `RisuVault narrative inquiry timed out after ${timeoutMs} ms`,
                         'AbortError'
                     ))
                 }, timeoutMs)
@@ -219,7 +219,7 @@ export async function loadNarrativeInquiry(input: {
         || (value.mode === 'bounded-v1-fallback'
             && value.cacheStatus !== 'missing-or-stale')) {
         throw new Error(
-            'RisuBard Memory Wiki 조회 응답이 현재 앱과 호환되지 않습니다. 앱과 서버를 다시 시작해 주세요.'
+            'RisuVault Memory Wiki 조회 응답이 현재 앱과 호환되지 않습니다. 앱과 서버를 다시 시작해 주세요.'
         )
     }
     const sources = value.sources.map((source): ContextSource => {
@@ -245,7 +245,7 @@ export async function loadNarrativeInquiry(input: {
             || source.role !== 'system'
             || typeof source.content !== 'string'
             || source.content.length > 4_096) {
-            throw new Error('Invalid RisuBard narrative inquiry source')
+            throw new Error('Invalid RisuVault narrative inquiry source')
         }
         return {
             id: source.id,
@@ -270,14 +270,14 @@ export async function loadNarrativeInquiry(input: {
                     || candidate.id.trim().length === 0
                     || candidate.title.trim().length === 0) {
                     throw new Error(
-                        'Invalid RisuBard narrative entity candidate'
+                        'Invalid RisuVault narrative entity candidate'
                     )
                 }
                 return { id: candidate.id, title: candidate.title }
             })
             : (() => {
                 throw new Error(
-                    'Invalid RisuBard narrative entity candidates'
+                    'Invalid RisuVault narrative entity candidates'
                 )
             })()
     return {

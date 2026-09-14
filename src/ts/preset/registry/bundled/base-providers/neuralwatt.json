@@ -272,6 +272,6 @@
     "sourceUrls": [
       "https://api.neuralwatt.com/v1/models"
     ],
-    "notes": "Model-dependent provider. NeuralWatt's /v1/models exposes per-model context length but reports max_output_tokens as null, so RisuBard uses a number input for Max Tokens instead of a fixed-limit slider."
+    "notes": "Model-dependent provider. NeuralWatt's /v1/models exposes per-model context length but reports max_output_tokens as null, so RisuVault uses a number input for Max Tokens instead of a fixed-limit slider."
   }
 }
