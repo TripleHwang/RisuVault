@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -395,6 +396,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v${VERSION}" "$GITHUB_SHA" -m "RisuBard v${VERSION}"
           git push origin "v${VERSION}"
+
+      - name: Publish Docker image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: gh workflow run docker-build.yml --ref "v${VERSION}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
