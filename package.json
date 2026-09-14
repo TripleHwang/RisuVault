@@ -1,7 +1,7 @@
 {
   "name": "risuvault",
   "private": true,
-  "version": "0.3.26",
+  "version": "0.3.27",
   "license": "GPL-3.0-only",
   "packageManager": "pnpm@10.34.1",
   "engines": {
