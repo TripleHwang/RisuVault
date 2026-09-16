@@ -52,7 +52,19 @@ async function readRows(dataRoot) {
 
 function collectIssues(rows) {
     const grouped = new Map();
+    function addIssue(issue) {
+        const key = `${issue.area}\0${issue.stage}\0${issue.code}`;
+        const previous = grouped.get(key);
+        grouped.set(key, previous ? { ...previous, count: previous.count + 1 } : { ...issue, count: 1 });
+    }
     for (const row of rows) {
+        if (row.kind === 'canonical-sync' && row.fallbackUsed === true) {
+            addIssue({
+                area: 'canonical-direct-write',
+                stage: 'fallback',
+                code: safeCode(row.fallbackCode, 'UNKNOWN_ERROR'),
+            });
+        }
         const isMismatch = row.kind === 'projection-shadow' && row.outcome === 'mismatch';
         if (row.outcome !== 'failure' && !isMismatch) continue;
         const issue = {
@@ -62,9 +74,7 @@ function collectIssues(rows) {
                 ? 'SEMANTIC_MISMATCH'
                 : safeCode(row.errorCode, row.kind === 'projection-shadow' ? 'SHADOW_FAILURE' : 'UNKNOWN_ERROR'),
         };
-        const key = `${issue.area}\0${issue.stage}\0${issue.code}`;
-        const previous = grouped.get(key);
-        grouped.set(key, previous ? { ...previous, count: previous.count + 1 } : { ...issue, count: 1 });
+        addIssue(issue);
     }
     return [...grouped.values()].sort((a, b) =>
         a.area.localeCompare(b.area) || a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code));
@@ -75,6 +85,7 @@ async function generateStorageDiagnosticReport(options = {}) {
     const rows = await readRows(dataRoot);
     const saveRows = rows.filter(row => row.kind === 'compatibility-persist');
     const canonicalRows = rows.filter(row => row.kind === 'canonical-sync');
+    const directRows = canonicalRows.filter(row => row.strategy === 'bot-presets-direct');
     const shadowRows = rows.filter(row => row.kind === 'projection-shadow');
     const issues = collectIssues(rows);
     const observed = saveRows.length + canonicalRows.length + shadowRows.length;
@@ -95,6 +106,12 @@ async function generateStorageDiagnosticReport(options = {}) {
             successes: canonicalRows.filter(row => row.outcome === 'success').length,
             failures: canonicalRows.filter(row => row.outcome === 'failure').length,
             durationMs: durationSummary(durations(rows, 'canonical-sync')),
+        },
+        directWrites: {
+            attempts: directRows.length,
+            successes: directRows.filter(row => row.outcome === 'success' && row.fallbackUsed !== true).length,
+            fallbacks: directRows.filter(row => row.fallbackUsed === true).length,
+            failures: directRows.filter(row => row.outcome === 'failure').length,
         },
         shadow: {
             checks: shadowRows.filter(row => ['success', 'mismatch', 'failure'].includes(row.outcome)).length,

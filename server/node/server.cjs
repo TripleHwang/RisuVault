@@ -47,6 +47,8 @@ const { createChatContentPage } = require('./chat-content-page.cjs');
 const { stageBackupEntries } = require('./backup-entry-stream.cjs');
 const { encodeCanonicalBackupName, decodeCanonicalBackupName } = require('./canonical-backup-name.cjs');
 const { createCanonicalProjectionSync } = require('./canonical-projection-sync.cjs');
+const { createDirectWriteTracker } = require('./direct-write-tracker.cjs');
+const { writeCanonicalProjection } = require('./canonical-projection-writer.cjs');
 const { createExternalEditSession } = require('./external-edit-session.cjs');
 const {
     collectDatabaseAssetReferences,
@@ -67,6 +69,7 @@ const { Readable, Transform } = require('stream');
 
 // Install process-level error handlers before any other init so early crashes get logged.
 installProcessHandlers();
+const directWriteTracker = createDirectWriteTracker();
 
 // Node.js version check
 const [nodeMajor] = process.version.slice(1).split('.').map(Number);
@@ -248,7 +251,9 @@ async function flushPendingDb() {
         clearTimeout(saveTimers[DB_HEX_KEY]);
         delete saveTimers[DB_HEX_KEY];
         if (dbCache[DB_HEX_KEY]) {
-            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin', 'flush');
+            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin', 'flush', {
+                directCollection: directWriteTracker.take(DB_HEX_KEY),
+            });
         } else if (fullChatStore && fullChatStore.size > 0) {
             // No stripped cache but chat store has data — merge and persist directly
             await persistChatStoreWithoutCache('flush');
@@ -258,6 +263,7 @@ async function flushPendingDb() {
 }
 
 function invalidateDbCache() {
+    directWriteTracker.clear(DB_HEX_KEY);
     delete dbCache[DB_HEX_KEY];
     fullChatStore = null;
     canonicalProjectionReady = false;
@@ -771,7 +777,7 @@ async function persistChatStoreWithoutCache(trigger) {
     }
 }
 
-async function persistDbCacheWithChats(filePath, decodedKey, trigger = 'unknown') {
+async function persistDbCacheWithChats(filePath, decodedKey, trigger = 'unknown', observationContext = {}) {
     const strippedDb = dbCache[filePath];
     if (!strippedDb) return;
     const operationId = nodeCrypto.randomUUID();
@@ -826,7 +832,11 @@ async function persistDbCacheWithChats(filePath, decodedKey, trigger = 'unknown'
         if (decodedKey === 'database/database.bin') {
             errorStage = 'canonical-sync';
             phaseStartedAt = performance.now();
-            persistCanonicalProjection(fullDb, { operationId, trigger });
+            persistCanonicalProjection(fullDb, {
+                operationId,
+                trigger,
+                directCollection: observationContext.directCollection,
+            });
             metrics.canonicalSyncMs = elapsedMs(phaseStartedAt);
         }
         // Refresh fullChatStore from the persisted snapshot so subsequent
@@ -950,6 +960,9 @@ function persistCanonicalProjection(databaseObject, observationContext = {}) {
     const startedAt = performance.now()
     const operationId = observationContext.operationId || nodeCrypto.randomUUID()
     const trigger = observationContext.trigger || 'unspecified'
+    let strategy = observationContext.directCollection === 'botPresets' ? 'bot-presets-direct' : 'full-sync'
+    let fallbackUsed = false
+    let fallbackCode
     let errorStage = 'external-change-check'
     try {
         if (externalEditSession?.isActive()) {
@@ -963,7 +976,15 @@ function persistCanonicalProjection(databaseObject, observationContext = {}) {
             throw error
         }
         errorStage = 'transaction'
-        const result = userDataRepository.importLegacyDatabase(databaseObject, { mode: 'sync' })
+        const write = writeCanonicalProjection({
+            repository: userDataRepository,
+            database: databaseObject,
+            directCollection: observationContext.directCollection,
+        })
+        const result = write.result
+        strategy = write.strategy
+        fallbackUsed = write.fallbackUsed
+        fallbackCode = write.fallbackCode
         canonicalProjectionSync.accept()
         canonicalProjectionReady = true
         saveObservation.record({
@@ -972,6 +993,7 @@ function persistCanonicalProjection(databaseObject, observationContext = {}) {
             publishedFiles: result.transaction?.published,
             skippedFiles: result.transaction?.skipped,
             stagedBytes: result.transaction?.stagedBytes,
+            strategy, fallbackUsed, ...(fallbackCode ? { fallbackCode } : {}),
         })
         projectionShadow.schedule({
             database: databaseObject,
@@ -980,10 +1002,17 @@ function persistCanonicalProjection(databaseObject, observationContext = {}) {
         })
         return result
     } catch (error) {
+        const writeMeta = error?.canonicalWriteMeta
+        if (writeMeta) {
+            strategy = writeMeta.strategy || strategy
+            fallbackUsed = writeMeta.fallbackUsed === true
+            fallbackCode = writeMeta.fallbackCode
+        }
         saveObservation.record({
             kind: 'canonical-sync', trigger, outcome: 'failure', operationId, errorStage,
             errorCode: String(error?.code || ''), errorName: String(error?.name || 'Error'),
             durationMs: elapsedMs(startedAt),
+            strategy, fallbackUsed, ...(fallbackCode ? { fallbackCode } : {}),
         })
         throw error
     }
@@ -998,6 +1027,7 @@ function adoptExternallyChangedCanonicalProjection() {
         clearTimeout(saveTimers[DB_HEX_KEY])
         delete saveTimers[DB_HEX_KEY]
     }
+    directWriteTracker.clear(DB_HEX_KEY)
     const fullDb = normalizeJSON(changed.database)
     const encoded = encodeRisuSaveLegacyBuffer(fullDb)
     kvSet('database/database.bin', encoded)
@@ -4204,9 +4234,11 @@ app.post('/api/patch', async (req, res, next) => {
             } catch (patchErr) {
                 // Invalidate corrupted cache entry to force reload on next request
                 delete dbCache[filePath];
+                directWriteTracker.clear(filePath);
                 throw patchErr;
             }
             dbCache[filePath] = snapshot;
+            if (decodedKey === 'database/database.bin') directWriteTracker.observe(filePath, patch);
 
             // Schedule save to KV (debounced) — merge full chats back for database.bin
             if (saveTimers[filePath]) {
@@ -4215,7 +4247,9 @@ app.post('/api/patch', async (req, res, next) => {
             saveTimers[filePath] = setTimeout(async () => {
                 try {
                     if (decodedKey === 'database/database.bin') {
-                        await persistDbCacheWithChats(filePath, decodedKey, 'patch-debounce');
+                        await persistDbCacheWithChats(filePath, decodedKey, 'patch-debounce', {
+                            directCollection: directWriteTracker.take(filePath),
+                        });
                     } else {
                         const data = encodeRisuSaveLegacyBuffer(dbCache[filePath]);
                         try {

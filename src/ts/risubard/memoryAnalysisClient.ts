@@ -99,6 +99,8 @@ interface MemoryAnalysisClientOptions {
     nativeV2Analysis?: boolean
 }
 
+const MEMORY_ANALYSIS_TIMEOUT_MS = 10 * 60_000
+
 let analysisTokenizer: Tiktoken | undefined
 
 const NATIVE_SCHEMA_REJECTION = /(?:json[ _-]?schema|response[_ ]?format|response[_ ]?schema|responseformat|structured[ -]?output|response[_ ]?mime)/i
@@ -505,6 +507,41 @@ async function postJson(
     })
 }
 
+function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return operation
+    signal.throwIfAborted()
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason)
+        signal.addEventListener('abort', onAbort, { once: true })
+        void operation.then(resolve, reject).finally(() => {
+            signal.removeEventListener('abort', onAbort)
+        })
+    })
+}
+
+function createMemoryAnalysisSignal(parent?: AbortSignal): {
+    signal: AbortSignal
+    dispose(): void
+} {
+    const controller = new AbortController()
+    const onParentAbort = () => controller.abort(parent?.reason)
+    if (parent?.aborted) onParentAbort()
+    else parent?.addEventListener('abort', onParentAbort, { once: true })
+    const timeout = setTimeout(() => {
+        controller.abort(new DOMException(
+            'BardWiki analysis timed out',
+            'TimeoutError'
+        ))
+    }, MEMORY_ANALYSIS_TIMEOUT_MS)
+    return {
+        signal: controller.signal,
+        dispose() {
+            clearTimeout(timeout)
+            parent?.removeEventListener('abort', onParentAbort)
+        },
+    }
+}
+
 export function projectRecentMemoryMessages(
     storedMessages: readonly StoredMessage[],
     limit = 12,
@@ -696,12 +733,17 @@ export function createStoredResponseMemoryAnalysis(
     }
 
     const memoryService = {
-        async loadState(characterId: string, chatId: string) {
+        async loadState(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/state',
-                { characterId, chatId }
+                { characterId, chatId },
+                signal
             )) as NarrativeMemoryState
         },
 
@@ -713,12 +755,13 @@ export function createStoredResponseMemoryAnalysis(
                 chatId: string
                 messageId: string
             }[]
-        }) {
+        }, signal?: AbortSignal) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/apply',
-                input
+                input,
+                signal
             )) as NarrativeMemoryState
         },
     }
@@ -732,13 +775,14 @@ export function createStoredResponseMemoryAnalysis(
                 events?: number
                 maximum: number
             }
-        }) {
+        }, signal?: AbortSignal) {
             return loadNarrativeInquiry({
                 ...input,
                 timeoutMs: options.getInquiryTimeoutMs?.(input.chatId)
                     ?? RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
         async applyDelta(input: {
@@ -749,12 +793,13 @@ export function createStoredResponseMemoryAnalysis(
                 chatId: string
                 messageId: string
             }[]
-        }) {
+        }, signal?: AbortSignal) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/graph/apply',
-                input
+                input,
+                signal
             )) as { revision: number }
         },
 
@@ -764,24 +809,31 @@ export function createStoredResponseMemoryAnalysis(
             result: {
                 status: 'success' | 'failed'
                 appliedCount: number
-            }
+            },
+            signal?: AbortSignal
         ) {
             const response = await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/analysis/observe',
-                { characterId, chatId, ...result }
+                { characterId, chatId, ...result },
+                signal
             )
             if (response.status === 404) return
             await readJson(response)
         },
 
-        async reconcileV1(characterId: string, chatId: string) {
+        async reconcileV1(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/graph/reconcile',
-                { characterId, chatId }
+                { characterId, chatId },
+                signal
             )) as { revision: number }
         },
     }
@@ -792,7 +844,7 @@ export function createStoredResponseMemoryAnalysis(
             chatId: string
             sourceMessageIds: string[]
             eventSourceGroups: string[][]
-        }) {
+        }, signal?: AbortSignal) {
             return beginWikiRebootBatch({
                 characterId: input.characterId,
                 stagingChatId: input.chatId,
@@ -800,14 +852,20 @@ export function createStoredResponseMemoryAnalysis(
                 eventSourceGroups: input.eventSourceGroups,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
-        async loadDocuments(characterId: string, chatId: string) {
+        async loadDocuments(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             const view = await loadNarrativeMemoryWiki({
                 characterId,
                 chatId,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
             return view.mode === 'markdown' ? view.documents : []
         },
@@ -824,11 +882,12 @@ export function createStoredResponseMemoryAnalysis(
             expectedContentHash?: string
             reviewStatus?: 'unreviewed' | 'reviewed'
             writingLanguage?: WikiWritingLanguage
-        }) {
+        }, signal?: AbortSignal) {
             return saveCanonicalWikiDocument({
                 ...input,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
         async saveConfirmedTurn(input: {
@@ -838,12 +897,13 @@ export function createStoredResponseMemoryAnalysis(
             markdown: string
             append?: boolean
             writingLanguage?: WikiWritingLanguage
-        }) {
+        }, signal?: AbortSignal) {
             const document = await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/wiki/save',
-                input
+                input,
+                signal
             )) as import('./memoryWiki').NarrativeMemoryWikiMarkdown[
                 'documents'
             ][number]
@@ -856,13 +916,14 @@ export function createStoredResponseMemoryAnalysis(
             characterId: string
             chatId: string
             receipt: import('./canonicalTurnReceipt').CanonicalTurnReceipt
-        }) {
+        }, signal?: AbortSignal) {
             return recordWikiRebootBatchReceipt({
                 characterId: input.characterId,
                 stagingChatId: input.chatId,
                 receipt: input.receipt,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
     }
@@ -1008,12 +1069,22 @@ export function createStoredResponseMemoryAnalysis(
         run: runner.run,
         async confirm(input: MemoryAnalysisInput, signal?: AbortSignal) {
             if (input.messages.length === 0) return undefined
-            const result = await runner.run(input, signal)
-            announceRisuBardMemoryUpdated({
-                characterId: input.characterId,
-                chatId: input.chatId,
-            })
-            return result.canonicalReceipt
+            const operation = createMemoryAnalysisSignal(signal)
+            try {
+                operation.signal.throwIfAborted()
+                const result = await abortable(
+                    runner.run(input, operation.signal),
+                    operation.signal
+                )
+                announceRisuBardMemoryUpdated({
+                    characterId: input.characterId,
+                    chatId: input.chatId,
+                })
+                return result.canonicalReceipt
+            }
+            finally {
+                operation.dispose()
+            }
         },
         async prepareContext(
             characterId: string,

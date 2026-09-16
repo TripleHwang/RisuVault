@@ -18,6 +18,7 @@
         status: 'no-observations' | 'no-issues-observed' | 'issues-detected'
         saves: { attempts: number; successes: number; failures: number; durationMs: DurationSummary }
         canonicalProjection: { attempts: number; successes: number; failures: number; durationMs: DurationSummary }
+        directWrites: { attempts: number; successes: number; fallbacks: number; failures: number }
         shadow: { checks: number; matches: number; mismatches: number; failures: number; skipped: number }
         issues: Array<{ area: string; stage: string; code: string; count: number }>
         privacy: { includesPersonalContent: false; includesRawLogs: false; omitted: string[] }
@@ -127,6 +128,14 @@
                         <span>{language.storageDiagnosticsShadowMatch}</span>
                         <strong>{report.shadow.matches.toLocaleString()} / {report.shadow.checks.toLocaleString()}</strong>
                     </div>
+                    <div class="metric">
+                        <span>{language.storageDiagnosticsDirectWriteSuccess}</span>
+                        <strong>{report.directWrites.successes.toLocaleString()} / {report.directWrites.attempts.toLocaleString()}</strong>
+                    </div>
+                    <div class="metric">
+                        <span>{language.storageDiagnosticsDirectWriteFallback}</span>
+                        <strong>{report.directWrites.fallbacks.toLocaleString()}</strong>
+                    </div>
                 </div>
             </section>
 
@@ -167,9 +176,10 @@
     .status-heading span { font-size: .8rem; color: var(--color-textcolor2); }
     .status-heading :global(svg) { color: var(--color-success); }
     .has-issues .status-heading :global(svg) { color: var(--color-danger); }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .metric { display: grid; gap: .3rem; min-width: 0; padding: 1rem; border-right: 1px solid var(--settings-border); }
-    .metric:last-child { border-right: 0; }
+    .metric:nth-child(3n) { border-right: 0; }
+    .metric:nth-child(-n + 3) { border-bottom: 1px solid var(--settings-border); }
     .metric span { color: var(--color-textcolor2); font-size: .78rem; }
     .metric strong { color: var(--color-textcolor); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
     .issue-panel h2 { margin: 0; padding: .85rem 1rem; color: var(--color-textcolor); font-size: .9rem; border-bottom: 1px solid var(--settings-border); }
@@ -180,8 +190,9 @@
     .empty-copy { margin: 0; padding: .9rem 1rem; color: var(--color-textcolor2); background: var(--settings-surface); border: 1px solid var(--settings-border); border-radius: var(--settings-radius); }
     @media (max-width: 720px) {
         .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .metric:nth-child(2) { border-right: 0; }
-        .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--settings-border); }
+        .metric { border-right: 1px solid var(--settings-border); border-bottom: 0; }
+        .metric:nth-child(2n) { border-right: 0; }
+        .metric:nth-child(-n + 4) { border-bottom: 1px solid var(--settings-border); }
     }
     @media (max-width: 460px) {
         .action-row :global(button) { width: 100%; }

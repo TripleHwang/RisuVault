@@ -1432,9 +1432,346 @@ describe('stored response memory analysis', () => {
             }],
         }, controller.signal)
         expect((requestModel.mock.calls[0] as unknown[])[2])
-            .toBe(controller.signal)
+            .toBeInstanceOf(AbortSignal)
         expect(updates).toHaveBeenCalledOnce()
         window.removeEventListener('risubard-memory-updated', updates)
+    })
+
+    test('releases an explicit confirmation when a pending wiki read is cancelled', async () => {
+        let viewStarted!: () => void
+        let viewSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            viewStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(),
+            fetchImpl: vi.fn(async (input, init) => {
+                if (String(input).endsWith('/view')) {
+                    viewSignal = init?.signal ?? undefined
+                    viewStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${String(input)}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).then(
+            () => 'resolved',
+            (error: unknown) => error instanceof Error ? error.name : String(error)
+        )
+
+        await started
+        controller.abort()
+
+        await expect(Promise.race([
+            confirmation,
+            new Promise((resolve) => setTimeout(() => resolve('still-pending'), 50)),
+        ])).resolves.toBe('AbortError')
+        expect(viewSignal?.aborted).toBe(true)
+    })
+
+    test('does not start a confirmation with an already cancelled signal', async () => {
+        const requestModel = vi.fn()
+        const fetchImpl = vi.fn()
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel,
+            fetchImpl: fetchImpl as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        controller.abort()
+
+        await expect(analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+        await Promise.resolve()
+
+        expect(fetchImpl).not.toHaveBeenCalled()
+        expect(requestModel).not.toHaveBeenCalled()
+    })
+
+    test('times out a wiki confirmation when an internal request never settles', async () => {
+        vi.useFakeTimers()
+        try {
+            let viewStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                viewStarted = resolve
+            })
+            const analysis = createStoredResponseMemoryAnalysis({
+                requestModel: vi.fn(),
+                fetchImpl: vi.fn(async (input) => {
+                    if (String(input).endsWith('/view')) {
+                        viewStarted()
+                        return new Promise<Response>(() => {})
+                    }
+                    throw new Error(`Unexpected request: ${String(input)}`)
+                }),
+                createAuth: async () => 'test-jwt',
+                onError: vi.fn(),
+                nativeV2Analysis: true,
+            })
+            const confirmation = analysis.confirm({
+                characterId: 'character',
+                chatId: 'chat',
+                messages: [{
+                    messageId: 'message-1',
+                    role: 'assistant',
+                    content: 'The accepted turn.',
+                }],
+            }).then(
+                () => 'resolved',
+                (error: unknown) => error instanceof Error
+                    ? error.name
+                    : String(error)
+            )
+
+            await started
+            await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+            await expect(Promise.race([
+                confirmation,
+                Promise.resolve('still-pending'),
+            ])).resolves.toBe('TimeoutError')
+        }
+        finally {
+            vi.useRealTimers()
+        }
+    })
+
+    test('cancels a pending wiki inquiry transport', async () => {
+        let inquiryStarted!: () => void
+        let inquirySignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            inquiryStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown',
+                        wikiPath: 'wiki',
+                        documents: [],
+                        health: {
+                            danglingLinks: [],
+                            unlinkedDocumentIds: [],
+                        },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    inquirySignal = init?.signal ?? undefined
+                    inquiryStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            getInquiryTimeoutMs: () => 50,
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(inquirySignal?.aborted).toBe(true)
+    })
+
+    test('cancels a pending wiki event write transport', async () => {
+        let saveStarted!: () => void
+        let saveSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(async () => ({
+                type: 'success' as const,
+                result: JSON.stringify({
+                    schemaVersion: 1,
+                    title: '확정된 턴',
+                    establishedEvents: ['턴이 확정되었다.'],
+                    stateChanges: [],
+                    characterKnowledge: [],
+                    persistentFacts: [],
+                    openContinuity: [],
+                    canonicalUpdateCandidates: [],
+                }),
+            })),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown',
+                        wikiPath: 'wiki',
+                        documents: [],
+                        health: {
+                            danglingLinks: [],
+                            unlinkedDocumentIds: [],
+                        },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current',
+                        graphRevision: 0,
+                        indexRevision: 0,
+                        cacheStatus: 'current',
+                        sources: [],
+                        entityCandidates: [],
+                        metrics: {
+                            candidateCount: 0,
+                            inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0,
+                            selectedNodeCount: 0,
+                            selectedTokens: 0,
+                            hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/wiki/save')) {
+                    saveSignal = init?.signal ?? undefined
+                    saveStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(saveSignal?.aborted).toBe(true)
+    })
+
+    test('cancels a pending canonical wiki write transport', async () => {
+        let saveStarted!: () => void
+        let saveSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(async (request: MemoryAnalysisModelCall) => ({
+                type: 'success' as const,
+                result: request.schema?.includes('establishedEvents')
+                    ? JSON.stringify({
+                        schemaVersion: 1,
+                        title: '인물 등록',
+                        establishedEvents: ['사만다가 생물학자로 확인되었다.'],
+                        stateChanges: [],
+                        characterKnowledge: [],
+                        persistentFacts: [],
+                        openContinuity: [],
+                        canonicalUpdateCandidates: [{
+                            type: 'character',
+                            title: '사만다',
+                            reason: '지속되는 역할',
+                            action: 'create',
+                            targetDocumentId: null,
+                            confidence: 0.9,
+                        }],
+                    })
+                    : JSON.stringify({
+                        schemaVersion: 1,
+                        documents: [{
+                            candidateIndex: 0,
+                            sections: [{
+                                heading: '현재 상태',
+                                operation: 'upsert',
+                                content: '- 생물학자.',
+                            }],
+                        }],
+                    }),
+            })),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown', wikiPath: 'wiki', documents: [],
+                        health: { danglingLinks: [], unlinkedDocumentIds: [] },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current', graphRevision: 0, indexRevision: 0,
+                        cacheStatus: 'current', sources: [], metrics: {
+                            candidateCount: 0, inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0, selectedNodeCount: 0,
+                            selectedTokens: 0, hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/document/save')) {
+                    saveSignal = init?.signal ?? undefined
+                    saveStarted()
+                    return new Promise<Response>(() => {})
+                }
+                return new Response(JSON.stringify({ id: 'event-1' }))
+            }) as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character', chatId: 'chat',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: '사만다는 생물학자다.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(saveSignal?.aborted).toBe(true)
     })
 
     test('reports the configured analysis token limit in user-readable terms', async () => {

@@ -78,4 +78,49 @@ describe('BardWiki reboot transport', () => {
             '/api/risubard/memory/wiki/reboot/complete',
         ])
     })
+
+    test('cancels pending reboot begin and receipt requests', async () => {
+        const receipt = {
+            sourceMessageIds: ['u1', 'a1'], eventIds: [], changes: [],
+            warnings: [], recordedAt: 'now',
+        }
+        const expectCancelled = async (
+            run: (fetchImpl: typeof fetch, signal: AbortSignal) => Promise<unknown>
+        ) => {
+            let requestStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            let requestSignal: AbortSignal | undefined
+            const fetchImpl = vi.fn(async (_url, init) => {
+                requestSignal = init?.signal ?? undefined
+                requestStarted()
+                return new Promise<Response>((_resolve, reject) => {
+                    requestSignal?.addEventListener('abort', () => {
+                        reject(requestSignal?.reason)
+                    }, { once: true })
+                })
+            }) as unknown as typeof fetch
+            const controller = new AbortController()
+            const pending = run(fetchImpl, controller.signal)
+
+            await started
+            controller.abort()
+
+            await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+            expect(requestSignal).toBe(controller.signal)
+        }
+
+        await expectCancelled((fetchImpl, signal) => beginWikiRebootBatch({
+            characterId: 'character', stagingChatId: 'reboot-job',
+            sourceMessageIds: ['u1', 'a1'],
+            eventSourceGroups: [['u1', 'a1']], fetchImpl,
+            createAuth: async () => 'auth', signal,
+        }))
+        await expectCancelled((fetchImpl, signal) =>
+            recordWikiRebootBatchReceipt({
+                characterId: 'character', stagingChatId: 'reboot-job',
+                receipt, fetchImpl, createAuth: async () => 'auth', signal,
+            }))
+    })
 })

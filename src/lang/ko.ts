@@ -3007,6 +3007,8 @@ export const languageKorean = {
   storageDiagnosticsSaveP50: "저장 p50",
   storageDiagnosticsSaveP90: "저장 p90",
   storageDiagnosticsShadowMatch: "S1 shadow 일치",
+  storageDiagnosticsDirectWriteSuccess: "W1 직접 쓰기",
+  storageDiagnosticsDirectWriteFallback: "W1 폴백",
   storageDiagnosticsIssues: "분류된 문제",
   storageDiagnosticsNoIssueDesc: "보존된 관찰 구간에서 저장 오류나 S1 shadow 불일치가 기록되지 않았습니다.",
   storageDiagnosticsNoDataDesc: "리스바드를 평소처럼 사용해 저장 표본이 쌓인 뒤 다시 확인하세요.",

@@ -6,6 +6,7 @@ const crypto = require('crypto');
 
 const STRING_FIELDS = new Set([
     'kind', 'trigger', 'outcome', 'operationId', 'errorStage', 'errorCode', 'errorName',
+    'strategy', 'fallbackCode',
 ]);
 const NUMBER_FIELDS = new Set([
     'durationMs', 'decodeMs', 'ensureChatStoreMs', 'reassembleMs', 'integrityCheckMs', 'encodeMs',
@@ -13,7 +14,7 @@ const NUMBER_FIELDS = new Set([
     'chatCount', 'messageCount', 'plannedFiles', 'publishedFiles', 'skippedFiles',
     'stagedBytes', 'overlappingPersists', 'queuedOperations',
 ]);
-const BOOLEAN_FIELDS = new Set(['sameAsPreviousPersist', 'semanticMatch']);
+const BOOLEAN_FIELDS = new Set(['sameAsPreviousPersist', 'semanticMatch', 'fallbackUsed']);
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 
 function createSaveObservation(options = {}) {

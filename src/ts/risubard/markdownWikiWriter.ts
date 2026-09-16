@@ -210,6 +210,7 @@ export async function saveCanonicalWikiDocument(input: {
     writingLanguage?: WikiWritingLanguage
     fetchImpl: typeof fetch
     createAuth(): Promise<string>
+    signal?: AbortSignal
 }): Promise<SavedCanonicalWikiDocument> {
     const body = {
         characterId: required(input.characterId, 'Character ID', 1_024),
@@ -247,6 +248,7 @@ export async function saveCanonicalWikiDocument(input: {
                 'risu-auth': await input.createAuth(),
             },
             body: JSON.stringify(body),
+            signal: input.signal,
         }
     )
     if (!response.ok) {

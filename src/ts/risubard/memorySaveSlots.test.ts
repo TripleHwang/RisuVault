@@ -117,6 +117,37 @@ describe('memory save slot client', () => {
         expect(currentChat).toEqual(before)
     })
 
+    test('times out a save request that never settles', async () => {
+        vi.useFakeTimers()
+        try {
+            let requestSignal: AbortSignal | undefined
+            const fetchImpl = vi.fn(async (_url, init) => {
+                requestSignal = init?.signal ?? undefined
+                return new Promise<Response>(() => {})
+            }) as unknown as typeof fetch
+            const saving = createMemorySaveSlot({
+                characterId: 'character', chat, saveId: 'save-1', fetchImpl,
+                createAuth: async () => 'auth',
+            }).then(
+                () => 'resolved',
+                (error: unknown) => error instanceof Error
+                    ? error.name
+                    : String(error)
+            )
+
+            await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+            await expect(Promise.race([
+                saving,
+                Promise.resolve('still-pending'),
+            ])).resolves.toBe('TimeoutError')
+            expect(requestSignal?.aborted).toBe(true)
+        }
+        finally {
+            vi.useRealTimers()
+        }
+    })
+
     test('lists strict summaries and decodes a prepared chat load', async () => {
         const savedBytes = encodeMemorySaveChat(chat)
         const fetchMock = vi.fn(async (

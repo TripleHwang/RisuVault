@@ -9,6 +9,7 @@ interface TransportBase {
     characterId: string
     fetchImpl: typeof fetch
     createAuth(): Promise<string>
+    signal?: AbortSignal
 }
 
 function bounded(value: string, label: string): string {
@@ -36,6 +37,7 @@ async function post(
             'risu-auth': await input.createAuth(),
         },
         body: JSON.stringify(body),
+        signal: input.signal,
     })
     if (!response.ok) {
         throw new Error(`BardWiki reboot request failed with status ${response.status}`)

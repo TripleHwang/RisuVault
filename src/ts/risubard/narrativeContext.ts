@@ -135,6 +135,7 @@ export async function loadNarrativeInquiry(input: {
     fetchImpl: typeof fetch
     createAuth(): Promise<string>
     timeoutMs?: number
+    signal?: AbortSignal
 }): Promise<NarrativeInquiryResponse> {
     const timeoutMs = input.timeoutMs ?? RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
@@ -142,6 +143,9 @@ export async function loadNarrativeInquiry(input: {
         throw new Error('Invalid RisuBard narrative inquiry timeout')
     }
     const controller = new AbortController()
+    const onAbort = () => controller.abort(input.signal?.reason)
+    if (input.signal?.aborted) onAbort()
+    else input.signal?.addEventListener('abort', onAbort, { once: true })
     const fetchImpl = input.fetchImpl
     let timeout: ReturnType<typeof setTimeout> | undefined
     let value: unknown
@@ -223,6 +227,7 @@ export async function loadNarrativeInquiry(input: {
     }
     finally {
         if (timeout !== undefined) clearTimeout(timeout)
+        input.signal?.removeEventListener('abort', onAbort)
     }
     if (!isRecord(value)
         || !hasRequiredAndOnlyKeys(value, [

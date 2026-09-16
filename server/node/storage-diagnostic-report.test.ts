@@ -63,6 +63,8 @@ describe('privacy-safe storage diagnostic report', () => {
             })),
             { kind: 'compatibility-persist', outcome: 'failure', errorStage: 'kv-write', errorCode: 'EIO' },
             { kind: 'canonical-sync', outcome: 'success', durationMs: 250, stagedBytes: 1024 },
+            { kind: 'canonical-sync', outcome: 'success', durationMs: 30, strategy: 'bot-presets-direct', fallbackUsed: false },
+            { kind: 'canonical-sync', outcome: 'success', durationMs: 40, strategy: 'bot-presets-direct', fallbackUsed: true, fallbackCode: 'EIO' },
             { kind: 'projection-shadow', outcome: 'success', semanticMatch: true, durationMs: 80 },
             { kind: 'projection-shadow', outcome: 'mismatch', semanticMatch: false, errorStage: 'semantic-compare' },
         ])
@@ -80,11 +82,13 @@ describe('privacy-safe storage diagnostic report', () => {
                 failures: 1,
                 durationMs: { p50: 500, p90: 900 },
             },
+            directWrites: { attempts: 2, successes: 1, fallbacks: 1, failures: 0 },
             shadow: { checks: 2, matches: 1, mismatches: 1, failures: 0, skipped: 0 },
             privacy: { includesPersonalContent: false, includesRawLogs: false },
         })
         expect(report.issues).toEqual(expect.arrayContaining([
             { area: 'compatibility-persist', stage: 'kv-write', code: 'EIO', count: 1 },
+            { area: 'canonical-direct-write', stage: 'fallback', code: 'EIO', count: 1 },
             { area: 'projection-shadow', stage: 'semantic-compare', code: 'SEMANTIC_MISMATCH', count: 1 },
         ]))
         const exported = JSON.stringify(report)

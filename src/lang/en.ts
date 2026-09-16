@@ -2842,6 +2842,8 @@ export const languageEnglish = {
     storageDiagnosticsSaveP50: "Save p50",
     storageDiagnosticsSaveP90: "Save p90",
     storageDiagnosticsShadowMatch: "S1 shadow matches",
+    storageDiagnosticsDirectWriteSuccess: "W1 direct writes",
+    storageDiagnosticsDirectWriteFallback: "W1 fallbacks",
     storageDiagnosticsIssues: "Categorized issues",
     storageDiagnosticsNoIssueDesc: "No storage or S1 shadow errors were recorded in the retained observation window.",
     storageDiagnosticsNoDataDesc: "Use RisuBard normally and return here after some saves have been observed.",

@@ -143,6 +143,26 @@ describe('canonical entity tree', () => {
         expect(repository.exportLegacyDatabase()).toStrictEqual(database)
     })
 
+    it('syncs one legacy collection without rewriting unrelated canonical data', () => {
+        const dataRoot = root()
+        const repository = createUserDataRepository({ dataRoot })
+        const database: any = legacyDatabase()
+        repository.importLegacyDatabase(database, { mode: 'sync' })
+
+        const result = repository.syncLegacyCollection('botPresets', [
+            { id: 'preset-2', name: 'Second preset', temperature: 0.4 },
+        ])
+        const exported = repository.exportLegacyDatabase()
+
+        expect(result.files).toBe(2)
+        expect(exported.botPresets).toEqual([{ id: 'preset-2', name: 'Second preset', temperature: 0.4 }])
+        expect(exported.modules).toEqual(database.modules)
+        expect(exported.personas).toEqual(database.personas)
+        expect(exported.characters).toEqual(database.characters)
+        expect(fs.existsSync(path.join(dataRoot, 'presets', 'preset-1.json'))).toBe(false)
+        expect(fs.readdirSync(path.join(dataRoot, 'trash')).length).toBeGreaterThan(0)
+    })
+
     it('fsyncs a user message before request state and recovers an assistant draft', () => {
         const dataRoot = root()
         const repository = createUserDataRepository({ dataRoot })

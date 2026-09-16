@@ -13,6 +13,8 @@ describe('privacy-safe developer diagnostics page', () => {
             expect(copy.storageDiagnosticsDownload).toBeTypeOf('string')
             expect(copy.storageDiagnosticsCopy).toBeTypeOf('string')
             expect(copy.storageDiagnosticsPrivacy).toBeTypeOf('string')
+            expect(copy.storageDiagnosticsDirectWriteSuccess).toBeTypeOf('string')
+            expect(copy.storageDiagnosticsDirectWriteFallback).toBeTypeOf('string')
         }
     })
 
@@ -27,6 +29,8 @@ describe('privacy-safe developer diagnostics page', () => {
         expect(source).toContain('navigator.clipboard.writeText')
         expect(source).toContain('language.storageDiagnosticsDownload')
         expect(source).toContain('language.storageDiagnosticsCopy')
+        expect(source).toContain('report.directWrites.successes')
+        expect(source).toContain('report.directWrites.fallbacks')
         expect(source).not.toContain('storage-observation.jsonl')
     })
 })

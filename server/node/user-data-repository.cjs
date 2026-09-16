@@ -319,6 +319,42 @@ function createUserDataRepository(options = {}) {
         return { mode, characters: characters.length, files: operations.length, transaction };
     }
 
+    function syncLegacyCollection(legacyName, values) {
+        const collection = COLLECTIONS.find(([name]) => name === legacyName);
+        if (!collection) throw new Error(`Unsupported legacy collection: ${legacyName}`);
+        if (!Array.isArray(values)) throw new Error(`Legacy collection must be an array: ${legacyName}`);
+
+        const [, directory] = collection;
+        const previousIndex = loadSidebarIndex();
+        const incomingIds = [];
+        const operations = [];
+        for (const item of values) {
+            const id = stableId(item?.id, directory.slice(0, -1));
+            incomingIds.push(id);
+            operations.push({ path: path.join(directory, `${id}.json`), data: jsonBytes({ ...item, id }) });
+        }
+        const sidebar = {
+            ...previousIndex,
+            schemaVersion: 1,
+            updatedAt: Date.now(),
+            collections: {
+                ...(previousIndex.collections || {}),
+                [legacyName]: incomingIds,
+            },
+        };
+        operations.push({ path: 'index/sidebar.json', data: jsonBytes(sidebar) });
+        const transaction = commitTransaction(dataRoot, operations);
+
+        const retained = new Set(incomingIds);
+        for (const id of previousIndex.collections?.[legacyName] || []) {
+            const relativePath = path.join(directory, `${id}.json`);
+            if (!retained.has(id) && fs.existsSync(resolveInside(dataRoot, relativePath))) {
+                moveToTrash(dataRoot, relativePath);
+            }
+        }
+        return { legacyName, files: operations.length, transaction };
+    }
+
     function loadCollection(directory, ids, options = {}) {
         return (ids || []).map(id => readJson(path.join(directory, `${stableId(id, directory.slice(0, -1))}.json`), options));
     }
@@ -363,6 +399,7 @@ function createUserDataRepository(options = {}) {
         loadMessages,
         loadSidebarIndex,
         saveAssistantDraft,
+        syncLegacyCollection,
     };
 }
 
