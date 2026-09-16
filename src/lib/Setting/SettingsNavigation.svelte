@@ -74,6 +74,7 @@
         advanced: ActivityIcon,
         system: SettingsIcon,
         developer: FlaskConicalIcon,
+        'dev-panel': FlaskConicalIcon,
     }
 
     function sectionLabel(id: SettingsSectionId): string {
@@ -100,7 +101,8 @@
             'remote-access': language.remoteAccess,
             advanced: language.advancedSettings,
             system: language.system,
-            developer: 'Dev Panel',
+            developer: language.storageDiagnosticsTitle,
+            'dev-panel': 'Dev Panel',
         }
         return labels[item.id] ?? item.id
     }

@@ -86,6 +86,7 @@ import {
     isStoryArcCandidate,
     stampStoryArcCheckpoint,
     storyArcRewriteInstruction,
+    validateStoryArcCheckpointEventLink,
     type StoryArcUpdatePlan,
 } from './risubard-story-arc-writer'
 
@@ -1476,21 +1477,36 @@ export function createMemoryAnalysisRunner(
                                     }
                                     for (const document of parsed.documents) {
                                         const target = targets[document.candidateIndex]
-                                        if (target?.candidate.type !== 'character') continue
-                                        if (!target.target) {
-                                            document.sections = normalizeNewCharacterCurrentState(
-                                                document.sections,
-                                                snapshot.wikiWritingLanguage,
+                                        if (target?.candidate.type === 'character') {
+                                            if (!target.target) {
+                                                document.sections = normalizeNewCharacterCurrentState(
+                                                    document.sections,
+                                                    snapshot.wikiWritingLanguage,
+                                                )
+                                            }
+                                            applyCanonicalSectionPatches({
+                                                ...(target.target ? {
+                                                    markdown: target.target.content,
+                                                } : {}),
+                                                title: target.target?.title
+                                                    ?? target.candidate.title,
+                                                patches: document.sections,
+                                            })
+                                        }
+                                        else if (target?.storyArcPlan) {
+                                            const rewritten = applyCanonicalSectionPatches({
+                                                ...(target.target ? {
+                                                    markdown: target.target.content,
+                                                } : {}),
+                                                title: target.target?.title
+                                                    ?? target.candidate.title,
+                                                patches: document.sections,
+                                            })
+                                            validateStoryArcCheckpointEventLink(
+                                                rewritten,
+                                                target.storyArcPlan.events
                                             )
                                         }
-                                        applyCanonicalSectionPatches({
-                                            ...(target.target ? {
-                                                markdown: target.target.content,
-                                            } : {}),
-                                            title: target.target?.title
-                                                ?? target.candidate.title,
-                                            patches: document.sections,
-                                        })
                                     }
                                     return parsed
                                 },

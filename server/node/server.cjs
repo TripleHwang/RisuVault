@@ -37,6 +37,8 @@ const {
 } = require('./logs.cjs');
 const { createRequestLogs } = require('./request-logs.cjs');
 const { createSaveObservation } = require('./save-observation.cjs');
+const { createProjectionShadow } = require('./projection-shadow.cjs');
+const { generateStorageDiagnosticReport } = require('./storage-diagnostic-report.cjs');
 const { commitTransaction, moveToTrash } = require('./file-store.cjs');
 const { createRuntimeMemoryService } = require('./risubard-memory-runtime.cjs');
 const { openServerBrowser } = require('./open-server-browser.cjs');
@@ -58,7 +60,7 @@ const {
     registerRisuBardMemoryRoutes,
 } = require('./risubard-memory-routes.cjs');
 const { applyPatch } = require('fast-json-patch');
-const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, normalizeForwardHeaders, hasRemoteBlocks } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacyBuffer, calculateHash, normalizeJSON, normalizeForwardHeaders, hasRemoteBlocks } = require('./utils.cjs');
 const { spawn, execSync } = require('child_process');
 const os = require('os');
 const { Readable, Transform } = require('stream');
@@ -93,7 +95,7 @@ function computeBufferEtag(buffer) {
 }
 
 function computeDatabaseEtagFromObject(databaseObject) {
-    return computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(databaseObject)));
+    return computeBufferEtag(encodeRisuSaveLegacyBuffer(databaseObject));
 }
 
 let storageOperationQueue = Promise.resolve();
@@ -338,7 +340,7 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     }
 
     if (needsPersist) {
-        kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(dbObj)));
+        kvSet('database/database.bin', encodeRisuSaveLegacyBuffer(dbObj));
         persistCanonicalProjection(dbObj);
         if (runMaintenance) maybeCollectUnreferencedObjects();
     }
@@ -542,7 +544,7 @@ async function migrateRemoteBlocksIfNeeded() {
         },
     });
 
-    const reEncoded = encodeRisuSaveLegacy(dbObj, 'compression');
+    const reEncoded = encodeRisuSaveLegacyBuffer(dbObj, 'compression');
 
     // Single transaction so swap + marker move together.
     // remotes/ files are intentionally NOT deleted here: pre-migration
@@ -738,7 +740,7 @@ async function persistChatStoreWithoutCache(trigger) {
         Object.assign(metrics, summarizeDatabaseShape(fullDb));
         errorStage = 'encode';
         phaseStartedAt = performance.now();
-        data = Buffer.from(encodeRisuSaveLegacy(fullDb));
+        data = encodeRisuSaveLegacyBuffer(fullDb);
         metrics.encodeMs = elapsedMs(phaseStartedAt);
         metrics.databaseBytes = data.length;
         errorStage = 'kv-write';
@@ -814,7 +816,7 @@ async function persistDbCacheWithChats(filePath, decodedKey, trigger = 'unknown'
 
         errorStage = 'encode';
         phaseStartedAt = performance.now();
-        data = Buffer.from(encodeRisuSaveLegacy(fullDb));
+        data = encodeRisuSaveLegacyBuffer(fullDb);
         metrics.encodeMs = elapsedMs(phaseStartedAt);
         metrics.databaseBytes = data.length;
         errorStage = 'kv-write';
@@ -926,6 +928,11 @@ if(!existsSync(savePath)){
 }
 const saveObservation = createSaveObservation({ dataRoot: savePath })
 saveObservation.record({ kind: 'session', trigger: 'server-start', outcome: 'started' })
+const projectionShadow = createProjectionShadow({
+    repository: userDataRepository,
+    observation: saveObservation,
+    isPersisting: () => activeCompatibilityPersists > 0,
+})
 const CANONICAL_PROJECTION_REVISION_KEY = 'database/canonical-projection-revision'
 const canonicalProjectionSync = createCanonicalProjectionSync({
     repository: userDataRepository,
@@ -966,6 +973,11 @@ function persistCanonicalProjection(databaseObject, observationContext = {}) {
             skippedFiles: result.transaction?.skipped,
             stagedBytes: result.transaction?.stagedBytes,
         })
+        projectionShadow.schedule({
+            database: databaseObject,
+            trigger,
+            plannedFiles: result.files,
+        })
         return result
     } catch (error) {
         saveObservation.record({
@@ -987,12 +999,12 @@ function adoptExternallyChangedCanonicalProjection() {
         delete saveTimers[DB_HEX_KEY]
     }
     const fullDb = normalizeJSON(changed.database)
-    const encoded = Buffer.from(encodeRisuSaveLegacy(fullDb))
+    const encoded = encodeRisuSaveLegacyBuffer(fullDb)
     kvSet('database/database.bin', encoded)
     initChatStore(fullDb)
     const stripped = normalizeJSON(stripChatsFromDb(fullDb))
     dbCache[DB_HEX_KEY] = stripped
-    dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(stripped)))
+    dbEtag = computeBufferEtag(encodeRisuSaveLegacyBuffer(stripped))
     externallyAdoptedDbEtag = dbEtag
     canonicalProjectionSync.accept(changed.revision)
     logger.info('[CanonicalProjection] Adopted externally edited canonical entity files')
@@ -3663,7 +3675,7 @@ app.get('/api/read', async (req, res, next) => {
                     const stripped = normalizeJSON(stripChatsFromDb(dbObj));
                     // Populate dbCache so patch endpoint uses the same data
                     dbCache[filePath] = stripped;
-                    value = Buffer.from(encodeRisuSaveLegacy(stripped));
+                    value = encodeRisuSaveLegacyBuffer(stripped);
                 } catch (e) {
                     // Log the Error itself (not just e.message) so logger.*
                     // tags it and the Express middleware won't re-log after next().
@@ -3822,6 +3834,18 @@ app.get('/api/logs', async (req, res, next) => {
     }
 });
 
+app.get('/api/storage-diagnostics/report', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        res.json(await generateStorageDiagnosticReport({
+            dataRoot: savePath,
+            appVersion: getCurrentVersion(),
+        }));
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.delete('/api/logs', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     if (!checkActiveSession(req, res)) return;
@@ -3974,7 +3998,7 @@ app.post('/api/write', async (req, res, next) => {
 
                     errorStage = 'encode';
                     phaseStartedAt = performance.now();
-                    const mergedContent = Buffer.from(encodeRisuSaveLegacy(fullDb));
+                    const mergedContent = encodeRisuSaveLegacyBuffer(fullDb);
                     metrics.encodeMs = elapsedMs(phaseStartedAt);
                     metrics.databaseBytes = mergedContent.length;
                     // Re-init chat store from merged result
@@ -4140,7 +4164,7 @@ app.post('/api/patch', async (req, res, next) => {
                 );
                 let currentEtag;
                 try {
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
+                    currentEtag = computeBufferEtag(encodeRisuSaveLegacyBuffer(dbCache[filePath]));
                     dbEtag = currentEtag;
                 } catch {}
                 res.status(409).send({
@@ -4158,7 +4182,7 @@ app.post('/api/patch', async (req, res, next) => {
                 console.log(`[Patch] Hash mismatch for ${decodedKey}: expected=${expectedHash}, server=${serverHash}`);
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
+                    currentEtag = computeBufferEtag(encodeRisuSaveLegacyBuffer(dbCache[filePath]));
                     dbEtag = currentEtag;
                 }
                 if (currentEtag && currentEtag === externallyAdoptedDbEtag) {
@@ -4193,7 +4217,7 @@ app.post('/api/patch', async (req, res, next) => {
                     if (decodedKey === 'database/database.bin') {
                         await persistDbCacheWithChats(filePath, decodedKey, 'patch-debounce');
                     } else {
-                        const data = Buffer.from(encodeRisuSaveLegacy(dbCache[filePath]));
+                        const data = encodeRisuSaveLegacyBuffer(dbCache[filePath]);
                         try {
                             kvSet(decodedKey, data);
                         } catch (err) {
@@ -4223,7 +4247,7 @@ app.post('/api/patch', async (req, res, next) => {
 
             // Update ETag after successful patch (based on stripped version)
             if (decodedKey === 'database/database.bin') {
-                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
+                dbEtag = computeBufferEtag(encodeRisuSaveLegacyBuffer(dbCache[filePath]));
             }
 
             const responsePayload = {
@@ -4383,7 +4407,7 @@ async function buildSettingsOnlyPlan({ includeModuleAssets = true } = {}) {
     // variant runs chat-id and cold-storage migrations and can persist. Both
     // concern data we are about to drop anyway.
     const trimmed = stripToSettingsOnly(await decodeRisuSave(raw));
-    const dbValue = Buffer.from(encodeRisuSaveLegacy(trimmed, 'compression'));
+    const dbValue = encodeRisuSaveLegacyBuffer(trimmed, 'compression');
 
     const withModules = buildUncleanableSet(trimmed);
     const withoutModules = buildUncleanableSet(trimmed, { includeModuleAssets: false });
@@ -5176,7 +5200,7 @@ app.get('/api/chat-content/:chaId/:chatIndex/page', async (req, res, next) => {
         }
 
         const page = createChatContentPage(chat, req.query.offset, req.query.limit);
-        const encoded = Buffer.from(encodeRisuSaveLegacy(page));
+        const encoded = encodeRisuSaveLegacyBuffer(page);
         res.setHeader('Content-Type', 'application/octet-stream');
         res.send(encoded);
     } catch (error) {
@@ -5201,7 +5225,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 if (!restoreColdStorageChat(chat)) {
                     return res.status(500).json({ error: 'Cold storage restore failed' });
                 }
-                const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
+                const encoded = encodeRisuSaveLegacyBuffer(chat);
                 res.setHeader('Content-Type', 'application/octet-stream');
                 return res.send(encoded);
             }
@@ -5225,7 +5249,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         if (!restoreColdStorageChat(chat)) {
             return res.status(500).json({ error: 'Cold storage restore failed' });
         }
-        const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
+        const encoded = encodeRisuSaveLegacyBuffer(chat);
         res.setHeader('Content-Type', 'application/octet-stream');
         res.send(encoded);
     } catch (error) {

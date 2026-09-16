@@ -152,6 +152,7 @@ function routeLabel(route: SettingsRouteValue): string {
         case SettingsRoute.RisuBardGrimoirePrompt: return language.risuBardGrimoirePrompt.title;
         case SettingsRoute.RemoteAccess: return language.remoteAccess;
         case SettingsRoute.System: return language.system;
+        case SettingsRoute.Developer: return language.storageDiagnosticsTitle;
         case SettingsRoute.InlayImageGallery: return language.playground.inlayImageGallery;
         default: return '';
     }

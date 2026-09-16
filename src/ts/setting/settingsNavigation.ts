@@ -76,7 +76,8 @@ export const settingsSections: SettingsNavigationSection[] = [
         items: [
             { id: 'remote-access', route: SettingsRoute.RemoteAccess, scope: 'full' },
             { id: 'system', route: SettingsRoute.System, scope: 'full' },
-            { id: 'developer', route: SettingsRoute.DevPanel, scope: 'dev' },
+            { id: 'developer', route: SettingsRoute.Developer, scope: 'full' },
+            { id: 'dev-panel', route: SettingsRoute.DevPanel, scope: 'dev' },
         ],
     },
 ]

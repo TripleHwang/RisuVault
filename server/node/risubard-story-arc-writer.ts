@@ -16,6 +16,7 @@ export const STORY_ARC_MAX_MARKDOWN_CHARACTERS =
 export const STORY_ARC_EVENT_EXCERPT_CHARACTERS = 800
 
 const checkpointPattern = /<!--\s*risubard-story-arc-checkpoint:\s*([A-Za-z0-9._:-]{1,200})\s*-->/gu
+const wikiLinkPattern = /\[\[([^\]\r\n]{1,240})\]\]/gu
 
 export interface StoryArcWriterDocument {
     id: string
@@ -66,6 +67,31 @@ export function stampStoryArcCheckpoint(
     return `${body}\n\n<!-- risubard-story-arc-checkpoint: ${eventId} -->`
 }
 
+function hasStoryArcEventLink(
+    markdown: string,
+    events: readonly StoryArcWriterDocument[]
+): boolean {
+    const eventTitles = new Set(events.map((event) =>
+        event.title.normalize('NFKC').toLocaleLowerCase().trim()
+    ))
+    return [...markdown.matchAll(wikiLinkPattern)].some((match) =>
+        eventTitles.has(
+            match[1].split('|')[0]?.split('#')[0]
+                ?.normalize('NFKC').toLocaleLowerCase().trim() ?? ''
+        ))
+}
+
+export function validateStoryArcCheckpointEventLink(
+    markdown: string,
+    events: readonly StoryArcWriterDocument[]
+): void {
+    if (!hasStoryArcEventLink(markdown, events)) {
+        throw new Error(
+            'Story arc plot must link at least one event from the current checkpoint'
+        )
+    }
+}
+
 export function buildStoryArcUpdatePlan(input: {
     documents: readonly StoryArcWriterDocument[]
     savedEvents: readonly StoryArcWriterDocument[]
@@ -100,12 +126,23 @@ export function buildStoryArcUpdatePlan(input: {
         : -1
     if (checkpoint && checkpointIndex < 0) return undefined
     const pending = ordered.slice(checkpointIndex + 1)
-    if (pending.length < settings.checkpointSize) return undefined
+    const repairEvents = existing && checkpoint
+        && !hasStoryArcEventLink(existing.content, ordered)
+        ? ordered.slice(
+            Math.max(0, checkpointIndex - settings.checkpointSize + 1),
+            checkpointIndex + 1
+        )
+        : undefined
+    if (!repairEvents && pending.length < settings.checkpointSize) {
+        return undefined
+    }
 
-    const events = pending.slice(0, settings.checkpointSize)
+    const events = repairEvents ?? pending.slice(0, settings.checkpointSize)
     const title = existing?.title ?? wikiWritingLocales[input.writingLanguage].storyArc.title
     const eventTitles = events.map((event) => `[[${event.title}]]`).join(', ')
-    const reason = `Compact the next confirmed event checkpoint into the routing plot: ${eventTitles}`
+    const reason = repairEvents
+        ? `Repair missing event routes in the current story arc checkpoint: ${eventTitles}`
+        : `Compact the next confirmed event checkpoint into the routing plot: ${eventTitles}`
     return {
         candidate: {
             type: 'other',
@@ -117,7 +154,7 @@ export function buildStoryArcUpdatePlan(input: {
             confidence: 1,
         },
         events,
-        checkpointEventId: events.at(-1)!.id,
+        checkpointEventId: repairEvents ? checkpoint! : events.at(-1)!.id,
     }
 }
 
@@ -132,6 +169,7 @@ export function storyArcRewriteInstruction(
         `For the reserved other document titled ${arc.title}, use storyArcEvents as the evidence batch.`,
         `It is a compact routing plot, not primary evidence. Keep exactly the useful H3 sections ${arc.overview}, ${arc.turningPoints}, and ${arc.openThreads}.`,
         `Keep at most ${settings.maxArcs} chronological arc bullets, ${settings.maxTurningPoints} turning-point bullets, and ${settings.maxOpenThreads} open-thread bullets. Link representative events as [[event title]].`,
+        'Every rewrite must link at least one event from the current storyArcEvents checkpoint.',
         'Merge older adjacent arcs when over the cap while preserving distinctive names, objects, places, causal transitions, and representative event links.',
         `Keep the complete document within ${maxCharacters} characters. Never reproduce full event summaries or character state histories.`,
     ].join('\n')

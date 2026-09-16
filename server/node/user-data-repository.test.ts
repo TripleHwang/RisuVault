@@ -121,6 +121,28 @@ describe('canonical entity tree', () => {
         expect(exported.characters[0].chats[0].message[1].data).toBe('world')
     })
 
+    it('round-trips empty objects, an empty chat id, and an absent message field', () => {
+        const dataRoot = root()
+        const repository = createUserDataRepository({ dataRoot })
+        const database: any = legacyDatabase()
+        database.collectionOrganizers = {
+            promptPresets: { folderByItemId: {} },
+            plugins: { folderByItemId: {} },
+        }
+        database.personaEnabledModules = {}
+        database.seperateParameters = {
+            first: {}, second: {}, third: {}, fourth: {}, fifth: {},
+        }
+        database.moduleModelBindings = {}
+        database.characters[0].chats[0].id = ''
+        delete database.characters[0].chats[0].message
+
+        repository.importLegacyDatabase(database, { mode: 'sync' })
+
+        expect(repository.loadSidebarIndex().characters[0].chats[0].id).toMatch(/^chat-/)
+        expect(repository.exportLegacyDatabase()).toStrictEqual(database)
+    })
+
     it('fsyncs a user message before request state and recovers an assistant draft', () => {
         const dataRoot = root()
         const repository = createUserDataRepository({ dataRoot })

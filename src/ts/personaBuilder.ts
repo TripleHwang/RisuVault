@@ -148,6 +148,37 @@ export interface PersonaBuilderSourceSnapshot {
     moduleLorebookSources?: RequestInjectionSource[]
 }
 
+export interface PersonaBuilderOriginalHistory {
+    entries: string[]
+    index: number
+}
+
+export function recordPersonaBuilderOriginalHistory(
+    entries: string[],
+    index: number,
+    value: string,
+): PersonaBuilderOriginalHistory {
+    if (!entries.length) return { entries: [value], index: 0 }
+    const currentIndex = Math.min(Math.max(index, 0), entries.length - 1)
+    if (entries[currentIndex] === value) return { entries, index: currentIndex }
+    return {
+        entries: [...entries.slice(0, currentIndex + 1), value],
+        index: currentIndex + 1,
+    }
+}
+
+export function movePersonaBuilderOriginalHistory(
+    entries: string[],
+    index: number,
+    offset: -1 | 1,
+): (PersonaBuilderOriginalHistory & { value: string }) | undefined {
+    if (!entries.length) return undefined
+    const currentIndex = Math.min(Math.max(index, 0), entries.length - 1)
+    const nextIndex = Math.min(Math.max(currentIndex + offset, 0), entries.length - 1)
+    if (nextIndex === currentIndex) return undefined
+    return { entries, index: nextIndex, value: entries[nextIndex] }
+}
+
 interface PersonaBuilderLorebookSnapshot {
     content: string
     sources: RequestInjectionSource[]

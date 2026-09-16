@@ -8,55 +8,45 @@ describe('API v3 plugin sandbox document', () => {
         vi.unstubAllGlobals()
     })
 
-    test('loads the sandbox from a blob URL and revokes it after load', async () => {
+    test('loads the sandbox without blob navigation and keeps its security policy', () => {
         const createObjectURL = vi.spyOn(URL, 'createObjectURL')
         const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL')
         const iframe = document.createElement('iframe')
         const host = new SandboxHost({})
 
         const stop = host.run(iframe, 'globalThis.pluginLoaded = true')
-        const documentBlob = createObjectURL.mock.calls[0][0] as Blob
 
-        expect(createObjectURL).toHaveBeenCalledOnce()
-        expect(documentBlob).toBeInstanceOf(Blob)
-        await expect(documentBlob.text()).resolves.toContain(
-            'globalThis.pluginLoaded = true'
-        )
-        expect(iframe.src).toMatch(/^blob:/)
-        expect(iframe.srcdoc).toBe('')
+        expect(createObjectURL).not.toHaveBeenCalled()
+        expect(iframe.getAttribute('src')).toBeNull()
+        expect(iframe.srcdoc).toContain('globalThis.pluginLoaded = true')
         expect(iframe.sandbox.contains('allow-scripts')).toBe(true)
         expect(iframe.sandbox.contains('allow-modals')).toBe(true)
         expect(iframe.sandbox.contains('allow-downloads')).toBe(true)
+        expect(iframe.sandbox.contains('allow-same-origin')).toBe(false)
         expect(iframe.getAttribute('allow') ?? '').toContain('screen-wake-lock')
         expect(iframe.getAttribute('csp')).toContain("default-src 'none'")
+        expect(iframe.srcdoc).toContain(`content="${iframe.getAttribute('csp')}"`)
         expect(revokeObjectURL).not.toHaveBeenCalled()
 
         iframe.dispatchEvent(new Event('load'))
 
-        expect(revokeObjectURL).toHaveBeenCalledOnce()
-        expect(revokeObjectURL).toHaveBeenCalledWith(
-            createObjectURL.mock.results[0].value
-        )
-
         stop()
 
-        expect(revokeObjectURL).toHaveBeenCalledOnce()
+        expect(revokeObjectURL).not.toHaveBeenCalled()
     })
 
-    test('revokes once when terminated before the document loads', () => {
-        const createObjectURL = vi.spyOn(URL, 'createObjectURL')
-        const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL')
+    test('removes the frame and message handler when terminated before load', () => {
+        const removeEventListener = vi.spyOn(window, 'removeEventListener')
         const iframe = document.createElement('iframe')
         const host = new SandboxHost({})
+        document.body.appendChild(iframe)
 
         host.run(iframe, '')
         host.terminate()
         iframe.dispatchEvent(new Event('load'))
 
-        expect(revokeObjectURL).toHaveBeenCalledOnce()
-        expect(revokeObjectURL).toHaveBeenCalledWith(
-            createObjectURL.mock.results[0].value
-        )
+        expect(iframe.isConnected).toBe(false)
+        expect(removeEventListener).toHaveBeenCalledWith('message', expect.any(Function))
     })
 
     test('bridges callbacks nested in API argument objects', async () => {
@@ -95,17 +85,31 @@ describe('API v3 plugin sandbox document', () => {
     })
 
     test('serializes callbacks nested in guest API argument objects', async () => {
-        const createObjectURL = vi.spyOn(URL, 'createObjectURL')
         const iframe = document.createElement('iframe')
         const host = new SandboxHost({})
 
         const stop = host.run(iframe, '')
-        const documentBlob = createObjectURL.mock.calls[0][0] as Blob
-
-        const documentText = await documentBlob.text()
+        const documentText = iframe.srcdoc
         expect(documentText).toContain('const serialized = serializeArg(val);')
         expect(documentText).toContain('out[key] = serialized;')
 
+        stop()
+    })
+
+    test('ignores API calls from a different frame', () => {
+        const registerSetting = vi.fn()
+        const iframe = document.createElement('iframe')
+        const otherFrame = document.createElement('iframe')
+        document.body.append(iframe, otherFrame)
+        const host = new SandboxHost({ registerSetting })
+        const stop = host.run(iframe, '')
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: otherFrame.contentWindow,
+            data: { type: 'CALL_ROOT', reqId: 'spoof', method: 'registerSetting', args: [] },
+        }))
+
+        expect(registerSetting).not.toHaveBeenCalled()
         stop()
     })
 })

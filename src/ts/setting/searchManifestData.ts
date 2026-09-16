@@ -231,6 +231,13 @@ export const searchManifestEntries: ManualSearchEntry[] = [
         keywords: ['remote', 'network', 'share', 'tailscale', 'lan', '원격', '원격 접속', '공유'],
         route: SettingsRoute.RemoteAccess,
     },
+    {
+        id: 'manual.page.storageDiagnostics',
+        label: () => language.storageDiagnosticsTitle,
+        help: () => language.storageDiagnosticsDesc,
+        keywords: ['developer', 'storage diagnostics', 'performance report', '개발자', '저장 진단', '성능 통계', '오류 보고서'],
+        route: SettingsRoute.Developer,
+    },
 
     // ── System page sub-tabs
     {

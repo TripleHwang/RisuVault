@@ -13,7 +13,9 @@ import {
     collectPersonaBuilderSources,
     createPersonaBuilderUserPreset,
     deletePersonaBuilderUserPreset,
+    movePersonaBuilderOriginalHistory,
     overwritePersonaBuilderUserPreset,
+    recordPersonaBuilderOriginalHistory,
     resolvePersonaBuilderPromptPreset,
 } from './personaBuilder'
 
@@ -407,5 +409,32 @@ describe('persona builder prompt presets', () => {
         expect(deletePersonaBuilderUserPreset(existing, 'task-id')).toEqual([existing[1]])
         expect(() => overwritePersonaBuilderUserPreset(existing, 'builtin:style-ko', 'No')).toThrow('persona-builder-preset-readonly')
         expect(() => deletePersonaBuilderUserPreset(existing, 'missing')).toThrow('persona-builder-preset-not-found')
+    })
+})
+
+describe('persona builder original history', () => {
+    test('records a new original after the current entry and drops abandoned newer entries', () => {
+        expect(recordPersonaBuilderOriginalHistory(['first', 'second', 'third'], 1, 'replacement')).toEqual({
+            entries: ['first', 'second', 'replacement'],
+            index: 2,
+        })
+        expect(recordPersonaBuilderOriginalHistory(['first'], 0, 'first')).toEqual({
+            entries: ['first'],
+            index: 0,
+        })
+    })
+
+    test('moves between original revisions without leaving the available history', () => {
+        expect(movePersonaBuilderOriginalHistory(['first', 'second'], 1, -1)).toEqual({
+            entries: ['first', 'second'],
+            index: 0,
+            value: 'first',
+        })
+        expect(movePersonaBuilderOriginalHistory(['first', 'second'], 0, 1)).toEqual({
+            entries: ['first', 'second'],
+            index: 1,
+            value: 'second',
+        })
+        expect(movePersonaBuilderOriginalHistory(['first'], 0, -1)).toBeUndefined()
     })
 })

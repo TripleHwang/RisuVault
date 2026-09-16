@@ -1460,6 +1460,8 @@ export const languageKorean = {
         stop: "중지",
         reset: "리셋",
         undo: "되돌리기",
+        previousOriginal: "이전 원본으로 이동",
+        nextOriginal: "다음 원본으로 이동",
         copyDraft: "결과물 페르소나로 복사",
         copyConfirm: "현재 페르소나 설명을 이 초안으로 교체할까요?",
         copied: "초안을 페르소나 설명에 복사했습니다.",
@@ -2767,6 +2769,8 @@ export const languageKorean = {
     "플러그인 {} 이(가) Provider 접근 권한을 요청합니다. 무단 API 호출이 발생할 수 있습니다. 허용하시겠습니까?",
   sendChatConsent:
     "플러그인 {} 이(가) 사용자 대신 채팅 메시지를 전송할 권한을 요청합니다. AI 응답이 트리거됩니다. 허용하시겠습니까?",
+  bardWikiWriteConsent:
+    "플러그인 {} 이(가) 현재 채팅의 바드위키 문서를 생성, 수정 또는 삭제할 권한을 요청합니다. 허용하시겠습니까?",
   resetPluginPermission: "권한 응답 초기화",
   resetPluginPermissionConfirm:
     '플러그인 "{}"의 저장된 권한 응답(허용/거부 이력)을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
@@ -2986,6 +2990,26 @@ export const languageKorean = {
 
   // 시스템 페이지
   system: "시스템",
+  storageDiagnosticsTitle: "개발자",
+  storageDiagnosticsDesc: "저장 성능을 확인하고 문제 해결에 필요한 개인정보 없는 진단 보고서를 만듭니다.",
+  storageDiagnosticsPrivacy: "보고서에는 집계된 시간, 결과 수와 분류된 오류 코드만 포함됩니다. 이름, 메시지, 경로, 식별자, hash, 데이터베이스 크기, 항목 수와 원본 로그는 제외됩니다.",
+  storageDiagnosticsGenerate: "보고서 생성",
+  storageDiagnosticsGenerating: "생성 중...",
+  storageDiagnosticsDownload: "다운로드",
+  storageDiagnosticsCopy: "클립보드로 복사",
+  storageDiagnosticsCopied: "진단 보고서를 클립보드에 복사했습니다",
+  storageDiagnosticsGenerated: "진단 보고서를 갱신했습니다",
+  storageDiagnosticsFailed: "저장 진단 보고서를 만들지 못했습니다",
+  storageDiagnosticsNoObservations: "아직 관찰 기록 없음",
+  storageDiagnosticsNoIssues: "문제 없음",
+  storageDiagnosticsIssuesDetected: "문제 발견",
+  storageDiagnosticsSaveSuccess: "성공한 저장",
+  storageDiagnosticsSaveP50: "저장 p50",
+  storageDiagnosticsSaveP90: "저장 p90",
+  storageDiagnosticsShadowMatch: "S1 shadow 일치",
+  storageDiagnosticsIssues: "분류된 문제",
+  storageDiagnosticsNoIssueDesc: "보존된 관찰 구간에서 저장 오류나 S1 shadow 불일치가 기록되지 않았습니다.",
+  storageDiagnosticsNoDataDesc: "리스바드를 평소처럼 사용해 저장 표본이 쌓인 뒤 다시 확인하세요.",
   systemLogs: "시스템 로그",
   systemLogsDesc:
     "서버 및 연결된 브라우저에서 발생한 에러, 경고, 정보 이벤트를 확인합니다.",

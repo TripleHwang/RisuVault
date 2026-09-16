@@ -41,6 +41,7 @@
         type FirstMessageStudioRuntime as FirstMessageStudioRuntimeState,
     } from 'src/ts/firstMessageStudio'
     import type { character as Character } from 'src/ts/storage/database.svelte'
+    import { createRisuTriggerActivation } from './risuTriggerActivation'
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -333,16 +334,10 @@
         }
     }
 
-    async function handleButtonTriggerWithin(event: UIEvent) {
+    async function activateButtonTrigger(origin: Element) {
         if(readOnly) return
         const currentChar = getCurrentCharacter()
         if(!currentChar){
-            return
-        }
-
-        const target = event.target as HTMLElement
-        const origin = target.closest('[risu-trigger], [risu-btn]')
-        if (!origin) {
             return
         }
 
@@ -375,6 +370,10 @@
             }, 100) // Small delay to allow display mode to complete
         }
     }
+
+    const buttonTriggerActivation = createRisuTriggerActivation(activateButtonTrigger, {
+        pointerDownFallback: navigator.userAgent.includes('Firefox/'),
+    })
 
     let isBookmarked = $derived(
         DBState.db.characters[selIdState.selId]
@@ -1541,7 +1540,8 @@
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid color-mix(in srgb, var(--color-borderc) 70%, transparent);` : ''}
-     onclickcapture={handleButtonTriggerWithin}>
+     onpointerdowncapture={buttonTriggerActivation.pointerdown}
+     onclickcapture={buttonTriggerActivation.click}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
             {@const nodeOnlyWidthClass =
@@ -1592,7 +1592,8 @@
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid color-mix(in srgb, var(--color-borderc) 70%, transparent);` : ''}
-     onclickcapture={handleButtonTriggerWithin}>
+     onpointerdowncapture={buttonTriggerActivation.pointerdown}
+     onclickcapture={buttonTriggerActivation.click}>
     <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-darkborderc border-opacity/30 border-transparent flexium items-start max-w-full" >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>

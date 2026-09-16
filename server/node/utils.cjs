@@ -454,19 +454,21 @@ function hasRemoteBlocks(data) {
  * @returns {Uint8Array} - The encoded data
  */
 function encodeRisuSaveLegacy(data, compression = 'noCompression') {
+    const encoded = encodeRisuSaveLegacyBuffer(data, compression);
+    return new Uint8Array(encoded.buffer, encoded.byteOffset, encoded.byteLength);
+}
+
+function encodeRisuSaveLegacyBuffer(data, compression = 'noCompression') {
     let encoded = packr.encode(data);
+    let header = magicHeader;
     if (compression === 'compression') {
         encoded = fflate.compressSync(encoded);
-        const result = new Uint8Array(encoded.length + magicCompressedHeader.length);
-        result.set(magicCompressedHeader, 0);
-        result.set(encoded, magicCompressedHeader.length);
-        return result;
-    } else {
-        const result = new Uint8Array(encoded.length + magicHeader.length);
-        result.set(magicHeader, 0);
-        result.set(encoded, magicHeader.length);
-        return result;
+        header = magicCompressedHeader;
     }
+    const result = Buffer.allocUnsafeSlow(encoded.length + header.length);
+    result.set(header, 0);
+    result.set(encoded, header.length);
+    return result;
 }
 
 // --- Hash & normalization utilities for patch-based sync ---
@@ -597,6 +599,7 @@ module.exports = {
     // Functions
     decodeRisuSave,
     encodeRisuSaveLegacy,
+    encodeRisuSaveLegacyBuffer,
     calculateHash,
     normalizeJSON,
     normalizeForwardHeaders,

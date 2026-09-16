@@ -150,9 +150,11 @@ export function decodeMemorySaveChat(bytes: Uint8Array): unknown {
 }
 
 function applyMemorySavePromptSettings(chat: Chat, currentChat?: Chat): void {
-    // Save slots rewind story state, not the current prompt preferences.
+    // Save slots rewind story state, not the current sidebar preferences.
     for (const key of [
-        'bindedBotPreset', 'usePromptPresetParams', 'useLocallySetGlobalVariables',
+        'bindedPersona', 'bindedBotPreset', 'usePromptPresetParams',
+        'useModelPreset', 'modelBinding', 'useLocallySetGlobalVariables',
+        'togglePresetBaseline',
     ] as const) {
         delete chat[key]
         if (currentChat?.[key] !== undefined) {

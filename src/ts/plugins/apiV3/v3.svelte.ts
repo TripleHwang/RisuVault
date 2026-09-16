@@ -29,6 +29,18 @@ import type { OpenAIChat } from "src/ts/process/index.svelte";
 import { getModuleLorebooks } from "src/ts/process/modules";
 import { addOwnedChatOutputListener, readInlayWithPermission, removeOwnedChatOutputListener } from "../pluginChatOutput";
 import {
+    buildBardWikiPluginContext,
+    decorateBardWikiCharacterForPlugin,
+    decorateBardWikiChatForPlugin,
+    getBardWikiPluginDocuments,
+    saveBardWikiPluginDocument,
+    setBardWikiPluginDocumentContextMode,
+    stripBardWikiVirtualMemory,
+    stripBardWikiVirtualMemoryFromCharacter,
+    stripBardWikiVirtualMemoryFromDatabase,
+    trashBardWikiPluginDocument,
+} from "src/ts/risubard/pluginBardWiki";
+import {
     registerTTSPreprocessor,
     unregisterTTSPreprocessor,
     registerTTSPostprocessor,
@@ -563,8 +575,8 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
 }
 
-type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat'|'inlay';
-const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat', 'inlay'];
+type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat'|'inlay'|'bardWikiWrite';
+const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat', 'inlay', 'bardWikiWrite'];
 
 // Plugin names are free text (the //@name directive), so `${name}_${desc}` keys
 // can collide — both across permissions and with a legacy name-only entry that
@@ -729,6 +741,7 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
             : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
             : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
             : permissionDesc === 'inlay' ? language.inlayPermissionConsent.replace("{}", pluginName)
+            : permissionDesc === 'bardWikiWrite' ? language.bardWikiWriteConsent.replace("{}", pluginName)
             : `Error`
         if(alertTitle === 'Error'){
             return false;
@@ -775,6 +788,53 @@ const authorizationHeaders = [
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
+    const createBardWikiAuth = () => forageStorage.createAuth()
+    const warnBardWikiCompatibilityFailure = (error: unknown) => {
+        console.warn('[RisuBard] BardWiki plugin compatibility unavailable:', error)
+    }
+    const decoratePluginCharacter = (character: any) => {
+        if (!character?.chaId) return character
+        return decorateBardWikiCharacterForPlugin({
+            character,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+            onError: warnBardWikiCompatibilityFailure,
+        })
+    }
+    const decoratePluginChat = (character: any, chat: any) => {
+        if (!character?.chaId || !chat?.id) return chat
+        return decorateBardWikiChatForPlugin({
+            characterId: character.chaId,
+            chatId: chat.id,
+            chat,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+            onError: warnBardWikiCompatibilityFailure,
+        })
+    }
+    const getPluginCharacter = async () =>
+        decoratePluginCharacter(oldApis.getChar())
+    const setPluginCharacter = (character: any) =>
+        oldApis.setChar(stripBardWikiVirtualMemoryFromCharacter(character))
+    const getCurrentBardWikiScope = () => {
+        const selectedId = get(selectedCharID)
+        const character = DBState.db.characters[selectedId]
+        const chat = character?.chats?.[character.chatPage]
+        if (!character?.chaId || !chat?.id) {
+            throw new Error('BardWiki requires a selected saved chat')
+        }
+        return {
+            characterId: character.chaId,
+            chatId: chat.id,
+            character,
+            chat,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+        }
+    }
     return {
 
         //Old APIs from v2.1
@@ -811,8 +871,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
             return oldApis.nativeFetch(url, options);
         },
-        getChar: oldApis.getChar,
-        setChar: oldApis.setChar,
+        getChar: getPluginCharacter,
+        setChar: setPluginCharacter,
         addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
@@ -883,8 +943,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         removeRisuChatListener: (mode: 'output', func: Function) => {
             removeOwnedChatOutputListener(pluginV2.chatOutput, `v3:${plugin.name}`, mode, func as any);
         },
-        setDatabaseLite: oldApis.setDatabaseLite,
-        setDatabase: oldApis.setDatabase,
+        setDatabaseLite: (database: any) =>
+            oldApis.setDatabaseLite(stripBardWikiVirtualMemoryFromDatabase(database)),
+        setDatabase: (database: any) =>
+            oldApis.setDatabase(stripBardWikiVirtualMemoryFromDatabase(database)),
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
         readInlay: async (id: string) => {
@@ -907,6 +969,13 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     continue;
                 }
                 (liteDB as any)[key] = $state.snapshot((db as any)[key]);
+            }
+            const characters = (liteDB as any).characters
+            const selectedId = get(selectedCharID)
+            if (characters?.[selectedId]) {
+                characters[selectedId] = await decoratePluginCharacter(
+                    characters[selectedId]
+                )
             }
             return liteDB;
         },
@@ -998,12 +1067,14 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
             }
         },
-        getCharacterFromIndex: (index:number) => {
+        getCharacterFromIndex: async (index:number) => {
             const db = DBState.db
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
-                return $state.snapshot(db.characters[charId]);
+                return decoratePluginCharacter(
+                    $state.snapshot(db.characters[charId])
+                );
             }
             return null;
         },
@@ -1012,17 +1083,22 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
-                DBState.db.characters[charId] = char
+                DBState.db.characters[charId] =
+                    stripBardWikiVirtualMemoryFromCharacter(char)
             }
         },
-        getChatFromIndex: (characterIndex:number, chatIndex:number) => {
+        getChatFromIndex: async (characterIndex:number, chatIndex:number) => {
             const db = DBState.db
             const charIds = Object.keys(db.characters);
             const charId = charIds[characterIndex];
             if(charId){
-                const chats = db.characters[charId].chats;
+                const character = db.characters[charId]
+                const chats = character.chats;
                 if(chats && chats[chatIndex]){
-                    return $state.snapshot(chats[chatIndex]);
+                    return decoratePluginChat(
+                        character,
+                        $state.snapshot(chats[chatIndex])
+                    );
                 }
             }
             return null;
@@ -1034,7 +1110,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(charId){
                 const chats = db.characters[charId].chats;
                 if(chats && chats[chatIndex]){
-                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(chat)
+                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(
+                        stripBardWikiVirtualMemory(chat)
+                    )
                 }
             }
         },
@@ -1059,14 +1137,61 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return $state.snapshot(characterLore.concat(chatLore).concat(moduleLore))
         },
         //New names for character APIs, to match API naming conventions
-        getCharacter: oldApis.getChar,
-        setCharacter: oldApis.setChar,
+        getCharacter: getPluginCharacter,
+        setCharacter: setPluginCharacter,
+
+        _getBardWikiContext: async (options: { query?: string } = {}) => {
+            const scope = getCurrentBardWikiScope()
+            return buildBardWikiPluginContext({
+                ...scope,
+                query: options.query,
+            })
+        },
+        _getBardWikiDocuments: async (options: {
+            types?: any[]
+            statuses?: any[]
+        } = {}) => {
+            const scope = getCurrentBardWikiScope()
+            return getBardWikiPluginDocuments({
+                ...scope,
+                types: options.types,
+                statuses: options.statuses,
+            })
+        },
+        _saveBardWikiDocument: async (document: any) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return saveBardWikiPluginDocument({
+                ...getCurrentBardWikiScope(),
+                document,
+            })
+        },
+        _setBardWikiContextMode: async (input: {
+            documentId: string
+            contextMode: any
+            expectedContentHash: string
+        }) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return setBardWikiPluginDocumentContextMode({
+                ...getCurrentBardWikiScope(),
+                ...input,
+            })
+        },
+        _trashBardWikiDocument: async (documentId: string) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return trashBardWikiPluginDocument({
+                ...getCurrentBardWikiScope(),
+                documentId,
+            })
+        },
 
         showContainer: (
             //more types may be added in future
             type: 'fullscreen' = 'fullscreen'
         ) => {
-            iframe.style.display = "block";
+            iframe.style.setProperty('display', 'block', 'important');
             
             switch(type) {
                 case 'fullscreen': {
@@ -1091,7 +1216,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
         },
         hideContainer: () => {
-            iframe.style.display = "none";
+            iframe.style.setProperty('display', 'none', 'important');
         },
         getRootDocument: async () => {
             const conf = await getPluginPermission(plugin.name, 'mainDom');
@@ -1430,6 +1555,13 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     'clear': '_clearSafeLocalStorage',
                     'key': '_keySafeLocalStorage',
                     'keys': '_keysSafeLocalStorage',
+                },
+                'bardWiki':{
+                    'getContext': '_getBardWikiContext',
+                    'getDocuments': '_getBardWikiDocuments',
+                    'saveDocument': '_saveBardWikiDocument',
+                    'setContextMode': '_setBardWikiContextMode',
+                    'trashDocument': '_trashBardWikiDocument',
                 }
             }
         },
@@ -1575,7 +1707,7 @@ export async function executePluginV3(plugin:RisuPlugin){
     }
 
     const iframe = document.createElement('iframe');
-    iframe.style.display = "none";
+    iframe.style.setProperty('display', 'none', 'important');
     document.body.appendChild(iframe);
     const host = new SandboxHost(makeRisuaiAPIV3(iframe, plugin));
     v3PluginInstances.push({

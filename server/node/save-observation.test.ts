@@ -70,6 +70,37 @@ describe('save observation log', () => {
         expect(JSON.parse(previous).kind).toBe('compatibility-persist')
     })
 
+    it('records content-free S1 shadow outcomes', async () => {
+        const dataRoot = tempRoot()
+        const observation = createSaveObservation({ dataRoot, sessionId: 'shadow-session', now: () => 5678 })
+
+        observation.record({
+            kind: 'projection-shadow',
+            trigger: 'flush',
+            outcome: 'mismatch',
+            errorStage: 'semantic-compare',
+            durationMs: 42.5,
+            plannedFiles: 12,
+            semanticMatch: false,
+            content: 'private message body',
+        })
+        await observation.flush()
+
+        const row = JSON.parse(fs.readFileSync(path.join(dataRoot, 'logs', 'storage-observation.jsonl'), 'utf8'))
+        expect(row).toEqual({
+            schemaVersion: 1,
+            timestamp: 5678,
+            sessionId: 'shadow-session',
+            kind: 'projection-shadow',
+            trigger: 'flush',
+            outcome: 'mismatch',
+            errorStage: 'semantic-compare',
+            durationMs: 42.5,
+            plannedFiles: 12,
+            semanticMatch: false,
+        })
+    })
+
     it('never rejects the caller when observation storage is unavailable', async () => {
         const dataRoot = tempRoot()
         fs.writeFileSync(path.join(dataRoot, 'blocked'), 'file')

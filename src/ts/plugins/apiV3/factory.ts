@@ -442,7 +442,6 @@ await (async function() {
 
 export class SandboxHost {
     private iframe: HTMLIFrameElement;
-    private documentUrl: string | null = null;
     private apiFactory: any;
     private nonce = crypto.randomUUID();
     private csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src * 'unsafe-inline'; default-src 'none'; img-src * data: blob:; font-src * data: blob:; media-src * data: blob:; base-uri 'none';`;
@@ -787,14 +786,6 @@ export class SandboxHost {
         this.activeStreamCleanups.clear();
     }
 
-    private revokeDocumentUrl(expectedUrl?: string) {
-        if (!this.documentUrl) return;
-        if (expectedUrl && this.documentUrl !== expectedUrl) return;
-        const documentUrl = this.documentUrl;
-        this.documentUrl = null;
-        URL.revokeObjectURL(documentUrl);
-    }
-
     public run(container: HTMLElement|HTMLIFrameElement, userCode: string) {
         if(container instanceof HTMLIFrameElement) {
             this.iframe = container;
@@ -948,21 +939,8 @@ export class SandboxHost {
       </html>
     `;
 
-        this.revokeDocumentUrl();
-        const documentUrl = URL.createObjectURL(new Blob(
-            [html],
-            { type: 'text/html;charset=utf-8' }
-        ));
-        this.documentUrl = documentUrl;
-        const iframe = this.iframe;
-        const releaseDocumentUrl = () => {
-            iframe.removeEventListener('load', releaseDocumentUrl);
-            iframe.removeEventListener('error', releaseDocumentUrl);
-            this.revokeDocumentUrl(documentUrl);
-        };
-        iframe.addEventListener('load', releaseDocumentUrl);
-        iframe.addEventListener('error', releaseDocumentUrl);
-        iframe.src = documentUrl;
+        // Avoid blob navigation and its load/revocation timing across browsers.
+        this.iframe.srcdoc = html;
 
         return () => {
             this.terminate();
@@ -977,7 +955,6 @@ export class SandboxHost {
         if (this.iframe) {
             this.iframe.remove();
         }
-        this.revokeDocumentUrl();
         this.closeActiveStreams();
         this.instanceRegistry.clear();
         this.pendingCallbacks.clear();

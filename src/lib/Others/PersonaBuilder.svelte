@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, tick } from 'svelte'
-    import { LoaderCircleIcon, RotateCcwIcon, SendIcon, SparklesIcon, Undo2Icon } from '@lucide/svelte'
+    import { ChevronLeftIcon, ChevronRightIcon, LoaderCircleIcon, RotateCcwIcon, SendIcon, SparklesIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
@@ -14,6 +14,8 @@
         buildPersonaBuilderMessages,
         collectPersonaBuilderSources,
         matchPersonaBuilderCharacterLorebook,
+        movePersonaBuilderOriginalHistory,
+        recordPersonaBuilderOriginalHistory,
         resolvePersonaBuilderPromptPreset,
         type PersonaBuilderSelections,
         type PersonaBuilderSourceSnapshot,
@@ -43,9 +45,9 @@
     let stylePresetId = $state('')
     let userInstruction = $state('')
     let originalDraft = $state('')
+    let originalHistory = $state<string[]>([])
+    let originalHistoryIndex = $state(0)
     let draft = $state('')
-    let previousDraft = $state('')
-    let canUndoDraft = $state(false)
     let sources = $state<PersonaBuilderSourceSnapshot>({
         systemPrompt: '',
         characterDescription: '',
@@ -99,9 +101,9 @@
         stylePresetId = selectedStylePreset?.id ?? ''
         userInstruction = ''
         originalDraft = currentDescription
+        originalHistory = [currentDescription]
+        originalHistoryIndex = 0
         draft = initialDraft
-        previousDraft = ''
-        canUndoDraft = false
         error = ''
         await tick()
         document.querySelector<HTMLTextAreaElement>('[data-persona-builder-instruction]')?.focus()
@@ -172,8 +174,6 @@
                 error = copy.emptyResponse
                 return
             }
-            previousDraft = draft
-            canUndoDraft = true
             draft = result
         }
         catch (cause) {
@@ -189,11 +189,19 @@
         }
     }
 
-    function undoDraft() {
-        if (!canUndoDraft || generating) return
-        draft = previousDraft
-        previousDraft = ''
-        canUndoDraft = false
+    function recordOriginalDraft(value = originalDraft) {
+        const history = recordPersonaBuilderOriginalHistory(originalHistory, originalHistoryIndex, value)
+        originalHistory = history.entries
+        originalHistoryIndex = history.index
+    }
+
+    function navigateOriginalHistory(offset: -1 | 1) {
+        if (generating) return
+        const history = movePersonaBuilderOriginalHistory(originalHistory, originalHistoryIndex, offset)
+        if (!history) return
+        originalHistory = history.entries
+        originalHistoryIndex = history.index
+        originalDraft = history.value
         error = ''
     }
 
@@ -201,7 +209,10 @@
         if (!draft.trim() || generating) return
         error = ''
         try {
-            await onCopyDraft(draft.trim())
+            const copiedDraft = draft.trim()
+            await onCopyDraft(copiedDraft)
+            originalDraft = copiedDraft
+            recordOriginalDraft(copiedDraft)
         }
         catch (cause) {
             error = cause instanceof Error && cause.message ? cause.message : copy.copyFailed
@@ -308,17 +319,38 @@
         <section class="builder-section draft-section" aria-busy={generating}>
             <div bind:this={draftComparisonElement} data-persona-builder-draft-comparison class="draft-comparison">
                 <div class="draft-pane" data-draft-pane="original">
-                    <div class="draft-heading">
+                    <div class="draft-heading justify-between gap-2">
                         <label for="persona-builder-original">{copy.originalDraft}</label>
+                        <div class="flex items-center gap-1">
+                            <ShButton
+                                data-persona-builder-original-previous
+                                variant="outline"
+                                size="icon-sm"
+                                disabled={generating || originalHistoryIndex <= 0}
+                                aria-label={copy.previousOriginal}
+                                title={copy.previousOriginal}
+                                onclick={() => navigateOriginalHistory(-1)}
+                            ><ChevronLeftIcon size={16} /></ShButton>
+                            <ShButton
+                                data-persona-builder-original-next
+                                variant="outline"
+                                size="icon-sm"
+                                disabled={generating || originalHistoryIndex >= originalHistory.length - 1}
+                                aria-label={copy.nextOriginal}
+                                title={copy.nextOriginal}
+                                onclick={() => navigateOriginalHistory(1)}
+                            ><ChevronRightIcon size={16} /></ShButton>
+                        </div>
                     </div>
                     <textarea
                         id="persona-builder-original"
                         data-persona-builder-original
                         class="builder-textarea draft"
                         use:persistElementHeight={'persona-builder-original'}
-                        value={originalDraft}
-                        readonly
+                        bind:value={originalDraft}
+                        onchange={() => recordOriginalDraft()}
                         aria-label={copy.originalDraft}
+                        disabled={generating}
                     ></textarea>
                 </div>
                 <DraftSplitHandle target={draftComparisonElement} ariaLabel={`${copy.originalDraft} / ${copy.revisedDraft}`}
@@ -329,12 +361,14 @@
                         <div class="flex items-center gap-2">
                             {#if generating}<LoaderCircleIcon class="animate-spin text-textcolor2" size={17} />{/if}
                             <ShButton
-                                data-persona-builder-undo
-                                variant="outline"
+                                data-persona-builder-copy
+                                variant="success"
                                 size="sm"
-                                disabled={!canUndoDraft || generating}
-                                onclick={undoDraft}
-                            ><Undo2Icon size={15} />{copy.undo}</ShButton>
+                                disabled={!draft.trim() || generating}
+                                aria-label={copy.copyDraft}
+                                title={copy.copyDraft}
+                                onclick={copyDraft}
+                            >{copy.copyDraft}</ShButton>
                         </div>
                     </div>
                     <textarea
@@ -354,11 +388,6 @@
             <p role="alert" class="error-message">{error}</p>
         {/if}
 
-        <div class="flex justify-end border-t border-darkborderc pt-3">
-            <ShButton variant="success" disabled={!draft.trim() || generating} onclick={copyDraft}>
-                {copy.copyDraft}
-            </ShButton>
-        </div>
         <ManagerResizeHandles target={dialogElement} centered resizeStorageKey="persona-builder-dialog" />
     </div>
 </ShDialog>

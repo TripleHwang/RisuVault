@@ -41,6 +41,7 @@ function splitSecrets(source) {
             const nested = splitSecrets(value);
             if (Object.keys(nested.settings).length) settings[key] = nested.settings;
             if (Object.keys(nested.secrets).length) secrets[key] = nested.secrets;
+            if (!Object.keys(nested.settings).length && !Object.keys(nested.secrets).length) settings[key] = {};
         } else {
             settings[key] = value;
         }
@@ -259,14 +260,19 @@ function createUserDataRepository(options = {}) {
                 const metadata = without(rawChat, new Set(['message']));
                 operations.push({
                     path: chatMetadataPath(characterId, chatId),
-                    data: jsonBytes({ ...metadata, id: chatId }),
+                    data: jsonBytes(metadata),
                 });
                 const messages = Array.isArray(rawChat?.message) ? rawChat.message : [];
                 operations.push({
                     path: messagesPath(characterId, chatId),
                     data: Buffer.from(messages.map(message => JSON.stringify(message)).join('\n') + (messages.length ? '\n' : ''), 'utf8'),
                 });
-                chats.push({ id: chatId, name: rawChat?.name || '', lastDate: rawChat?.lastDate ?? 0 });
+                chats.push({
+                    id: chatId,
+                    name: rawChat?.name || '',
+                    lastDate: rawChat?.lastDate ?? 0,
+                    legacyMessagePresent: Object.prototype.hasOwnProperty.call(rawChat, 'message'),
+                });
             }
             const metadata = without(rawCharacter, new Set(['chats']));
             operations.push({
@@ -330,7 +336,15 @@ function createUserDataRepository(options = {}) {
         }
         database.characters = index.characters.map(summary => {
             const character = loadCharacter(summary.id, readOptions);
-            return { ...character, chats: summary.chats.map(chat => loadChat(summary.id, chat.id, readOptions)) };
+            return {
+                ...character,
+                chats: summary.chats.map(chat => {
+                    const loaded = loadChat(summary.id, chat.id, readOptions);
+                    if (chat.legacyMessagePresent !== false) return loaded;
+                    const { message: _message, ...withoutMessage } = loaded;
+                    return withoutMessage;
+                }),
+            };
         });
         return database;
     }

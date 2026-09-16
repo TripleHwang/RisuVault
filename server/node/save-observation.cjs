@@ -13,7 +13,7 @@ const NUMBER_FIELDS = new Set([
     'chatCount', 'messageCount', 'plannedFiles', 'publishedFiles', 'skippedFiles',
     'stagedBytes', 'overlappingPersists', 'queuedOperations',
 ]);
-const BOOLEAN_FIELDS = new Set(['sameAsPreviousPersist']);
+const BOOLEAN_FIELDS = new Set(['sameAsPreviousPersist', 'semanticMatch']);
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 
 function createSaveObservation(options = {}) {

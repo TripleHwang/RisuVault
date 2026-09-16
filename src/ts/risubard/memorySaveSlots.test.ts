@@ -57,13 +57,26 @@ describe('memory save slot client', () => {
         }])).toBe(true)
     })
 
-    test.each([false, true])('saves story state without prompt preferences with overwrite=%s', async (overwrite) => {
+    test.each([false, true])('saves story state without sidebar preferences with overwrite=%s', async (overwrite) => {
         const currentChat: Chat = {
             ...chat,
+            bindedPersona: 'current-persona',
             bindedBotPreset: 'current-prompt', usePromptPresetParams: true,
+            useModelPreset: true,
+            modelBinding: {
+                main: 'current-main', sub: 'current-sub', separateAux: true,
+                aux: {
+                    memory: 'current-memory', emotion: 'current-emotion',
+                    translate: 'current-translate', otherAx: 'current-other',
+                },
+            },
             useLocallySetGlobalVariables: true,
             savedToggleValues: { toggle_style: 'legacy-style' },
             GLGlobalVariables: { toggle_style: 'new-style', toggle_words: '700', chapter: '2' },
+            togglePresetBaseline: {
+                name: 'Current toggles',
+                values: { toggle_style: 'baseline-style', toggle_words: '500' },
+            },
         }
         const before = structuredClone(currentChat)
         const calls: Array<{ url: string; init?: RequestInit }> = []
@@ -94,7 +107,11 @@ describe('memory save slot client', () => {
         expect(snapshot.scriptstate).toEqual(chat.scriptstate)
         expect(snapshot.message).toEqual(chat.message)
         expect(snapshot.GLGlobalVariables).toEqual({ chapter: '2' })
-        for (const key of ['bindedBotPreset', 'usePromptPresetParams', 'useLocallySetGlobalVariables', 'savedToggleValues']) {
+        for (const key of [
+            'bindedPersona', 'bindedBotPreset', 'usePromptPresetParams',
+            'useModelPreset', 'modelBinding', 'useLocallySetGlobalVariables',
+            'savedToggleValues', 'togglePresetBaseline',
+        ]) {
             expect(snapshot).not.toHaveProperty(key)
         }
         expect(currentChat).toEqual(before)
@@ -166,22 +183,42 @@ describe('memory save slot client', () => {
 
     test.each([
         { name: 'pinned', current: {
+            bindedPersona: 'new-persona',
             bindedBotPreset: 'new-prompt', usePromptPresetParams: false,
+            useModelPreset: true,
+            modelBinding: {
+                main: 'new-main', sub: 'new-sub', separateAux: true,
+                aux: { memory: 'new-memory', emotion: '', translate: '', otherAx: '' },
+            },
             useLocallySetGlobalVariables: true,
             GLGlobalVariables: { toggle_style: '', toggle_words: '1000', toggle_new: '1', chapter: '9' },
+            togglePresetBaseline: {
+                name: 'New toggles',
+                values: { toggle_style: 'new-baseline', toggle_words: '800' },
+            },
         } },
         { name: 'unpinned', current: { useLocallySetGlobalVariables: false } },
         { name: 'global defaults', current: {} },
         { name: 'legacy current pin', current: {
             savedToggleValues: { toggle_style: 'current-legacy', toggle_words: '' },
         } },
-    ])('ignores saved prompt settings and preserves $name preferences', async ({ name, current }) => {
+    ])('ignores saved sidebar settings and preserves $name preferences', async ({ name, current }) => {
         const savedChat: Chat = {
             ...chat,
+            bindedPersona: 'old-persona',
             bindedBotPreset: 'old-prompt', usePromptPresetParams: true,
+            useModelPreset: true,
+            modelBinding: {
+                main: 'old-main', sub: 'old-sub', separateAux: true,
+                aux: { memory: 'old-memory', emotion: 'old-emotion', translate: 'old-translate', otherAx: 'old-other' },
+            },
             useLocallySetGlobalVariables: true,
             GLGlobalVariables: { toggle_style: 'old-style', toggle_words: '700', toggle_removed: '1', chapter: '2' },
             savedToggleValues: { toggle_style: 'old-legacy' },
+            togglePresetBaseline: {
+                name: 'Old toggles',
+                values: { toggle_style: 'old-baseline', toggle_words: '600' },
+            },
         }
         const currentChat: Chat = {
             ...chat, scriptstate: { '$trust': 9 }, ...current,
@@ -195,8 +232,12 @@ describe('memory save slot client', () => {
             characterId: 'character', saveId: 'save-1', currentChat,
             destinationChatId: 'chat-1', fetchImpl, createAuth: async () => 'auth',
         })
+        expect(loaded.chat.bindedPersona).toBe(currentChat.bindedPersona)
         expect(loaded.chat.bindedBotPreset).toBe(currentChat.bindedBotPreset)
         expect(loaded.chat.usePromptPresetParams).toBe(currentChat.usePromptPresetParams)
+        expect(loaded.chat.useModelPreset).toBe(currentChat.useModelPreset)
+        expect(loaded.chat.modelBinding).toEqual(currentChat.modelBinding)
+        expect(loaded.chat.togglePresetBaseline).toEqual(currentChat.togglePresetBaseline)
         expect(loaded.chat.useLocallySetGlobalVariables).toBe(
             name === 'legacy current pin' ? true : currentChat.useLocallySetGlobalVariables
         )

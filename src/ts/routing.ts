@@ -45,6 +45,7 @@ export const SettingsRoute = {
     RisuBardCommon: 24 as const,
     RisuBardWikiPrompt: 25 as const,
     RisuBardGrimoirePrompt: 26 as const,
+    Developer: 27 as const,
     DevPanel: 99 as const,
 } as const;
 

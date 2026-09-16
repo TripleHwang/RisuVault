@@ -86,15 +86,29 @@ describe('persona builder UI connections', () => {
         expect(builder).not.toMatch(/<SendIcon[^>]*\/?>\s*\{copy\.send\}/s)
     })
 
-    test('stores the previous draft and exposes undo in the draft heading', () => {
+    test('keeps an editable original history with previous and next controls', () => {
         const builder = source('src/lib/Others/PersonaBuilder.svelte')
 
-        expect(builder).toContain("let previousDraft = $state('')")
-        expect(builder).toContain('let canUndoDraft = $state(false)')
-        expect(builder).toContain('previousDraft = draft')
-        expect(builder).toContain('function undoDraft()')
-        expect(builder).toContain('data-persona-builder-undo')
-        expect(builder).toMatch(/draft-heading[\s\S]*data-persona-builder-undo/)
+        expect(builder).toContain("let originalHistory = $state<string[]>([])")
+        expect(builder).toContain('let originalHistoryIndex = $state(0)')
+        expect(builder).toContain('recordOriginalDraft')
+        expect(builder).toContain('navigateOriginalHistory(-1)')
+        expect(builder).toContain('navigateOriginalHistory(1)')
+        expect(builder).toContain('data-persona-builder-original-previous')
+        expect(builder).toContain('data-persona-builder-original-next')
+        expect(builder).toContain('bind:value={originalDraft}')
+        expect(builder).not.toMatch(/data-persona-builder-original[\s\S]*?readonly/)
+        expect(builder).toMatch(/data-draft-pane="original"[\s\S]*data-persona-builder-original-previous/)
+    })
+
+    test('places the copy action in the revision heading and syncs the original after copying', () => {
+        const builder = source('src/lib/Others/PersonaBuilder.svelte')
+
+        expect(builder).toContain('data-persona-builder-copy')
+        expect(builder).toMatch(/data-draft-pane="revision"[\s\S]*data-persona-builder-copy/)
+        expect(builder).toContain('originalDraft = copiedDraft')
+        expect(builder).toContain('recordOriginalDraft(copiedDraft)')
+        expect(builder).not.toMatch(/<div class="flex justify-end border-t border-darkborderc pt-3">[\s\S]*copyDraft/)
     })
 
     test('uses a viewport-bounded dialog and shared semantic surface layers', () => {
@@ -168,7 +182,7 @@ describe('persona builder UI connections', () => {
         expect(builder).toContain('var(--draft-left-width, 1fr)')
         expect(builder).toContain('var(--draft-right-width, 1fr)')
         expect(builder).toContain('data-persona-builder-original')
-        expect(builder).toMatch(/data-persona-builder-original[\s\S]*?readonly/)
+        expect(builder).toContain('bind:value={originalDraft}')
         expect(builder).toContain('data-persona-builder-draft')
         expect(builder).toContain('overflow-y: scroll')
         expect(builder).toMatch(/@media \(max-width: 700px\)[\s\S]*?grid-template-columns: 1fr/)

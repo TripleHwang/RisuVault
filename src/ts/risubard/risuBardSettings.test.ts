@@ -144,6 +144,8 @@ describe('RisuBard analysis settings', () => {
         expect(policy).toContain('### 작중 행적')
         expect(policy).toContain('3-6')
         expect(policy).toContain('[[event document titles]]')
+        expect(policy).toContain('copy its complete title character-for-character')
+        expect(policy).toContain('[[exact title|display text]]')
         expect(policy).toContain('do not invent action targets or locations')
         expect(policy).toContain('turn temporal order into causation')
         expect(policy).toContain('character knowledge boundaries')

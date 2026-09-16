@@ -77,7 +77,7 @@ describe('story arc writer', () => {
             type: 'other' as const,
             title: 'Story Arc Map',
             content: stampStoryArcCheckpoint(
-                '## Story Arc Map\n\n### Arc Overview\n\n- The road begins.',
+                '## Story Arc Map\n\n### Arc Overview\n\n- The road begins at [[사건 8]].',
                 'event.8'
             ),
             sourceMessageIds: [],
@@ -103,6 +103,38 @@ describe('story arc writer', () => {
             Array.from({ length: 8 }, (_, index) => `event.${index + 9}`)
         )
         expect(readStoryArcCheckpoint(existing.content)).toBe('event.8')
+    })
+
+    test('repairs a checkpoint plot that has no event links', () => {
+        const existing = {
+            id: 'other.story-arc-plot',
+            type: 'other' as const,
+            title: '스토리 아크 플롯',
+            content: stampStoryArcCheckpoint(
+                '## 스토리 아크 플롯\n\n### 아크 개요\n\n- 관문까지 여정이 이어졌다.',
+                'event.8'
+            ),
+            sourceMessageIds: [],
+        }
+        const plan = buildStoryArcUpdatePlan({
+            documents: [
+                existing,
+                ...Array.from({ length: 9 }, (_, index) => event(index + 1)),
+            ],
+            savedEvents: [],
+            writingLanguage: 'ko',
+        })
+
+        expect(plan).toMatchObject({
+            checkpointEventId: 'event.8',
+            candidate: {
+                action: 'update',
+                targetDocumentId: 'other.story-arc-plot',
+            },
+        })
+        expect(plan?.events.map((item) => item.id)).toEqual(
+            Array.from({ length: 8 }, (_, index) => `event.${index + 1}`)
+        )
     })
 
     test('replaces a stale checkpoint marker without changing the body', () => {

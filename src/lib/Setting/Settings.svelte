@@ -16,6 +16,7 @@
     import PromptSettings from './Pages/PromptSettings.svelte'
     import RemoteAccessSettings from './Pages/RemoteAccessSettings.svelte'
     import SystemSettings from './Pages/SystemSettings.svelte'
+    import DeveloperSettings from './Pages/DeveloperSettings.svelte'
     import Lorepreset from './lorepreset.svelte'
     import SettingsNavigation from './SettingsNavigation.svelte'
     import SettingsSearch from './SettingsSearch.svelte'
@@ -152,6 +153,8 @@
                             <RemoteAccessSettings />
                         {:else if $SettingsMenuIndex === SettingsRoute.System}
                             <SystemSettings />
+                        {:else if $SettingsMenuIndex === SettingsRoute.Developer}
+                            <DeveloperSettings />
                         {:else if $SettingsMenuIndex === SettingsRoute.DevPanel && devPanelEnabled}
                             <DevPanel />
                         {/if}

@@ -110,6 +110,26 @@ describe('settings navigation registry', () => {
         expect(system?.items.map((item) => item.id)).not.toContain('advanced')
     })
 
+    test('exposes privacy-safe developer diagnostics without enabling the internal dev panel', () => {
+        const hidden = getVisibleSettingsSections({
+            isLite: false,
+            isDesktop: true,
+            devPanelEnabled: false,
+        }).find((section) => section.id === 'system')
+        const enabled = getVisibleSettingsSections({
+            isLite: false,
+            isDesktop: true,
+            devPanelEnabled: true,
+        }).find((section) => section.id === 'system')
+
+        expect(hidden?.items).toContainEqual(expect.objectContaining({
+            id: 'developer',
+            route: (SettingsRoute as any).Developer,
+        }))
+        expect(hidden?.items.map((item) => item.route)).not.toContain(SettingsRoute.DevPanel)
+        expect(enabled?.items.map((item) => item.route)).toContain(SettingsRoute.DevPanel)
+    })
+
     test('keeps the lite workspace useful without exposing full-only pages', () => {
         const sections = getVisibleSettingsSections({
             isLite: true,

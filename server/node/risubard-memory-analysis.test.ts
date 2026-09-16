@@ -3203,43 +3203,62 @@ describe('memory analysis runner', () => {
             contentHash: 'arc-hash',
         }))
         const analyze = vi.fn(async (request: MemoryAnalysisModelRequest) => {
-            if (request.format === 'canonical-batch') {
+            if (request.format === 'canonical-batch'
+                || request.format === 'markdown') {
                 canonicalInputs.push(JSON.parse(request.input))
-                expect(request.system).toContain(
-                    'at most 5 chronological arc bullets, 9 turning-point bullets, and 3 open-thread bullets'
-                )
-                expect(request.system).toContain('4,500 characters')
-                const schema = JSON.parse(request.responseSchema ?? '{}')
-                expect(schema).toMatchObject({
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['documents'],
-                    properties: {
-                        documents: {
-                            minItems: 1,
-                            maxItems: 1,
-                            items: {
-                                properties: {
-                                    candidateIndex: { maximum: 0 },
+                if (request.format === 'canonical-batch') {
+                    expect(request.system).toContain(
+                        'at most 5 chronological arc bullets, 9 turning-point bullets, and 3 open-thread bullets'
+                    )
+                    expect(request.system).toContain('4,500 characters')
+                    const schema = JSON.parse(request.responseSchema ?? '{}')
+                    expect(schema).toMatchObject({
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['documents'],
+                        properties: {
+                            documents: {
+                                minItems: 1,
+                                maxItems: 1,
+                                items: {
+                                    properties: {
+                                        candidateIndex: { maximum: 0 },
+                                    },
                                 },
                             },
                         },
-                    },
-                })
-                expect(request.responseSchema).not.toContain('storyArcEvents')
-                return canonicalPatchBatch([{
-                    heading: '아크 개요',
-                    operation: 'upsert',
-                    content: '- 출발에서 관문까지 [[사건 1]] · [[사건 8]]',
-                }, {
-                    heading: '주요 전환점',
-                    operation: 'upsert',
-                    content: '- [[사건 8]]에서 관문이 열렸다.',
-                }, {
-                    heading: '미해결 줄기',
-                    operation: 'upsert',
-                    content: '- 관문 너머의 정체',
-                }])
+                    })
+                    expect(request.responseSchema).not.toContain('storyArcEvents')
+                    return canonicalPatchBatch([{
+                        heading: '아크 개요',
+                        operation: 'upsert',
+                        content: '- 출발에서 관문까지 여정이 이어졌다.',
+                    }, {
+                        heading: '주요 전환점',
+                        operation: 'upsert',
+                        content: '- 관문이 열렸다.',
+                    }, {
+                        heading: '미해결 줄기',
+                        operation: 'upsert',
+                        content: '- 관문 너머의 정체',
+                    }])
+                }
+                expect(request.system).toContain(
+                    'link at least one event from the current checkpoint'
+                )
+                return [
+                    '### 아크 개요',
+                    '',
+                    '- 출발에서 관문까지 [[사건 1]]과 [[사건 8]]이 이어졌다.',
+                    '',
+                    '### 주요 전환점',
+                    '',
+                    '- [[사건 8]]에서 관문이 열렸다.',
+                    '',
+                    '### 미해결 줄기',
+                    '',
+                    '- 관문 너머의 정체',
+                ].join('\n')
             }
             return JSON.stringify({
                 schemaVersion: 1,
@@ -3297,7 +3316,8 @@ describe('memory analysis runner', () => {
             }],
         })
 
-        expect(analyze).toHaveBeenCalledTimes(2)
+        expect(analyze).toHaveBeenCalledTimes(3)
+        expect(canonicalInputs).toHaveLength(2)
         expect(canonicalInputs[0]).toMatchObject({
             targets: [{
                 candidate: {
@@ -3322,5 +3342,8 @@ describe('memory analysis runner', () => {
                 '<!-- risubard-story-arc-checkpoint: event.8 -->'
             ),
         }))
+        expect(saveCanonicalDocument.mock.calls[0][0].markdown).toContain(
+            '[[사건 8]]'
+        )
     })
 })

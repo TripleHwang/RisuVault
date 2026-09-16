@@ -160,7 +160,7 @@ function publishTransaction(root, journal, options = {}) {
     let skipped = 0;
     for (const entry of journal.entries) {
         const target = resolveInside(root, entry.path);
-        if (fs.existsSync(target) && checksumFile(target) === entry.checksum) {
+        if (matchesChecksum(target, entry.checksum)) {
             skipped += 1;
             continue;
         }
@@ -186,7 +186,18 @@ function cleanupJournal(journalPath, stageDir) {
 
 function matchesChecksum(target, digest) {
     try {
-        return fs.existsSync(target) && checksumFile(target) === digest;
+        return checksumFile(target) === digest;
+    } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+    }
+}
+
+function matchesStoredChecksum(target, digest) {
+    try {
+        if (!fs.existsSync(target)) return false;
+        const checksumPath = `${target}.sha256`;
+        return fs.readFileSync(checksumPath, 'utf8').trim() === digest;
     } catch (error) {
         if (error?.code === 'ENOENT') return false;
         throw error;
@@ -225,10 +236,19 @@ function commitTransaction(root, operations, options = {}) {
             }
             digest = checksum(data);
         }
-        return { path: operation.path, data, sourcePath, checksum: digest, unchanged: matchesChecksum(target, digest) };
+        return { path: operation.path, data, sourcePath, checksum: digest, unchanged: matchesStoredChecksum(target, digest) };
     });
     const unchanged = prepared.filter(entry => entry.unchanged);
     const pending = prepared.filter(entry => !entry.unchanged);
+    if (pending.length === 0) {
+        assertUnchangedPreconditions(root, unchanged);
+        return {
+            committed: operations.length,
+            published: 0,
+            skipped: unchanged.length,
+            stagedBytes: 0,
+        };
+    }
     const journalDir = resolveInside(root, '.journal');
     fs.mkdirSync(journalDir, { recursive: true });
     const id = crypto.randomUUID();
