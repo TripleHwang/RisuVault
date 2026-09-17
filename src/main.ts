@@ -22,15 +22,15 @@ let app = mount(App, {
 loadData()
 initHotkey()
 
-async function handoffStartupLogo() {
-    const preloader = document.getElementById('preloading')
-    const appLogo = document.querySelector<HTMLImageElement>('[data-startup-logo="app"]')
-    if (appLogo) {
-        try { await appLogo.decode() } catch {}
-    }
-    preloader?.remove()
+// The static preloader in index.html stays up until this module has run, so
+// the gap between the first paint and the app's own loading screen shows the
+// same version line and spinner rather than a blank page. There is no
+// startup image any more: it was 13 KB decoded synchronously on the critical
+// path for a wordmark, and the app's screen carries the version on its own.
+function removeStartupPreloader() {
+    document.getElementById('preloading')?.remove()
 }
 
-void handoffStartupLogo()
+removeStartupPreloader()
 
 export default app;

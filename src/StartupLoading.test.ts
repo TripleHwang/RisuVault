@@ -18,25 +18,22 @@ describe('localized startup screen', () => {
         expect(languageKorean.startupLoading?.localSave).toBe('로컬 저장 파일을 불러오는 중...')
     })
 
-    test('shows the startup logo in both loading phases and localizes the preloader for Korean', () => {
-        expect(app).toContain('src="/assets/risubard-startup.webp"')
-        expect(html).toContain('src="/assets/risubard-startup.webp"')
+    test('carries no startup image on the critical path', () => {
+        // The wordmark was a 13 KB image decoded synchronously before first
+        // paint, in both the static preloader and the app's own loading
+        // screen. Neither phase references it now, and the asset is gone so
+        // nothing can quietly reintroduce it by path.
+        expect(app).not.toContain('risubard-startup')
+        expect(html).not.toContain('risubard-startup')
+        expect(html).not.toContain('rel="preload" as="image"')
+        expect(existsSync(resolve(process.cwd(), 'public/assets/risubard-startup.webp'))).toBe(false)
         expect(html).toContain("localStorage.getItem('risu-lang') === 'ko'")
-        expect(existsSync(resolve(process.cwd(), 'public/assets/risubard-startup.webp'))).toBe(true)
     })
 
-    test('preloads the startup logo before render-blocking styles', () => {
-        const preload = '<link rel="preload" as="image" href="/assets/risubard-startup.webp" fetchpriority="high" />'
-        expect(html).toContain(preload)
-        expect(html.indexOf(preload)).toBeLessThan(html.indexOf('rel="stylesheet"'))
-        expect(html).toContain('src="/assets/risubard-startup.webp" fetchpriority="high"')
-        expect(app).toContain('src="/assets/risubard-startup.webp" fetchpriority="high"')
-    })
-
-    test('shows the package version directly below both startup logos', () => {
+    test('shows the package version in both loading phases', () => {
         expect(viteConfig).toContain("html.replaceAll('__RISUBARD_APP_VERSION__', pkg.version)")
-        expect(html).toMatch(/risubard-startup\.webp[^>]*>\s*<span[^>]*data-startup-version[^>]*>v__RISUBARD_APP_VERSION__<\/span>/)
+        expect(html).toMatch(/<span[^>]*data-startup-version[^>]*>v__RISUBARD_APP_VERSION__<\/span>/)
         expect(app).toMatch(/import\s*\{[^}]*nodeOnlyVer[^}]*\}\s*from '\.\/ts\/storage\/database\.svelte'/)
-        expect(app).toMatch(/risubard-startup\.webp[^>]*\/>\s*<span[^>]*data-startup-version[^>]*>v\{nodeOnlyVer\}<\/span>/)
+        expect(app).toMatch(/<span[^>]*data-startup-version[^>]*>v\{nodeOnlyVer\}<\/span>/)
     })
 })

@@ -222,14 +222,6 @@
         </div>
     {:else if !$loadedStore}
         <div class="w-full h-full flex justify-center items-center text-textcolor text-xl bg-darkbg flex-col">
-            <img
-                data-startup-logo="app"
-                class="mb-2 w-[min(80vw,25rem)] rounded-xl border border-darkborderc object-cover shadow-lg"
-                src="/assets/risubard-startup.webp" fetchpriority="high" decoding="sync"
-                alt="RisuVault"
-                width="500"
-                height="300"
-            />
             <span
                 data-startup-version
                 class="mb-5 text-sm font-semibold tracking-[0.18em] text-textcolor2"
