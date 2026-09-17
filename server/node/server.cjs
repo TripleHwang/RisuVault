@@ -1,5 +1,5 @@
 const express = require('express');
-const { validatePackage, stageWindowsUpdate, restoreEntries } = require('./portable-update.cjs');
+const { validatePackage, stageWindowsUpdate, restoreEntries, writeState, inspectUpdateTmp, interruptedUpdateMessage } = require('./portable-update.cjs');
 const app = express();
 const http = require('http');
 const https = require('https');
@@ -7075,6 +7075,15 @@ app.post('/api/self-update', async (req, res) => {
             throw new Error('No verified update artifact is available for this installation');
         }
 
+        // An interrupted earlier update is refused again at the staging step;
+        // refusing here as well spares the user a full package download that
+        // would end with the same message. Debris is left for the staging
+        // step, which removes it right before it needs the directory.
+        {
+            const leftover = inspectUpdateTmp(process.cwd());
+            if (leftover.kind === 'interrupted') throw new Error(interruptedUpdateMessage(process.cwd(), leftover.reason));
+        }
+
         // 2. Download
         tmpDir = path.join(os.tmpdir(), `risu-update-${Date.now()}`);
         await fs.mkdir(tmpDir, { recursive: true });
@@ -7190,15 +7199,23 @@ app.post('/api/self-update', async (req, res) => {
         const appDir = process.cwd();
         const isWin = process.platform === 'win32';
         const updateTmp = path.join(appDir, '.update-tmp');
+        const stateFile = path.join(updateTmp, 'install-state.json');
 
-        // Restore from a previous interrupted update if leftover exists
-        const prevBackup = path.join(updateTmp, 'backup');
-        if (existsSync(prevBackup)) {
-            console.log('[Update] Restoring files from previous interrupted update...');
-            await restoreBackup(prevBackup, appDir);
+        // Same rule as stageWindowsUpdate: an existing .update-tmp is either
+        // debris from a finished or rolled-back update (removed) or the only
+        // copy of a previous installation (refused with recovery guidance).
+        // Restoring backup/ here unconditionally, as this path once did, would
+        // put the files of the release before a completed update back over the
+        // running one whenever that update's final cleanup had failed. The
+        // mkdir is non-recursive so a directory that appears in between fails
+        // instead of being shared.
+        const leftover = inspectUpdateTmp(appDir);
+        if (leftover.kind === 'interrupted') throw new Error(interruptedUpdateMessage(appDir, leftover.reason));
+        if (leftover.kind === 'debris') {
+            console.log(`[Update] Removing .update-tmp left by an earlier update (${leftover.reason})`);
+            await fs.rm(updateTmp, { recursive: true, force: true });
         }
-        await fs.rm(updateTmp, { recursive: true, force: true }).catch(() => {});
-        await fs.mkdir(updateTmp, { recursive: true });
+        await fs.mkdir(updateTmp);
 
         // Carry over SSL certificates into new package before swap
         const sslSrc = path.join(appDir, 'server', 'node', 'ssl', 'certificate');
@@ -7216,6 +7233,13 @@ app.post('/api/self-update', async (req, res) => {
         // Phase 1: move old files to backup — rollback immediately on any failure
         const backupDir = path.join(updateTmp, 'backup');
         await fs.mkdir(backupDir, { recursive: true });
+        // The journal that classifyUpdateTmp reads on the next run: 'installing'
+        // until the swap is verified, 'rolled-back' once backup/ has been
+        // emptied back into place, 'complete' before the final cleanup. Without
+        // it a backup/ that outlived this run could not be told apart from an
+        // interrupted swap.
+        const updateState = { version: targetVersion, phase: 'installing' };
+        writeState(stateFile, updateState);
 
         const oldEntries = await fs.readdir(appDir);
         for (const e of oldEntries) {
@@ -7226,6 +7250,7 @@ app.post('/api/self-update', async (req, res) => {
                 logger.error(`[Update] Failed to back up ${e}: ${backupErr.message}`);
                 console.log('[Update] Restoring files already moved to backup...');
                 await restoreBackup(backupDir, appDir);
+                writeState(stateFile, { ...updateState, phase: 'rolled-back' });
                 throw new Error(isWin
                     ? 'Update failed: some files are in use. Close RisuAI first, then try again.'
                     : 'Update failed: some files are in use. Stop the server first, then try again.');
@@ -7261,6 +7286,7 @@ app.post('/api/self-update', async (req, res) => {
             logger.error(`[Update] Move failed: ${moveErr.message}`);
             console.log('[Update] Restoring from backup...');
             await restoreBackup(backupDir, appDir);
+            writeState(stateFile, { ...updateState, phase: 'rolled-back' });
             throw new Error('Update failed, previous version restored. Please try again.');
         }
 
@@ -7284,6 +7310,15 @@ app.post('/api/self-update', async (req, res) => {
             await fs.writeFile(path.join(updateTmp, 'latest-version'), `v${targetVersion}`);
         } else {
             await fs.writeFile(path.join(appDir, '.installed-version'), `v${targetVersion}`);
+            // The same marker the Windows flows leave for their finishing
+            // step, written here after the stamp it must equal. Nothing on
+            // Unix consumes it; it exists so that a .update-tmp whose final
+            // rm below fails is recognised as a completed update by the
+            // marker rule that scripts/updater-recovery.cjs and
+            // inspectUpdateTmp share, without either having to parse the
+            // journal written next.
+            await fs.writeFile(path.join(updateTmp, 'latest-version'), `v${targetVersion}`);
+            writeState(stateFile, { ...updateState, phase: 'complete' });
         }
 
         // Cleanup temp download (not .update-tmp — that stays on Windows for bin/ post-step)

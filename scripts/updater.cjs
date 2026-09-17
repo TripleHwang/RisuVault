@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, execSync } = require('child_process');
-const { rollbackInterruptedUpdate } = require('./updater-recovery.cjs');
+const { rollbackInterruptedUpdate, completedUpdateLeftover, describeLeftover } = require('./updater-recovery.cjs');
 
 // A standalone build must be pointed at the fork that owns its releases.
 // Do not fall back to the upstream repository: its artifacts may carry a
@@ -193,6 +193,31 @@ function recoverInterruptedInstallation() {
         loadPortableUpdate().validatePackage(ROOT);
         fs.rmSync(tmpDir, { recursive: true, force: true });
         return;
+    }
+    // The flows that run without a journal (this script itself, and the
+    // in-app path before 0.9.35) leave the whole directory, or the part a held
+    // handle protected from update.bat's silenced rmdir, behind AFTER the
+    // installation completed. Restoring such a backup/ reverted the finished
+    // update to the release before it, and update.bat then re-applied the
+    // update it had just undone. The rules that recognise those shapes live in
+    // updater-recovery.cjs; the installation is validated first, as for a
+    // 'complete' journal, so a leftover next to a broken installation still
+    // falls through to the restore below.
+    if (!state) {
+        const completed = completedUpdateLeftover(ROOT);
+        if (completed) {
+            let valid = true;
+            try { loadPortableUpdate().validatePackage(ROOT); }
+            catch (e) {
+                valid = false;
+                log(`Installation next to a completed update's leftover failed validation (${e.message}); restoring its backup.`);
+            }
+            if (valid) {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+                log(`Cleared ${describeLeftover(completed)}; existing installation was not changed.`);
+                return;
+            }
+        }
     }
     log('Recovering interrupted installation before checking its version...');
     if (!fs.existsSync(path.join(ROOT, 'server', 'node', 'portable-update.cjs'))) {

@@ -99,7 +99,10 @@
         {/snippet}
 
         {#if isUpdating}
-            <p class="text-sm text-textcolor2 leading-relaxed">{progress?.message}</p>
+            <!-- Server error messages carry line breaks around a command the
+                 user must run (interrupted-update recovery); collapsing them
+                 would run the command into the sentence after it. -->
+            <p class="text-sm text-textcolor2 leading-relaxed whitespace-pre-line break-words">{progress?.message}</p>
             {#if progress?.step === 'done'}
                 <p class="mt-2 text-sm text-textcolor2">{language.selfUpdateReloadHint}</p>
             {/if}
