@@ -11,9 +11,9 @@ const browserHelper = fileURLToPath(
 )
 
 describe('Windows server.bat launcher', () => {
-    test('uses port 7777 and requests browser opening after server readiness', () => {
+    test('uses port 6001 and requests browser opening after server readiness', () => {
         const batch = readFileSync(serverBat, 'utf8')
-        expect(batch).toContain('if not defined PORT set "PORT=7777"')
+        expect(batch).toContain('if not defined PORT set "PORT=6001"')
         expect(batch).toContain('set "OPEN_BROWSER=1"')
         expect(batch).toContain('call pnpm run runserver')
 
@@ -39,7 +39,7 @@ describe('Windows server.bat launcher', () => {
         const unref = vi.fn()
         const spawn = vi.fn(() => ({ unref }))
 
-        openServerBrowser('http://localhost:7777/', {
+        openServerBrowser('http://localhost:6001/', {
             platform: 'win32',
             spawn,
         })
@@ -51,7 +51,7 @@ describe('Windows server.bat launcher', () => {
                 '/c',
                 'start',
                 '',
-                'http://localhost:7777/',
+                'http://localhost:6001/',
             ],
             {
                 detached: true,
@@ -64,7 +64,7 @@ describe('Windows server.bat launcher', () => {
 
     test('keeps the server alive when the browser launcher is unavailable', () => {
         const { openServerBrowser } = require('./open-server-browser.cjs')
-        expect(() => openServerBrowser('http://localhost:7777/', {
+        expect(() => openServerBrowser('http://localhost:6001/', {
             platform: 'win32',
             spawn: () => {
                 throw new Error('launcher unavailable')

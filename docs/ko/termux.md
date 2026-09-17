@@ -4,7 +4,7 @@
 
 # Termux 설치 가이드
 
-안드로이드 폰에서 Termux를 통해 RisuVault를 직접 빌드해 사용하는 방법을 안내합니다. 같은 폰의 브라우저에서 `http://localhost:7777`로 접속하는 사용 패턴이 기본입니다.
+안드로이드 폰에서 Termux를 통해 RisuVault를 직접 빌드해 사용하는 방법을 안내합니다. 같은 폰의 브라우저에서 `http://localhost:6001`로 접속하는 사용 패턴이 기본입니다.
 
 - [1. 사전 준비](#1-사전-준비) — F-Droid Termux + 시스템 요구사항
 - [2. 설치 및 빌드](#2-설치-및-빌드) — 한 줄 명령으로 자동 진행
@@ -71,7 +71,7 @@ Build OK. Start the server with:
   node server/node/server.cjs
 
 Then open this address in the phone's own browser:
-  http://localhost:7777
+  http://localhost:6001
 ```
 
 
@@ -88,7 +88,7 @@ node server/node/server.cjs
 서버 부팅 로그가 표시되면 폰의 브라우저(Chrome, Firefox 등)에서 다음 주소를 엽니다.
 
 ```
-http://localhost:7777
+http://localhost:6001
 ```
 
 RisuVault UI가 표시되면 정상입니다. `localhost`는 브라우저가 자동으로 secure context로 인정하므로 클립보드, crypto.subtle 등 모든 기능이 동작합니다.

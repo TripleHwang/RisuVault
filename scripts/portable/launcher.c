@@ -19,9 +19,9 @@ int wmain(void) {
     SetConsoleTitleW(L"RisuAI NodeOnly");
     SetCurrentDirectoryW(dir);
 
-    /* PORT: honour existing env var, default to 7777 */
+    /* PORT: honour existing env var, default to 6001 */
     if (!GetEnvironmentVariableW(L"PORT", port, 16))
-        wcscpy(port, L"7777");
+        wcscpy(port, L"6001");
     SetEnvironmentVariableW(L"PORT", port);
 
     /* Verify bin\node.exe exists */

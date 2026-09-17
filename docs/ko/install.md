@@ -45,7 +45,7 @@ RisuVault를 설치하는 방법은 네 가지가 있습니다.
 
 **Windows**
 
-zip 파일의 압축을 풀고 폴더 안의 `RisuVault.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:7777`로 접속됩니다.
+zip 파일의 압축을 풀고 폴더 안의 `RisuVault.exe`를 더블클릭합니다. 브라우저가 자동으로 열리며 `http://localhost:6001`로 접속됩니다.
 
 **macOS**
 
@@ -65,7 +65,7 @@ cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
-브라우저에서 `http://localhost:7777`로 접속됩니다.
+브라우저에서 `http://localhost:6001`로 접속됩니다.
 
 ### 헤드리스 서버 (한 줄 다운로드)
 
@@ -125,7 +125,7 @@ curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-comp
 docker compose up -d
 ```
 
-브라우저에서 `http://localhost:7777`로 접속됩니다.
+브라우저에서 `http://localhost:6001`로 접속됩니다.
 
 ### 업데이트
 
@@ -170,7 +170,7 @@ cd ~/risubard
 pnpm runserver
 ```
 
-브라우저에서 `http://localhost:7777`로 접속.
+브라우저에서 `http://localhost:6001`로 접속.
 
 ### 업데이트
 
@@ -203,7 +203,7 @@ pnpm build
 pnpm runserver
 ```
 
-브라우저에서 `http://localhost:7777`로 접속.
+브라우저에서 `http://localhost:6001`로 접속.
 
 ### 업데이트
 

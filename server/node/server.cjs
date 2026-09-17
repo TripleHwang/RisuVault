@@ -107,7 +107,7 @@ if (nodeMajor < 24) {
 
 // Configuration flags for patch-based sync
 const enablePatchSync = true;
-const DEFAULT_PORT = 7777;
+const DEFAULT_PORT = 6001;
 
 // In-memory database cache for patch-based sync
 // dbCache stores the STRIPPED (stubs-only) version matching what the client sees.

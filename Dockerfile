@@ -71,7 +71,7 @@ COPY --from=builder /app/src/ts/risubard ./src/ts/risubard
 COPY --from=builder /app/dist ./dist
 
 ENV NODE_ENV=production
-EXPOSE 7777
+EXPOSE 6001
 
 CMD ["pnpm", "runserver"]
 

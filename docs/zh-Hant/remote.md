@@ -43,7 +43,7 @@ RisuVault 內建的臨時遠端存取 URL 發放功能。
 在執行 RisuVault 的 PC 終端機中執行一次:
 
 ```bash
-tailscale serve --bg http://localhost:7777
+tailscale serve --bg http://localhost:6001
 ```
 
 ### 步驟 4: 從其他裝置存取

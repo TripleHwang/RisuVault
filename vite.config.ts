@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 // https://vitejs.dev/config/
 export default defineConfig(({command, mode}) => {
-  const nodeServerTarget = process.env.RISU_DEV_SERVER_TARGET || 'http://localhost:7777';
+  const nodeServerTarget = process.env.RISU_DEV_SERVER_TARGET || 'http://localhost:6001';
   const nodeProxy = { target: nodeServerTarget, changeOrigin: true, secure: false };
   return {
     define: {

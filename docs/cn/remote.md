@@ -43,7 +43,7 @@ RisuVault 内置的临时远程访问 URL 发放功能。
 在运行 RisuVault 的 PC 终端中执行一次:
 
 ```bash
-tailscale serve --bg http://localhost:7777
+tailscale serve --bg http://localhost:6001
 ```
 
 ### 步骤 4: 从其他设备访问

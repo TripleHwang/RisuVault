@@ -4,7 +4,7 @@
 
 # Termux Installation Guide
 
-This guide explains how to build and run RisuVault directly on an Android phone using Termux. The intended use pattern is to open `http://localhost:7777` in the phone's own browser.
+This guide explains how to build and run RisuVault directly on an Android phone using Termux. The intended use pattern is to open `http://localhost:6001` in the phone's own browser.
 
 - [1. Prerequisites](#1-prerequisites) — F-Droid Termux and system requirements
 - [2. Install and Build](#2-install-and-build) — single-command setup
@@ -71,7 +71,7 @@ Build OK. Start the server with:
   node server/node/server.cjs
 
 Then open this address in the phone's own browser:
-  http://localhost:7777
+  http://localhost:6001
 ```
 
 
@@ -88,7 +88,7 @@ node server/node/server.cjs
 Once the server boot log appears, open the phone's browser (Chrome, Firefox, etc.) and navigate to:
 
 ```
-http://localhost:7777
+http://localhost:6001
 ```
 
 The RisuVault UI should load. `localhost` is automatically treated as a secure context by the browser, so clipboard, `crypto.subtle`, and other secure-context APIs work normally.

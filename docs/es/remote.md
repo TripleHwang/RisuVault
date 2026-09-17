@@ -43,7 +43,7 @@ Inicia sesión en la app de Tailscale en el PC y en cada dispositivo desde el qu
 En el terminal del PC que ejecuta RisuVault, ejecuta una vez:
 
 ```bash
-tailscale serve --bg http://localhost:7777
+tailscale serve --bg http://localhost:6001
 ```
 
 ### Paso 4: Acceder desde otro dispositivo

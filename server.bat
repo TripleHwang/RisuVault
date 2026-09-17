@@ -2,7 +2,7 @@
 setlocal
 pushd "%~dp0"
 
-if not defined PORT set "PORT=7777"
+if not defined PORT set "PORT=6001"
 set "OPEN_BROWSER=1"
 
 where pnpm >nul 2>&1
