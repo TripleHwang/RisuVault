@@ -38,9 +38,10 @@ const charactersSource = readFileSync(resolve(
 describe('chat file save slot connections', () => {
     test('opens save mode in every chat theme and only writes after choosing a slot', () => {
         expect(chatScreenSource.match(/onSaveChat=\{\(\) => openSaveSlots\('save'\)\}/g))
-            .toHaveLength(3)
+            .toHaveLength(1)
         expect(chatScreenSource.match(/onOpenChatLoad=\{\(\) => openSaveSlots\('load'\)\}/g))
-            .toHaveLength(3)
+            .toHaveLength(1)
+        expect(chatScreenSource.match(/\{@render chatViewport\(/g)).toHaveLength(3)
         expect(chatScreenSource).toContain('bind:mode={saveSlotsMode}')
         expect(chatScreenSource).toContain('onSave={saveCurrentChat}')
         expect(chatScreenSource).toContain('saveId: saveId ?? v4()')
@@ -227,7 +228,9 @@ describe('chat file save slot connections', () => {
         expect(dialogSource).toContain('height: 91vh')
         expect(dialogSource).toContain('width: 100dvw')
         expect(dialogSource).toContain('height: 100dvh')
-        expect(dialogSource).toContain('translate: none')
+        expect(dialogSource).toMatch(
+            /:global\(\.save-slot-dialog\)\s*\{[^}]*transform:\s*none[^}]*\}\s*(?:\/\*[\s\S]*?\*\/\s*)?:global\(\.save-slot-dialog\.save-slot-dialog\)\s*\{\s*translate:\s*none;?\s*\}/,
+        )
         expect(dialogSource).toContain('<SolarAssetIcon src={loadIcon} name="undo-left-square-bold"')
         expect(dialogSource).toContain('@media (max-width: 767px)')
         expect(dialogSource).not.toContain('height: 70vh')

@@ -122,6 +122,16 @@ export const PERSONA_BUILDER_BUILTIN_PRESETS: readonly PersonaBuilderPromptPrese
     },
 ]
 
+export function resolvePersonaBuilderPromptPreset(
+    presets: PersonaBuilderPromptPreset[],
+    kind: PersonaBuilderPromptKind,
+    id: string | undefined,
+): PersonaBuilderPromptPreset | undefined {
+    if (!id) return undefined
+    return [...PERSONA_BUILDER_BUILTIN_PRESETS, ...presets]
+        .find((preset) => preset.kind === kind && preset.id === id)
+}
+
 export interface PersonaBuilderSelections {
     systemPrompt: boolean
     characterDescription: boolean
@@ -136,6 +146,37 @@ export interface PersonaBuilderSourceSnapshot {
     moduleLorebook: string
     characterLorebookSources?: RequestInjectionSource[]
     moduleLorebookSources?: RequestInjectionSource[]
+}
+
+export interface PersonaBuilderOriginalHistory {
+    entries: string[]
+    index: number
+}
+
+export function recordPersonaBuilderOriginalHistory(
+    entries: string[],
+    index: number,
+    value: string,
+): PersonaBuilderOriginalHistory {
+    if (!entries.length) return { entries: [value], index: 0 }
+    const currentIndex = Math.min(Math.max(index, 0), entries.length - 1)
+    if (entries[currentIndex] === value) return { entries, index: currentIndex }
+    return {
+        entries: [...entries.slice(0, currentIndex + 1), value],
+        index: currentIndex + 1,
+    }
+}
+
+export function movePersonaBuilderOriginalHistory(
+    entries: string[],
+    index: number,
+    offset: -1 | 1,
+): (PersonaBuilderOriginalHistory & { value: string }) | undefined {
+    if (!entries.length) return undefined
+    const currentIndex = Math.min(Math.max(index, 0), entries.length - 1)
+    const nextIndex = Math.min(Math.max(currentIndex + offset, 0), entries.length - 1)
+    if (nextIndex === currentIndex) return undefined
+    return { entries, index: nextIndex, value: entries[nextIndex] }
 }
 
 interface PersonaBuilderLorebookSnapshot {
@@ -161,20 +202,29 @@ function formatLorebooks(entries: Array<{ scopeId?: string; entry: loreBook }>):
     return { content: sources.map((source) => source.content).join('\n\n'), sources }
 }
 
-function resolveSystemPrompt(database: Database, currentCharacter?: character | null): string {
+function resolveSystemPrompt(
+    database: Database,
+    currentCharacter?: character | null,
+    parsePrompt?: (text: string, role?: string) => string,
+): string {
+    if (!currentCharacter) return ''
+    const parse = (text: string, role?: string) => (parsePrompt ? parsePrompt(text, role) : text).trim()
     if (Array.isArray(database.promptTemplate)) {
         const mainBlocks: string[] = []
+        let hasMainBlock = false
         for (const item of database.promptTemplate) {
             if (item.type === 'plain' && item.type2 === 'main' && item.text.trim()) {
-                mainBlocks.push(item.text.trim())
+                hasMainBlock = true
+                const content = parse(item.text, item.role)
+                if (content) mainBlocks.push(content)
             }
         }
-        if (mainBlocks.length > 0) return mainBlocks.join('\n\n')
+        if (hasMainBlock) return mainBlocks.join('\n\n')
     }
     const main = database.mainPrompt?.trim() ?? ''
-    return currentCharacter?.systemPrompt?.trim()
+    return parse(currentCharacter.systemPrompt?.trim()
         ? currentCharacter.systemPrompt.replaceAll('{{original}}', main).trim()
-        : main
+        : main)
 }
 
 function resolveCharacterDescription(currentCharacter?: character | null): string {
@@ -191,11 +241,12 @@ export function collectPersonaBuilderSources(input: {
     database: Database
     character?: character | null
     moduleLorebooks: Array<{ scopeId: string; entry: loreBook }>
+    parsePrompt?: (text: string, role?: string) => string
 }): PersonaBuilderSourceSnapshot {
     const characterLorebook = formatLorebooks((input.character?.globalLore ?? []).map((entry) => ({ entry })))
     const moduleLorebook = formatLorebooks(input.moduleLorebooks)
     return {
-        systemPrompt: resolveSystemPrompt(input.database, input.character),
+        systemPrompt: resolveSystemPrompt(input.database, input.character, input.parsePrompt),
         characterDescription: resolveCharacterDescription(input.character),
         characterLorebook: characterLorebook.content,
         moduleLorebook: moduleLorebook.content,

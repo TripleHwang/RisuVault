@@ -18,7 +18,14 @@ import {
     normalizeNarrativeBaseline,
     parseSingleJsonObject,
 } from '../../../packages/risubard-core/src/modelOutput'
-import { modelOutputRepairInstruction, readModelResponseText, runValidatedModelRequest, type ModelOutputError, type ModelResponse } from '../../../packages/risubard-core/src/modelResponse'
+import {
+    modelOutputRepairInstruction,
+    NativeStructuredOutputUnavailableError,
+    readModelResponseText,
+    runValidatedModelRequest,
+    type ModelOutputError,
+    type ModelResponse,
+} from '../../../packages/risubard-core/src/modelResponse'
 import {
     isRetryableModelStatus,
     runWithModelRetry,
@@ -27,6 +34,7 @@ import {
 } from '../../../packages/risubard-core/src/modelRetry'
 import {
     loadNarrativeInquiry,
+    selectNarrativeWorkingMessages,
 } from './narrativeContext'
 import {
     loadNarrativeMemoryWiki,
@@ -38,7 +46,10 @@ import {
 import { get_encoding, type Tiktoken } from '@dqbd/tiktoken'
 import { saveCanonicalWikiDocument } from './markdownWikiWriter'
 import type { WikiWritingLanguage } from './wikiWritingLanguage'
-import { RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT } from './risuBardSettings'
+import {
+    RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT,
+    RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT,
+} from './risuBardSettings'
 import {
     announceRisuBardMemoryUpdated,
 } from './memoryEvents'
@@ -47,6 +58,7 @@ import {
     memoryWriterDraftSchema,
     rebootBatchDraftSchema,
 } from '../../../server/node/risubard-memory-writer'
+import { createStructuredOutputFallbackMessage } from '../process/request/structuredOutputFallback'
 
 interface StoredMessage {
     role?: unknown
@@ -94,6 +106,7 @@ interface MemoryAnalysisClientOptions {
     createAuth(): Promise<string>
     onError(error: unknown): void | Promise<void>
     getModelMode?(chatId?: string): 'memory' | 'model'
+    getInquiryTimeoutMs?(chatId?: string): number
     nativeV2Analysis?: boolean
     /**
      * Called before each retry wait so the caller can tell the user why nothing
@@ -102,7 +115,24 @@ interface MemoryAnalysisClientOptions {
     onRetryNotice?(notice: MemoryAnalysisRetryNotice): void
 }
 
+const MEMORY_ANALYSIS_TIMEOUT_MS = 10 * 60_000
+
 let analysisTokenizer: Tiktoken | undefined
+
+const NATIVE_SCHEMA_REJECTION = /(?:json[ _-]?schema|response[_ ]?format|response[_ ]?schema|responseformat|structured[ -]?output|response[_ ]?mime)/i
+const AMBIGUOUS_INVALID_ARGUMENT = /^(?:\[[^\]\r\n]{1,80}\]\s*)?(?:request contains an )?invalid[_ ]argument\.?$/i
+const BARE_HTTP_400 = /^HTTP\s+400\.?$/i
+
+function rejectsNativeSchema(response: MemoryAnalysisModelResponse): boolean {
+    if (response.type === 'success' || response.noRetry
+        || response.toolExecuted || typeof response.result !== 'string') {
+        return false
+    }
+    const reason = response.result.trim()
+    return NATIVE_SCHEMA_REJECTION.test(reason)
+        || AMBIGUOUS_INVALID_ARGUMENT.test(reason)
+        || BARE_HTTP_400.test(reason)
+}
 
 function countAnalysisTokens(value: string): number {
     analysisTokenizer ??= get_encoding('cl100k_base')
@@ -132,6 +162,14 @@ function fitAnalysisInput(
         )
     }
     const root = payload as Record<string, unknown>
+    const requiredMessageIds = new Set(
+        (Array.isArray(root.rebootTurns) ? root.rebootTurns : [])
+            .flatMap((turn) => {
+                if (!turn || typeof turn !== 'object') return []
+                const id = (turn as Record<string, unknown>).assistantMessageId
+                return typeof id === 'string' ? [id] : []
+            })
+    )
     for (let pass = 0; pass < 48; pass += 1) {
         const serialized = JSON.stringify(root)
         if (countAnalysisTokens(`${system}\n${serialized}`) <= limit) {
@@ -157,13 +195,17 @@ function fitAnalysisInput(
                 return
             }
             for (const [key, item] of Object.entries(value)) {
+                const owner = value as Record<string, unknown>
                 if (typeof item === 'string'
                     && item.length > 256
                     && ['content', 'markdown', 'confirmedEvent',
                         'acceptedText', 'removedText', 'priorContext',
-                        'currentContext'].includes(key)) {
+                        'currentContext'].includes(key)
+                    && !(key === 'content'
+                        && typeof owner.messageId === 'string'
+                        && requiredMessageIds.has(owner.messageId))) {
                     reducible.push({
-                        holder: value as Record<string, unknown>,
+                        holder: owner,
                         key,
                         value: item,
                         keepEnd: key === 'content' && 'role' in value,
@@ -481,10 +523,47 @@ async function postJson(
     })
 }
 
+function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return operation
+    signal.throwIfAborted()
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason)
+        signal.addEventListener('abort', onAbort, { once: true })
+        void operation.then(resolve, reject).finally(() => {
+            signal.removeEventListener('abort', onAbort)
+        })
+    })
+}
+
+function createMemoryAnalysisSignal(parent?: AbortSignal): {
+    signal: AbortSignal
+    dispose(): void
+} {
+    const controller = new AbortController()
+    const onParentAbort = () => controller.abort(parent?.reason)
+    if (parent?.aborted) onParentAbort()
+    else parent?.addEventListener('abort', onParentAbort, { once: true })
+    const timeout = setTimeout(() => {
+        controller.abort(new DOMException(
+            'BardWiki analysis timed out',
+            'TimeoutError'
+        ))
+    }, MEMORY_ANALYSIS_TIMEOUT_MS)
+    return {
+        signal: controller.signal,
+        dispose() {
+            clearTimeout(timeout)
+            parent?.removeEventListener('abort', onParentAbort)
+        },
+    }
+}
+
 export function projectRecentMemoryMessages(
     storedMessages: readonly StoredMessage[],
     limit = 12,
-    throughMessageId?: string
+    throughMessageId?: string,
+    firstMessage?: MemoryAnalysisMessage,
+    includeUserMessages = true,
 ): MemoryAnalysisMessage[] {
     const boundedLimit = Number.isSafeInteger(limit)
         ? Math.max(1, limit)
@@ -497,8 +576,7 @@ export function projectRecentMemoryMessages(
     const source = throughIndex < 0
         ? storedMessages
         : storedMessages.slice(0, throughIndex + 1)
-    return source
-        .filter((message) =>
+    const eligible = source.filter((message) =>
             (message.role === 'user' || message.role === 'char')
             && typeof message.data === 'string'
             && typeof message.chatId === 'string'
@@ -506,12 +584,62 @@ export function projectRecentMemoryMessages(
             && !message.isComment
             && !message.disabled
         )
-        .slice(-boundedLimit)
-        .map((message) => ({
+    const projected: MemoryAnalysisMessage[] = selectNarrativeWorkingMessages(
+        eligible,
+        boundedLimit,
+        true,
+    )
+        .map((message): MemoryAnalysisMessage => ({
             messageId: message.chatId as string,
             role: message.role === 'user' ? 'user' : 'assistant',
             content: message.data as string,
         }))
+        .filter((message) => includeUserMessages || message.role !== 'user')
+    const turnCount = eligible.filter((message) => message.role === 'char').length
+    return firstMessage && turnCount <= boundedLimit
+        ? [firstMessage, ...projected]
+        : projected
+}
+
+export function buildBoundedNarrativeInquiryFallback(
+    messages: readonly MemoryAnalysisMessage[],
+    maximumCharacters = 4_096,
+): string {
+    const maximum = Number.isSafeInteger(maximumCharacters)
+        ? Math.max(0, maximumCharacters)
+        : 4_096
+    const parts: string[] = []
+    let remaining = maximum
+    for (let index = messages.length - 1;
+        index >= 0 && remaining > 0;
+        index -= 1) {
+        const separatorLength = parts.length > 0 ? 1 : 0
+        if (remaining <= separatorLength) break
+        const content = messages[index].content.slice(
+            -(remaining - separatorLength)
+        )
+        if (content.length === 0) continue
+        parts.unshift(content)
+        remaining -= content.length + separatorLength
+    }
+    return parts.join('\n')
+}
+
+export function projectMemoryAnalysisEvidence(
+    confirmedMessages: readonly MemoryAnalysisMessage[],
+    recentMessages: readonly MemoryAnalysisMessage[],
+    firstMessage?: MemoryAnalysisMessage,
+): MemoryAnalysisMessage[] {
+    if (!firstMessage
+        || !recentMessages.some((message) =>
+            message.messageId === firstMessage.messageId
+        )
+        || confirmedMessages.some((message) =>
+            message.messageId === firstMessage.messageId
+        )) {
+        return [...confirmedMessages]
+    }
+    return [firstMessage, ...confirmedMessages]
 }
 
 export function projectConfirmedMemoryTurn(
@@ -665,12 +793,17 @@ export function createStoredResponseMemoryAnalysis(
     }
 
     const memoryService = {
-        async loadState(characterId: string, chatId: string) {
+        async loadState(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/state',
-                { characterId, chatId }
+                { characterId, chatId },
+                signal
             )) as NarrativeMemoryState
         },
 
@@ -682,12 +815,13 @@ export function createStoredResponseMemoryAnalysis(
                 chatId: string
                 messageId: string
             }[]
-        }) {
+        }, signal?: AbortSignal) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/apply',
-                input
+                input,
+                signal
             )) as NarrativeMemoryState
         },
     }
@@ -698,14 +832,17 @@ export function createStoredResponseMemoryAnalysis(
             currentInput: string
             tokenBudget?: {
                 target: number
+                events?: number
                 maximum: number
             }
-        }) {
+        }, signal?: AbortSignal) {
             return loadNarrativeInquiry({
                 ...input,
-                timeoutMs: 5_000,
+                timeoutMs: options.getInquiryTimeoutMs?.(input.chatId)
+                    ?? RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
         async applyDelta(input: {
@@ -716,12 +853,13 @@ export function createStoredResponseMemoryAnalysis(
                 chatId: string
                 messageId: string
             }[]
-        }) {
+        }, signal?: AbortSignal) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/graph/apply',
-                input
+                input,
+                signal
             )) as { revision: number }
         },
 
@@ -731,24 +869,31 @@ export function createStoredResponseMemoryAnalysis(
             result: {
                 status: 'success' | 'failed'
                 appliedCount: number
-            }
+            },
+            signal?: AbortSignal
         ) {
             const response = await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/analysis/observe',
-                { characterId, chatId, ...result }
+                { characterId, chatId, ...result },
+                signal
             )
             if (response.status === 404) return
             await readJson(response)
         },
 
-        async reconcileV1(characterId: string, chatId: string) {
+        async reconcileV1(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             return await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/graph/reconcile',
-                { characterId, chatId }
+                { characterId, chatId },
+                signal
             )) as { revision: number }
         },
     }
@@ -759,7 +904,7 @@ export function createStoredResponseMemoryAnalysis(
             chatId: string
             sourceMessageIds: string[]
             eventSourceGroups: string[][]
-        }) {
+        }, signal?: AbortSignal) {
             return beginWikiRebootBatch({
                 characterId: input.characterId,
                 stagingChatId: input.chatId,
@@ -767,14 +912,20 @@ export function createStoredResponseMemoryAnalysis(
                 eventSourceGroups: input.eventSourceGroups,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
-        async loadDocuments(characterId: string, chatId: string) {
+        async loadDocuments(
+            characterId: string,
+            chatId: string,
+            signal?: AbortSignal
+        ) {
             const view = await loadNarrativeMemoryWiki({
                 characterId,
                 chatId,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
             return view.mode === 'markdown' ? view.documents : []
         },
@@ -783,7 +934,7 @@ export function createStoredResponseMemoryAnalysis(
             chatId: string
             documentId?: string
             type: 'character' | 'location' | 'scene' | 'faction' | 'item'
-                | 'concept' | 'other'
+                | 'creature' | 'concept' | 'other'
             title: string
             aliases?: string[]
             sourceMessageIds: string[]
@@ -791,11 +942,12 @@ export function createStoredResponseMemoryAnalysis(
             expectedContentHash?: string
             reviewStatus?: 'unreviewed' | 'reviewed'
             writingLanguage?: WikiWritingLanguage
-        }) {
+        }, signal?: AbortSignal) {
             return saveCanonicalWikiDocument({
                 ...input,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
         async saveConfirmedTurn(input: {
@@ -805,12 +957,13 @@ export function createStoredResponseMemoryAnalysis(
             markdown: string
             append?: boolean
             writingLanguage?: WikiWritingLanguage
-        }) {
+        }, signal?: AbortSignal) {
             const document = await readJson(await postJson(
                 options.fetchImpl,
                 options.createAuth,
                 '/api/risubard/memory/wiki/save',
-                input
+                input,
+                signal
             )) as import('./memoryWiki').NarrativeMemoryWikiMarkdown[
                 'documents'
             ][number]
@@ -823,13 +976,14 @@ export function createStoredResponseMemoryAnalysis(
             characterId: string
             chatId: string
             receipt: import('./canonicalTurnReceipt').CanonicalTurnReceipt
-        }) {
+        }, signal?: AbortSignal) {
             return recordWikiRebootBatchReceipt({
                 characterId: input.characterId,
                 stagingChatId: input.chatId,
                 receipt: input.receipt,
                 fetchImpl: options.fetchImpl,
                 createAuth: options.createAuth,
+                signal,
             })
         },
     }
@@ -840,14 +994,40 @@ export function createStoredResponseMemoryAnalysis(
         nativeV2Analysis: options.nativeV2Analysis,
         onError: options.onError,
         async analyze(request, signal) {
-            const boundedInput = fitAnalysisInput(
+            const nativeDraft = ['memory-draft', 'reboot-batch', 'canonical-batch']
+                .includes(request.format ?? '')
+            const structuredSchema = request.format === 'markdown'
+                ? undefined
+                : request.format === 'memory-draft'
+                    ? memoryWriterDraftSchema
+                    : request.format === 'reboot-batch'
+                        ? request.responseSchema ?? rebootBatchDraftSchema
+                        : request.format === 'canonical-batch'
+                            ? request.responseSchema ?? canonicalBatchSchema
+                            : request.schemaVersion === 2
+                                ? narrativeGraphDeltaSchema
+                                : memoryDeltaSchema
+            const promptSchemaMessage = request.structuredOutputMode === 'prompt'
+                && nativeDraft && structuredSchema
+                ? createStructuredOutputFallbackMessage(
+                    JSON.parse(structuredSchema) as Record<string, unknown>
+                )
+                : null
+            const usePromptSchemaFallback = Boolean(
+                promptSchemaMessage?.content
+            )
+            const requestSystem = [
                 request.system,
+                promptSchemaMessage?.content,
+            ].filter(Boolean).join('\n\n')
+            const boundedInput = fitAnalysisInput(
+                requestSystem,
                 request.input,
                 request.inputTokenLimit
             )
             const modelCall: MemoryAnalysisModelCall = {
                 formated: [
-                    { role: 'system', content: request.system },
+                    { role: 'system', content: requestSystem },
                     { role: 'user', content: boundedInput },
                 ],
                 useStreaming: false,
@@ -863,33 +1043,62 @@ export function createStoredResponseMemoryAnalysis(
                     realChatId: request.sessionChatId,
                     logSource: 'memory' as const,
                     logPurpose: request.format === 'canonical-batch'
+                        || request.format === 'markdown'
                         ? 'bardwiki-canonical-update' as const
                         : 'bardwiki-analysis' as const,
                 } : {}),
                 ...(request.format === 'markdown'
+                    || usePromptSchemaFallback
                     ? {}
-                    : {
-                        schema: request.format === 'memory-draft'
-                            ? memoryWriterDraftSchema
-                            : request.format === 'reboot-batch'
-                                ? request.responseSchema
-                                    ?? rebootBatchDraftSchema
-                            : request.format === 'canonical-batch'
-                                ? request.responseSchema
-                                    ?? canonicalBatchSchema
-                                : request.schemaVersion === 2
-                                    ? narrativeGraphDeltaSchema
-                                    : memoryDeltaSchema,
-                    }),
+                    : { schema: structuredSchema }),
             }
-            const nativeDraft = ['memory-draft', 'reboot-batch', 'canonical-batch'].includes(request.format ?? '')
             const requestResponse = async (feedback?: ModelOutputError) => {
-                    const response = await requestMemoryModel({
+                    let response = await requestMemoryModel({
                         ...modelCall,
-                        formated: [{ role: 'system', content: request.system
+                        formated: [{ role: 'system', content: requestSystem
                             + (feedback ? `\n\n${modelOutputRepairInstruction(feedback)}` : '') },
                         modelCall.formated[1]],
                     }, signal)
+                    if (nativeDraft && modelCall.schema
+                        && rejectsNativeSchema(response)) {
+                        if (request.structuredOutputMode === 'native') {
+                            throw new NativeStructuredOutputUnavailableError()
+                        }
+                        const fallbackMessage = createStructuredOutputFallbackMessage(
+                            JSON.parse(modelCall.schema) as Record<string, unknown>
+                        )
+                        if (fallbackMessage
+                            && typeof fallbackMessage.content === 'string') {
+                            const fallbackSystem = [
+                                requestSystem,
+                                feedback
+                                    ? modelOutputRepairInstruction(feedback)
+                                    : '',
+                                fallbackMessage.content,
+                            ].filter(Boolean).join('\n\n')
+                            response = {
+                                ...await requestMemoryModel({
+                                    ...modelCall,
+                                    schema: undefined,
+                                    formated: [
+                                        {
+                                            role: 'system',
+                                            content: fallbackSystem,
+                                        },
+                                        {
+                                            role: 'user',
+                                            content: fitAnalysisInput(
+                                                fallbackSystem,
+                                                request.input,
+                                                request.inputTokenLimit
+                                            ),
+                                        },
+                                    ],
+                                }, signal),
+                                noRetry: true,
+                            }
+                        }
+                    }
                     if (response.type !== 'success') {
                         throw new Error(modelFailureMessage('Memory analysis model request failed', response))
                     }
@@ -920,12 +1129,22 @@ export function createStoredResponseMemoryAnalysis(
         run: runner.run,
         async confirm(input: MemoryAnalysisInput, signal?: AbortSignal) {
             if (input.messages.length === 0) return undefined
-            const result = await runner.run(input, signal)
-            announceRisuBardMemoryUpdated({
-                characterId: input.characterId,
-                chatId: input.chatId,
-            })
-            return result.canonicalReceipt
+            const operation = createMemoryAnalysisSignal(signal)
+            try {
+                operation.signal.throwIfAborted()
+                const result = await abortable(
+                    runner.run(input, operation.signal),
+                    operation.signal
+                )
+                announceRisuBardMemoryUpdated({
+                    characterId: input.characterId,
+                    chatId: input.chatId,
+                })
+                return result.canonicalReceipt
+            }
+            finally {
+                operation.dispose()
+            }
         },
         async prepareContext(
             characterId: string,

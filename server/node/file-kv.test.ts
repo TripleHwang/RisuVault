@@ -220,6 +220,34 @@ describe('file-native KV compatibility projection', () => {
         expect(createFileKv({ dataRoot }).kvList('assets/')).toEqual(['assets/later'])
     })
 
+    it('prepares bulk asset objects concurrently before publishing one manifest', async () => {
+        const dataRoot = root()
+        const store = createFileKv({ dataRoot })
+        const writeMany = store.kvSetManyAsync
+
+        expect(typeof writeMany).toBe('function')
+        if (typeof writeMany !== 'function') return
+        await writeMany([
+            { key: 'assets/a', value: Buffer.from('asset-a') },
+            { key: 'assets/b', value: Buffer.from('asset-b') },
+        ])
+
+        const reopened = createFileKv({ dataRoot })
+        expect(reopened.kvList('assets/')).toEqual(['assets/a', 'assets/b'])
+        expect(reopened.kvGet('assets/a')?.toString()).toBe('asset-a')
+    })
+
+    it('routes bulk asset writes through the concurrent file-KV path', () => {
+        const server = fs.readFileSync(path.join(process.cwd(), 'server/node/server.cjs'), 'utf8')
+        const route = server.slice(
+            server.indexOf("app.post('/api/assets/bulk-write'"),
+            server.indexOf('// ── Settings-only export', server.indexOf("app.post('/api/assets/bulk-write'")),
+        )
+
+        expect(server).toMatch(/const \{[^}]*kvSetManyAsync[^}]*\} = require\('\.\/db\.cjs'\)/s)
+        expect(route).toContain('await kvSetManyAsync(')
+    })
+
     it('promotes a verified staged file into the object store without recopying it', async () => {
         const dataRoot = root()
         const stagingRoot = root()
@@ -523,6 +551,23 @@ describe('file-native KV compatibility projection', () => {
         expect(store.gcChunks()).toEqual({ count: 2, bytes: 7 })
         expect(store.objectStoreBytes()).toBe(2)
         expect(fs.existsSync(path.join(dataRoot, 'trash'))).toBe(false)
+    })
+
+    it('bulk-deletes unique keys with one logical result', () => {
+        const dataRoot = root()
+        const store = createFileKv({ dataRoot })
+        store.kvSet('assets/a', Buffer.from('aaa'))
+        store.kvSet('assets/b', Buffer.from('bbbb'))
+        store.kvSet('settings/c', Buffer.from('cc'))
+
+        expect(store.kvDelMany(['assets/a', 'assets/b', 'assets/a', 'missing'])).toEqual({
+            count: 2,
+            bytes: 7,
+        })
+
+        const reopened = createFileKv({ dataRoot })
+        expect(reopened.kvList()).toEqual(['settings/c'])
+        expect(reopened.reclaimableChunkBytes()).toBe(7)
     })
 
     it('keeps recent unreachable objects during grace-period cleanup', () => {

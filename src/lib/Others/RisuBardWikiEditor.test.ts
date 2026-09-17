@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
     createAuth: vi.fn(async () => 'token'),
     requestImmediateSave: vi.fn(async () => undefined),
     alertConfirmMulti: vi.fn(async () => 0),
-    db: { characters: [] as Array<Record<string, any>> },
+    db: {
+        characters: [] as Array<Record<string, any>>,
+        risuBardWikiMarkdownPreview: undefined as boolean | undefined,
+    },
 }))
 
 vi.mock('src/ts/risubard/memoryWiki', async (importOriginal) => ({
@@ -71,9 +74,79 @@ afterEach(async () => {
     document.body.replaceChildren()
     vi.clearAllMocks()
     vi.unstubAllGlobals()
+    mocks.db.risuBardWikiMarkdownPreview = undefined
 })
 
 describe('RisuBardWikiEditor', () => {
+    it('filters the file tree on submit and selects the first matching text in the editor', async () => {
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: { characterId: 'character', chatId: 'chat', documents },
+        })
+        await tick()
+
+        const input = document.querySelector<HTMLInputElement>(
+            '[data-wiki-search-input]'
+        )!
+        input.value = '승리했다'
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        document.querySelector<HTMLFormElement>('[data-wiki-search-form]')!
+            .dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+
+        await vi.waitFor(() => expect(
+            [...document.querySelectorAll('.file-select .document-title')]
+                .map((node) => node.textContent)
+        ).toEqual(['전투']))
+        const editor = document.querySelector<HTMLTextAreaElement>('[aria-label="Markdown"]')!
+        const matchStart = editor.value.indexOf('승리했다')
+        expect(editor.selectionStart).toBe(matchStart)
+        expect(editor.selectionEnd).toBe(matchStart + '승리했다'.length)
+    })
+
+    it('keeps health labels in the sidebar footer and highlights every preview match', async () => {
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: {
+                characterId: 'character', chatId: 'chat',
+                documents: [{
+                    ...documents[1],
+                    content: '# 승리 기록\n\n승리했다. 다시 승리했다.',
+                }],
+            },
+        })
+        await tick()
+
+        const fileTree = document.querySelector('[data-wiki-file-tree]')!
+        const health = document.querySelector('[data-wiki-health]')!
+        expect(fileTree.lastElementChild).toBe(health)
+
+        const input = document.querySelector<HTMLInputElement>('[data-wiki-search-input]')!
+        input.value = '승리했다'
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        document.querySelector<HTMLButtonElement>('[data-wiki-search-submit]')!.click()
+        await tick()
+        document.querySelector<HTMLInputElement>('[data-wiki-markdown-toggle]')!.click()
+        await tick()
+
+        expect(document.querySelectorAll('[data-wiki-search-highlight]')).toHaveLength(2)
+    })
+
+    it('uses an explicit BARDCHAT update set instead of older automatic badges', async () => {
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: {
+                characterId: 'character', chatId: 'chat',
+                documents,
+                highlightedDocumentIds: ['character.lavian'],
+            },
+        })
+        await tick()
+
+        const badges = [...document.querySelectorAll('[data-wiki-recent-update]')]
+        expect(badges.map((badge) => badge.parentElement?.getAttribute('aria-label')))
+            .toEqual(['라비안 '])
+    })
+
     it('shows recent update badges on the right of root and folder pages without changing their selection', async () => {
         mounted = mount(RisuBardWikiEditor, {
             target: document.body,
@@ -132,6 +205,19 @@ describe('RisuBardWikiEditor', () => {
         expect(document.body.textContent).not.toContain('context: auto')
     })
 
+    it('offers a creature document type', async () => {
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: { characterId: 'character', chatId: 'chat', documents },
+        })
+        await tick()
+
+        const option = document.querySelector<HTMLOptionElement>(
+            '[aria-label="항목 유형"] option[value="creature"]'
+        )
+        expect(option?.textContent).toBe('종족·생물')
+    })
+
     it('keeps a visible vertical scrollbar in the Markdown editor', () => {
         const source = readFileSync(
             'src/lib/Others/RisuBardWikiEditor.svelte',
@@ -176,6 +262,28 @@ describe('RisuBardWikiEditor', () => {
         expect(row).not.toBeNull()
         expect(row.classList.contains('dangling-link')).toBe(true)
         expect(row.querySelector('[data-wiki-repair-link]')).toBeNull()
+    })
+
+    it('shows duplicate passage warnings without offering automatic repair', async () => {
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: {
+                characterId: 'character', chatId: 'chat', documents,
+                health: {
+                    danglingLinks: [],
+                    unlinkedDocumentIds: [],
+                    duplicatePassages: [{
+                        documentIds: ['character.lavian', 'event.turn'],
+                    }],
+                } as any,
+            },
+        })
+        await tick()
+
+        expect(document.body.textContent).toContain('본문 중복 1')
+        expect(document.querySelectorAll('[data-wiki-duplicate-document]'))
+            .toHaveLength(2)
+        expect(document.querySelector('[data-wiki-repair-duplicate]')).toBeNull()
     })
 
     it('toggles a live, safe Markdown preview from the editor toolbar', async () => {
@@ -230,6 +338,46 @@ describe('RisuBardWikiEditor', () => {
         )?.value).toBe(previewDocuments[0].content)
     })
 
+    it('distinguishes missing links from name collisions and explains both on activation', async () => {
+        mocks.db.risuBardWikiMarkdownPreview = true
+        const collisionDocuments = [{
+            ...documents[0],
+            content: '# 라비안\n\n[[없는 도시]]와 [[공통 이름]]',
+        }, {
+            ...documents[1],
+            title: '공통 이름',
+        }, {
+            ...documents[1],
+            id: 'location.second',
+            title: '두 번째 문서',
+            aliases: ['공통 이름'],
+            relativePath: 'locations/second.md',
+        }]
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: { characterId: 'character', chatId: 'chat', documents: collisionDocuments },
+        })
+        await tick()
+
+        const missing = document.querySelector<HTMLElement>('[data-wikilink-status="missing"]')!
+        const ambiguous = document.querySelector<HTMLElement>('[data-wikilink-status="ambiguous"]')!
+        expect(missing.classList.contains('wikilink-ambiguous')).toBe(false)
+        expect(missing.title).toBe('연결된 문서가 없습니다: 없는 도시')
+        expect(ambiguous.classList.contains('wikilink-ambiguous')).toBe(true)
+        expect(ambiguous.title).toBe('이름이 겹칩니다: 공통 이름, 두 번째 문서')
+        expect(ambiguous.getAttribute('tabindex')).toBe('0')
+
+        ambiguous.click()
+        await tick()
+        expect(document.querySelector('[data-wiki-link-diagnostic]')?.textContent)
+            .toBe('이름이 겹칩니다: 공통 이름, 두 번째 문서')
+
+        missing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        await tick()
+        expect(document.querySelector('[data-wiki-link-diagnostic]')?.textContent)
+            .toBe('연결된 문서가 없습니다: 없는 도시')
+    })
+
     it('opens the responsive document sidebar on demand and closes it from the scrim', async () => {
         const onFocusModeChange = vi.fn()
         const target = document.body.appendChild(document.createElement('div'))
@@ -272,6 +420,37 @@ describe('RisuBardWikiEditor', () => {
         expect(editor.dataset.editorFocus).toBe('true')
         expect(editor.dataset.editorExpanded).toBe('true')
         expect(onFocusModeChange).toHaveBeenLastCalledWith(true)
+    })
+
+    it('restores the Markdown preview toggle from the persisted database setting', async () => {
+        mocks.db.risuBardWikiMarkdownPreview = true
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: { characterId: 'character', chatId: 'chat', documents },
+        })
+        await tick()
+
+        const toggle = document.querySelector<HTMLInputElement>(
+            '[data-wiki-markdown-toggle]'
+        )!
+        expect(toggle.checked).toBe(true)
+        expect(document.querySelector('[data-wiki-markdown-preview]')).not.toBeNull()
+
+        toggle.click()
+        await tick()
+        expect(mocks.db.risuBardWikiMarkdownPreview).toBe(false)
+
+        await unmount(mounted)
+        mounted = mount(RisuBardWikiEditor, {
+            target: document.body,
+            props: { characterId: 'character', chatId: 'chat', documents },
+        })
+        await tick()
+
+        expect(document.querySelector<HTMLInputElement>(
+            '[data-wiki-markdown-toggle]'
+        )?.checked).toBe(false)
+        expect(document.querySelector('[data-wiki-markdown-preview]')).toBeNull()
     })
 
     it('uses an explicit mobile overlay drawer instead of stacking the tree above the editor', () => {

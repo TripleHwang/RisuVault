@@ -3,8 +3,39 @@ import {
     createPluginRequestEvidenceRecorder,
     formatPluginProviderFailure,
 } from './pluginRequestEvidence'
+import * as pluginRequestLifecycle from './pluginRequestEvidence'
 
 describe('plugin request evidence recorder', () => {
+    it('ends a plugin provider call that never settles when the host timeout expires', async () => {
+        const run = (pluginRequestLifecycle as unknown as {
+            runPluginProviderWithTimeout?: <T>(
+                invoke: (signal: AbortSignal) => Promise<T>,
+                timeoutMs: number,
+                abortSignal?: AbortSignal | null,
+            ) => Promise<T>
+        }).runPluginProviderWithTimeout
+        expect(run).toBeTypeOf('function')
+
+        vi.useFakeTimers()
+        try {
+            let receivedSignal: AbortSignal | undefined
+            const pending = run!(signal => {
+                receivedSignal = signal
+                return new Promise(() => {})
+            }, 50)
+            const rejected = expect(pending).rejects.toThrow(
+                'Plugin provider request timed out after 50ms'
+            )
+
+            await vi.advanceTimersByTimeAsync(50)
+
+            await rejected
+            expect(receivedSignal?.aborted).toBe(true)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('preserves a bounded Error message instead of serializing it as an empty object', () => {
         expect(formatPluginProviderFailure(
             'pagefold-gemini-3.7-flash',

@@ -36,3 +36,21 @@ export function tooltipRight(node:HTMLElement, tip:string) {
         }
     };
 }
+
+export function tooltipLeft(node:HTMLElement, tip:string) {
+    const instance = tippy(node, {
+        content: tip,
+        animation: 'fade',
+        arrow: true,
+        placement: 'left',
+        theme: 'risubard',
+    })
+    return {
+        update(newTip: string) {
+            instance.setContent(newTip)
+        },
+        destroy() {
+            instance.destroy()
+        }
+    };
+}

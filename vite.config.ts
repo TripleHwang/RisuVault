@@ -9,13 +9,19 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 // https://vitejs.dev/config/
 export default defineConfig(({command, mode}) => {
-  const nodeServerTarget = process.env.RISU_DEV_SERVER_TARGET || 'http://localhost:6001';
+  const nodeServerTarget = process.env.RISU_DEV_SERVER_TARGET || 'http://localhost:7777';
   const nodeProxy = { target: nodeServerTarget, changeOrigin: true, secure: false };
   return {
     define: {
       '__APP_VERSION__': JSON.stringify(pkg.version),
     },
     plugins: [
+      {
+        name: 'risubard-app-version-html',
+        transformIndexHtml(html: string) {
+          return html.replaceAll('__RISUBARD_APP_VERSION__', pkg.version)
+        },
+      },
       svelte({
         preprocess: vitePreprocess(),
         onwarn: (warning, handler) => {

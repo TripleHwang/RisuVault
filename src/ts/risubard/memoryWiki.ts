@@ -38,6 +38,7 @@ export interface NarrativeMemoryWikiMarkdown {
     health: {
         danglingLinks: Array<{ sourceId: string; target: string }>
         unlinkedDocumentIds: string[]
+        duplicatePassages?: Array<{ documentIds: [string, string] }>
     }
     documents: Array<{
         id: string
@@ -63,7 +64,7 @@ export interface NarrativeMemoryWikiMarkdown {
 export type MarkdownWikiContextMode = 'always' | 'auto' | 'never'
 
 export type MarkdownWikiDocumentType = 'event' | 'character' | 'location'
-    | 'scene' | 'faction' | 'item' | 'concept' | 'other'
+    | 'scene' | 'faction' | 'creature' | 'item' | 'concept' | 'other'
 export type CanonicalMarkdownWikiDocumentType = Exclude<
     MarkdownWikiDocumentType,
     'event'
@@ -302,6 +303,7 @@ export async function loadNarrativeMemoryWiki(input: {
     chatId: string
     fetchImpl: typeof fetch
     createAuth(): Promise<string>
+    signal?: AbortSignal
 }): Promise<NarrativeMemoryWiki> {
     const auth = await input.createAuth()
     const fetchImpl = input.fetchImpl
@@ -311,6 +313,7 @@ export async function loadNarrativeMemoryWiki(input: {
         {
             method: 'POST',
             credentials: 'same-origin',
+            signal: input.signal,
             headers: {
                 'content-type': 'application/json',
                 'risu-auth': auth,
@@ -334,9 +337,11 @@ export async function loadNarrativeMemoryWiki(input: {
         && hasExactKeys(value, ['mode', 'wikiPath', 'documents', 'health'])
         && Array.isArray(value.documents)
         && isRecord(value.health)
-        && hasExactKeys(value.health, [
+        && (hasExactKeys(value.health, [
+            'danglingLinks', 'unlinkedDocumentIds', 'duplicatePassages',
+        ]) || hasExactKeys(value.health, [
             'danglingLinks', 'unlinkedDocumentIds',
-        ])
+        ]))
         && Array.isArray(value.health.danglingLinks)
         && value.health.danglingLinks.every((item) => isRecord(item)
             && hasExactKeys(item, ['sourceId', 'target'])
@@ -345,7 +350,17 @@ export async function loadNarrativeMemoryWiki(input: {
         && Array.isArray(value.health.unlinkedDocumentIds)
         && value.health.unlinkedDocumentIds.every(
             (id) => typeof id === 'string'
-        )) {
+        )
+        && (value.health.duplicatePassages === undefined
+            || (Array.isArray(value.health.duplicatePassages)
+                && value.health.duplicatePassages.every((item) => isRecord(item)
+                    && hasExactKeys(item, ['documentIds'])
+                    && Array.isArray(item.documentIds)
+                    && item.documentIds.length === 2
+                    && item.documentIds[0] !== item.documentIds[1]
+                    && item.documentIds.every((id) => typeof id === 'string')
+                )))
+    ) {
         return {
             mode: 'markdown',
             wikiPath: requireString(value.wikiPath),
@@ -355,6 +370,9 @@ export async function loadNarrativeMemoryWiki(input: {
                     target: string
                 }>,
                 unlinkedDocumentIds: value.health.unlinkedDocumentIds as string[],
+                duplicatePassages: (value.health.duplicatePassages ?? []) as Array<{
+                    documentIds: [string, string]
+                }>,
             },
             documents: value.documents.map((document) => {
                 const documentKeys = [
@@ -379,7 +397,7 @@ export async function loadNarrativeMemoryWiki(input: {
                     ].includes(key))
                     || ![
                         'event', 'character', 'location', 'scene', 'faction',
-                        'item', 'concept', 'other',
+                        'creature', 'item', 'concept', 'other',
                     ].includes(
                         String(document.type)
                     )
@@ -541,6 +559,71 @@ function requiredMutationString(
         throw new Error(`${label} must contain 1-${maximum} characters`)
     }
     return value.trim()
+}
+
+async function bardChatUndoRequest<K extends 'started' | 'available' | 'restored'>(
+    action: 'begin' | 'finalize' | 'status' | 'restore',
+    key: K,
+    input: {
+        characterId: string
+        chatId: string
+        fetchImpl: typeof fetch
+        createAuth(): Promise<string>
+    }
+): Promise<Record<K, boolean>> {
+    const response = await invokeBrowserFetch(
+        input.fetchImpl,
+        `/api/risubard/memory/wiki/bardchat-undo/${action}`,
+        {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'content-type': 'application/json',
+                'risu-auth': await input.createAuth(),
+            },
+            body: JSON.stringify({
+                characterId: requiredMutationString(input.characterId, 'Character ID', 1_024),
+                chatId: requiredMutationString(input.chatId, 'Chat ID', 1_024),
+            }),
+        }
+    )
+    if (!response.ok) {
+        throw new Error(`BARDCHAT undo ${action} failed with status ${response.status}`)
+    }
+    const value = await response.json()
+    if (!isRecord(value) || !hasExactKeys(value, [key])
+        || typeof value[key] !== 'boolean') {
+        throw new Error(`Invalid BARDCHAT undo ${action} receipt`)
+    }
+    return value as Record<K, boolean>
+}
+
+export function beginBardChatUndo(input: {
+    characterId: string; chatId: string; fetchImpl: typeof fetch
+    createAuth(): Promise<string>
+}) {
+    return bardChatUndoRequest('begin', 'started', input) as Promise<{ started: true }>
+}
+
+export function finalizeBardChatUndo(input: {
+    characterId: string; chatId: string; fetchImpl: typeof fetch
+    createAuth(): Promise<string>
+}) {
+    return bardChatUndoRequest('finalize', 'available', input)
+}
+
+export function getBardChatUndoStatus(input: {
+    characterId: string; chatId: string; fetchImpl: typeof fetch
+    createAuth(): Promise<string>
+}) {
+    return bardChatUndoRequest('status', 'available', input)
+}
+
+export function restoreBardChatUndo(input: {
+    characterId: string; chatId: string; fetchImpl: typeof fetch
+    createAuth(): Promise<string>
+}) {
+    return bardChatUndoRequest('restore', 'restored', input) as Promise<{ restored: true }>
 }
 
 export async function saveManualWikiDocument(input: {

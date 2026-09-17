@@ -4,6 +4,8 @@
     import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
+    import PromptV2Workspace from "./PromptPreset/PromptV2Workspace.svelte";
+    import PromptBlockOverlayWorkspace from "./PromptPreset/PromptBlockOverlayWorkspace.svelte";
     import { InfoIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import {
@@ -18,10 +20,6 @@
         promptPresetAdvancedItems,
     } from "src/ts/setting/promptPresetSettingsData.svelte";
 
-    let {
-        embedded = false,
-    }: { embedded?: boolean } = $props();
-
     function openPresetSelector() {
         openPresetList.set(true);
     }
@@ -30,21 +28,27 @@
 
 <SettingPage
     title={language.settingsWorkspace.aiWorkspace.sections['chat-prompt-presets'].title}
-    showTitle={!embedded}
+    fullWidth={$PromptPresetSubmenuIndex === 2 || $PromptPresetSubmenuIndex === 5}
 >
-    <PresetHeader
-        label={language.currentPromptPreset}
-        activeName={DBState.db.botPresets?.[DBState.db.botPresetsId]?.name ?? '—'}
-        onManage={openPresetSelector}
-    />
+    {#snippet headerActions()}
+        <PresetHeader
+            compact
+            label={language.currentPromptPreset}
+            activeName={DBState.db.botPresets?.[DBState.db.botPresetsId]?.name ?? '—'}
+            onManage={openPresetSelector}
+        />
+    {/snippet}
     <SettingTabs
         tabs={[
             { label: language.basicInfo, value: 0 },
             { label: language.prompt, value: 1 },
-            { label: language.parameters, value: 2 },
-            { label: language.advancedSettings, value: 3 },
+            { label: language.promptV2.tab, value: 2 },
+            { label: language.promptOverlay.tab, value: 5 },
+            { label: language.parameters, value: 3 },
+            { label: language.advancedSettings, value: 4 },
         ]}
         bind:selected={$PromptPresetSubmenuIndex}
+        variant="prominent"
     />
 
     {#if $PromptPresetSubmenuIndex === 0}
@@ -52,12 +56,16 @@
     {:else if $PromptPresetSubmenuIndex === 1}
         <SettingRenderer items={promptPresetPromptItems} />
     {:else if $PromptPresetSubmenuIndex === 2}
+        <PromptV2Workspace />
+    {:else if $PromptPresetSubmenuIndex === 5}
+        <PromptBlockOverlayWorkspace />
+    {:else if $PromptPresetSubmenuIndex === 3}
         <ShAlert className="mt-4 mb-2">
             {#snippet icon()}<InfoIcon />{/snippet}
             {language.promptPresetParamScopeDesc}
         </ShAlert>
         <SettingRenderer items={promptPresetParameterItems} layout="block" />
-    {:else if $PromptPresetSubmenuIndex === 3}
+    {:else if $PromptPresetSubmenuIndex === 4}
         <SettingRenderer items={promptPresetAdvancedItems} />
     {/if}
 </SettingPage>

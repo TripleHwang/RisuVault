@@ -6,19 +6,22 @@
 
     interface Props {
         onClick?: () => void;
+        onAuthorClick?: (author: string) => void;
         chara: hubType;
     }
 
-    let { onClick = () => {}, chara }: Props = $props();
+    let { onClick = () => {}, onAuthorClick = () => {}, chara }: Props = $props();
     let isKorean = $derived(DBState.db.language === 'ko');
     let ui = $derived(isKorean ? {
         by: '제작자',
+        searchByAuthor: '제작자로 검색',
         downloads: '다운로드',
         emotions: '감정 이미지 포함',
         assets: '추가 에셋 포함',
         lorebook: '로어북 포함',
     } : {
         by: 'by',
+        searchByAuthor: 'Search by creator',
         downloads: 'Downloads',
         emotions: 'Emotion images',
         assets: 'Additional assets',
@@ -28,6 +31,17 @@
         const descriptions = parseMultilangString(chara.desc);
         return descriptions[DBState.db.language] ?? descriptions.en ?? descriptions.xx ?? '';
     });
+
+    function selectAuthor(event: MouseEvent | KeyboardEvent) {
+        event.stopPropagation();
+        if (chara.authorname) onAuthorClick(chara.authorname);
+    }
+
+    function handleAuthorKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        selectAuthor(event);
+    }
 </script>
 
 <button
@@ -48,7 +62,14 @@
             <div class="min-w-0">
                 <h2 class="truncate text-base font-semibold tracking-tight text-textcolor sm:text-lg">{chara.name}</h2>
                 {#if chara.authorname}
-                    <p class="mt-0.5 truncate text-xs text-textcolor2">{ui.by} {chara.authorname}</p>
+                    <span
+                        role="button"
+                        tabindex="0"
+                        title={ui.searchByAuthor}
+                        class="mt-0.5 block truncate text-xs text-textcolor2 hover:text-textcolor hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-borderc"
+                        onclick={selectAuthor}
+                        onkeydown={handleAuthorKeydown}
+                    >{ui.by} {chara.authorname}</span>
                 {/if}
             </div>
             <div class="flex shrink-0 items-center gap-1 text-xs text-textcolor2" title={ui.downloads}>

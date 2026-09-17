@@ -50,6 +50,7 @@ export const modelProfileReplaceTarget = writable<string | null>(null)
 // for editing immediately. Consumed (cleared) by ModelPresetSettings.
 export const openModelPresetEditId = writable<string | null>(null)
 export const openModuleListStore = writable(false)
+export const risuBardGalleryOpen = writable(false)
 export const openThemePresetList = writable(false)
 export const openPersonaList = writable(false)
 export const openPersonaManager = writable(false)

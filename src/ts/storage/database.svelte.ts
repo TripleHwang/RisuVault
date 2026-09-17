@@ -13,6 +13,16 @@ import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
+import {
+    composePromptBlockOverlay,
+    getEffectivePromptToggleTemplate,
+    normalizePromptBlockOverlay,
+    normalizePromptBlockOverlayApplicationPresets,
+    normalizePromptBlockOverlayProfiles,
+    type PromptBlockOverlayApplicationPreset,
+    type PromptBlockOverlayConfig,
+    type PromptBlockOverlayProfile,
+} from '../promptBlockOverlay';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
@@ -33,6 +43,12 @@ import {
     ensureGlobalLorebookPageIds,
     ensureStableLorebookOwnerId,
 } from '../lorebook/ownerIdentity';
+import { normalizeBardLoreOwnerState, type BardLoreState } from '../lorebook/bardLore';
+import { normalizeBardLoreAnalysisLanguage } from '../lorebook/bardLoreLanguage';
+import {
+    normalizeBardLoreAnalysisDefaults,
+    type BardLoreAnalysisSettings,
+} from '../lorebook/bardLoreAnalysisSettings';
 import {
     normalizeRisuBardAdditionalSearchLimit,
     normalizeRisuBardAnalysisTokenLimit,
@@ -40,9 +56,13 @@ import {
     normalizeRisuBardCanonicalCustomStyle,
     normalizeRisuBardCanonicalTargetLimit,
     normalizeRisuBardCanonicalWritingStyle,
+    normalizeRisuBardHistoricalSourceMatchLimit,
     normalizeRisuBardInquiryTokenBudget,
+    normalizeRisuBardInquiryTimeoutMs,
 } from '../risubard/risuBardSettings';
 import { normalizeWikiRebootJob } from '../risubard/wikiReboot';
+import { normalizeWikiWritingLanguage } from '../risubard/wikiWritingLanguage';
+import { createTogglePresetBaseline, type TogglePresetBaseline } from './togglePresetBaseline';
 import type { CanonicalTurnReceipt } from '../risubard/memoryWiki';
 import {
     normalizeAutosaveInterval,
@@ -53,13 +73,17 @@ import {
     type WikiPromptPreset,
 } from '../risubard/wikiPromptPreset';
 import {
+    normalizeBardLoreInstructionPresetState,
+    type BardLoreInstructionPreset,
+} from '../lorebook/bardLoreInstructionPreset';
+import {
     ARC_PLOTTER_DEFAULT_PRESET_ID,
     normalizeArcPlotterCustomPresets,
     normalizeArcPlotterPresetSelection,
     normalizeArcPlotterSettings,
     type ArcPlotterPreset,
 } from '../risubard/arcPlotterSettings';
-import { normalizeSelectedPersonaIndex } from '../personaScopes';
+import { getNewChatPersonaBinding, normalizeSelectedPersonaIndex } from '../personaScopes';
 import {
     normalizeArcaChatFontSizePx,
     normalizeArcaChatDialogSize,
@@ -246,8 +270,16 @@ export function setDatabase(data:Database){
             if (preset && !preset.id) {
                 preset.id = uuidv4()
             }
+            if (preset && typeof preset.description !== 'string') {
+                preset.description = ''
+            }
+            if (preset) {
+                preset.promptBlockOverlay = normalizePromptBlockOverlay(preset.promptBlockOverlay)
+            }
         }
     }
+    data.promptBlockOverlayProfiles = normalizePromptBlockOverlayProfiles(data.promptBlockOverlayProfiles)
+    data.promptBlockOverlayApplicationPresets = normalizePromptBlockOverlayApplicationPresets(data.promptBlockOverlayApplicationPresets)
     if(checkNullish(data.botPresetsId)){
         data.botPresetsId = 0
     }
@@ -262,6 +294,7 @@ export function setDatabase(data:Database){
     if(Array.isArray(data.promptTemplate)){
         data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
     }
+    data.promptBlockOverlay = normalizePromptBlockOverlay(data.promptBlockOverlay)
     if(checkNullish(data.sdProvider)){
         data.sdProvider = ''
     }
@@ -719,6 +752,9 @@ export function setDatabase(data:Database){
     data.showPromptComparison ??= false
     data.OaiCompAPIKeys ??= {}
     data.reasoningEffort ??= 0
+    data.hypaV3 ??= false
+    data.memoryAlgorithmType ??= data.hypaV3 ? 'hypaMemoryV3' : 'none'
+    data.showMenuHypaMemoryModal ??= false
     data.hypaV3Presets ??= [
         createHypaV3Preset("Default", {
             summarizationPrompt: (data as any).supaMemoryPrompt || "",
@@ -809,6 +845,7 @@ export function setDatabase(data:Database){
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.pinPersonaOnNewChat ??= true
     data.nodeOnlyModelModeLock ??= 'none'
     data.moduleModelBindingsEnabled ??= false
     data.moduleModelBindings ??= {}
@@ -838,6 +875,7 @@ export function setDatabase(data:Database){
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.preserveChatScrollPosition ??= true
+    data.pinChatScrollNavigator ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
     data.echoMessage ??= "Echo Message"
     data.echoDelay ??= 0
@@ -875,6 +913,10 @@ export function setDatabase(data:Database){
         typeof data.risuBardAutoWikiEnabled === 'boolean'
             ? data.risuBardAutoWikiEnabled
             : true
+    data.risuBardWikiMarkdownPreview =
+        typeof data.risuBardWikiMarkdownPreview === 'boolean'
+            ? data.risuBardWikiMarkdownPreview
+            : false
     data.showRisuBardSaveLoadShortcuts ??= true
     data.risuBardAutosaveInterval = normalizeAutosaveInterval(
         data.risuBardAutosaveInterval
@@ -915,6 +957,11 @@ export function setDatabase(data:Database){
         typeof data.risuBardResponseExcludeUserMessages === 'boolean'
             ? data.risuBardResponseExcludeUserMessages
             : data.risuBardResponseIncludeUserMessages === false
+    data.risuBardAnalysisExcludeUserMessages =
+        data.risuBardAnalysisExcludeUserMessages === true
+    data.risuBardBardChanEnabled = data.risuBardBardChanEnabled === true
+    data.risuBardBardChanModelMode =
+        data.risuBardBardChanModelMode === 'model' ? 'model' : 'memory'
     delete (data as { risuBardCanonicalMode?: unknown })
         .risuBardCanonicalMode
     data.risuBardAnalysisTokenLimit = normalizeRisuBardAnalysisTokenLimit(
@@ -932,11 +979,30 @@ export function setDatabase(data:Database){
         )
     const chatInquiryTokenBudget = normalizeRisuBardInquiryTokenBudget(
         data.risuBardInquiryTargetTokenBudget,
-        data.risuBardInquiryMaximumTokenBudget
+        data.risuBardInquiryMaximumTokenBudget,
+        data.risuBardInquiryEventTokenBudget,
+        data.risuBardInquirySourceTokenBudget,
     )
     data.risuBardInquiryTargetTokenBudget = chatInquiryTokenBudget.target
+    data.risuBardInquiryEventTokenBudget = chatInquiryTokenBudget.events
+    data.risuBardInquirySourceTokenBudget = chatInquiryTokenBudget.perSource
     data.risuBardInquiryMaximumTokenBudget = chatInquiryTokenBudget.maximum
-    data.risuBardWikiWritingLanguage = data.risuBardWikiWritingLanguage === 'en' ? 'en' : 'ko'
+    data.risuBardInquiryTimeoutMs = normalizeRisuBardInquiryTimeoutMs(
+        data.risuBardInquiryTimeoutMs
+    )
+    data.risuBardHistoricalSourceMatchLimit =
+        normalizeRisuBardHistoricalSourceMatchLimit(
+            data.risuBardHistoricalSourceMatchLimit
+        )
+    data.risuBardWikiWritingLanguage = normalizeWikiWritingLanguage(
+        data.risuBardWikiWritingLanguage
+    )
+    data.risuBardGrimoireLanguage = normalizeBardLoreAnalysisLanguage(
+        data.risuBardGrimoireLanguage
+    )
+    data.risuBardGrimoireAnalysisDefaults = normalizeBardLoreAnalysisDefaults(
+        data.risuBardGrimoireAnalysisDefaults
+    )
     data.risuBardCanonicalWritingStyle = normalizeRisuBardCanonicalWritingStyle(
         data.risuBardCanonicalWritingStyle
     )
@@ -969,7 +1035,25 @@ export function setDatabase(data:Database){
     }, uuidv4)
     data.risuBardWikiPromptPresets = wikiPromptState.presets
     data.risuBardChatWikiPromptPresetId = wikiPromptState.chatPresetId
+    const grimoirePromptState = normalizeBardLoreInstructionPresetState({
+        presets: data.risuBardGrimoirePromptPresets,
+        activePresetId: data.risuBardGrimoirePromptPresetId,
+    })
+    data.risuBardGrimoirePromptPresets = grimoirePromptState.presets
+    data.risuBardGrimoirePromptPresetId = grimoirePromptState.activePresetId
     for(const char of data.characters){
+        if(char.bardLore){
+            const normalizedBardLore = normalizeBardLoreOwnerState(
+                char.bardLore,
+                char.globalLore ?? [],
+                uuidv4,
+            )
+            if (normalizedBardLore) {
+                char.globalLore = normalizedBardLore.legacyEntries
+                char.bardLore = normalizedBardLore.state
+            }
+            else char.bardLore = undefined
+        }
         if (typeof char.risuBardWikiGuide !== 'string') {
             char.risuBardWikiGuide = ''
         }
@@ -1092,21 +1176,25 @@ export function setCurrentChat(chat:Chat):Chat{
 }
 
 /**
- * Model-mode fields seeded into a freshly created (empty) chat so the
- * "default model mode for new chats" preference (useModelPresetByDefault)
- * applies AT BIRTH — a snapshot, not a runtime fallback. A runtime fallback
- * would retroactively flip every existing chat that never chose a mode, and
- * couple un-opened chats live to db.defaultModelBinding. Snapshotting here keeps
- * each chat independent. Returns {} when the default is legacy (leave the field
- * absent → classic), so existing chats are unaffected. Spread into new Chat
- * literals. Do NOT call for hydration placeholders or chats being restored with
- * their own mode.
+ * Defaults seeded into a freshly created (empty) chat. Persona selection inherits
+ * the previous chat when supplied, otherwise it snapshots the selected global
+ * persona. Model-mode fields similarly apply at birth instead of coupling existing
+ * chats to later global changes. Spread into new Chat literals. Do not call for
+ * chats being restored with their own state.
  */
-export function newChatModelDefaults(): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding'>> {
+export function newChatModelDefaults(
+    character?: character | null,
+    previousChat?: Pick<Chat, 'bindedPersona'> | null,
+): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding' | 'supaMemory' | 'bindedPersona'>> {
     const db = getDatabase()
-    if (!db.useModelPresetByDefault) return {}
+    const defaults = {
+        supaMemory: false,
+        bindedPersona: getNewChatPersonaBinding(db, character, previousChat),
+    }
+    if (!db.useModelPresetByDefault) return defaults
     const def = db.defaultModelBinding
     return {
+        ...defaults,
         useModelPreset: true,
         modelBinding: def ? structuredClone($state.snapshot(def)) : emptyModelBinding(),
     }
@@ -1169,12 +1257,28 @@ export interface TogglePreset {
     promptPresetName?: string        // name of the prompt preset active when saved
 }
 
+export function getActivePromptOverlayTemplate(db: Database = getDatabase()): PromptItem[] | null | undefined {
+    return composePromptBlockOverlay(
+        db.promptTemplate,
+        db.promptBlockOverlayProfiles ?? [],
+        db.promptBlockOverlay,
+    )
+}
+
+export function getActivePromptOverlayToggleTemplate(db: Database = getDatabase()): string {
+    return getEffectivePromptToggleTemplate(
+        db.customPromptTemplateToggle,
+        db.promptBlockOverlayProfiles ?? [],
+        db.promptBlockOverlay,
+    )
+}
+
 export function getToggleKeys(db:Database = getDatabase(), char:character = getCurrentCharacter(), chat:Chat = getCurrentChat()):string[]{
     const moduleToggleTemplate = getEnabledModuleDefinitions(db, char, chat)
         .map((module) => module.customModuleToggle ?? '')
         .filter(Boolean)
         .join('\n')
-    return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
+    return parseToggleKeysFromTemplate(`${getActivePromptOverlayToggleTemplate(db)}\n${moduleToggleTemplate}`)
 }
 
 export function snapshotToggleValues(db:Database = getDatabase()):Record<string, string>{
@@ -1240,14 +1344,50 @@ export function pinToggleValuesToChat(
     db:Database = getDatabase(),
     char:character = getCurrentCharacter(),
 ):void{
-    chat.GLGlobalVariables = snapshotCurrentToggleValues(db, char, chat)
+    const values = snapshotCurrentToggleValues(db, char, chat)
+    chat.GLGlobalVariables = { ...values }
+    chat.togglePresetBaseline = createTogglePresetBaseline(values)
     chat.useLocallySetGlobalVariables = true
     chat.savedToggleValues = undefined
+}
+
+export function applyTogglePresetToChat(
+    preset:TogglePreset,
+    db:Database = getDatabase(),
+    char:character = getCurrentCharacter(),
+    chat:Chat = getCurrentChat(),
+):void{
+    if(db.disableToggleBinding || !chat){
+        applyToggleValues(preset.values, db, char, chat)
+        return
+    }
+
+    chat.GLGlobalVariables = {}
+    chat.useLocallySetGlobalVariables = true
+    applyToggleValues(preset.values, db, char, chat)
+    chat.togglePresetBaseline = createTogglePresetBaseline(preset.values, preset.name)
+    chat.savedToggleValues = undefined
+}
+
+export function setPinnedTogglePresetBaseline(
+    chat:Chat,
+    values:Record<string, string>,
+    name?:string,
+):void{
+    if(!chat.useLocallySetGlobalVariables) return
+    chat.togglePresetBaseline = createTogglePresetBaseline(values, name)
+}
+
+export function resetPinnedToggleValues(chat:Chat):void{
+    if(!chat.togglePresetBaseline) return
+    chat.GLGlobalVariables = { ...chat.togglePresetBaseline.values }
+    chat.useLocallySetGlobalVariables = true
 }
 
 export function unpinToggleValuesFromChat(chat:Chat):void{
     chat.useLocallySetGlobalVariables = false
     chat.GLGlobalVariables = undefined
+    chat.togglePresetBaseline = undefined
     chat.savedToggleValues = undefined
 }
 
@@ -1264,6 +1404,9 @@ export function fillMissingPinnedToggleValues(
             && Object.hasOwn(db.globalChatVariables, key)
         ){
             chat.GLGlobalVariables[key] = db.globalChatVariables[key]
+            if(chat.togglePresetBaseline && !Object.hasOwn(chat.togglePresetBaseline.values, key)){
+                chat.togglePresetBaseline.values[key] = db.globalChatVariables[key]
+            }
         }
     }
 }
@@ -1284,6 +1427,7 @@ export function loadTogglesFromChat(
     if(!chat?.savedToggleValues || chat.GLGlobalVariables) return
     chat.GLGlobalVariables = { ...chat.savedToggleValues }
     chat.useLocallySetGlobalVariables = true
+    chat.togglePresetBaseline ??= createTogglePresetBaseline(chat.savedToggleValues)
     chat.savedToggleValues = undefined
 }
 
@@ -1358,6 +1502,13 @@ export function normalizePersonaEnabledModules(
 }
 
 export interface PersonaBuilderPromptPreset {
+    id: string
+    kind: 'task' | 'style'
+    name: string
+    content: string
+}
+
+export interface LoreBuilderPromptPreset {
     id: string
     kind: 'task' | 'style'
     name: string
@@ -1443,6 +1594,9 @@ export interface Database{
     themePresetsId:number
     togglePresets?:TogglePreset[]
     personaBuilderPromptPresets?:PersonaBuilderPromptPreset[]
+    loreBuilderPromptPresets?:LoreBuilderPromptPreset[]
+    personaBuilderStylePromptPresetId?:string
+    loreBuilderStylePromptPresetId?:string
     sdProvider: string
     webUiUrl:string
     sdSteps:number
@@ -1562,6 +1716,9 @@ export interface Database{
     colorScheme:ColorScheme
     colorSchemeName:string
     promptTemplate?:PromptItem[]
+    promptBlockOverlay?: PromptBlockOverlayConfig | null
+    promptBlockOverlayProfiles?: PromptBlockOverlayProfile[]
+    promptBlockOverlayApplicationPresets?: PromptBlockOverlayApplicationPreset[]
     forceProxyAsOpenAI?:boolean
     hypaModel:HypaModel
     saveTime?:number
@@ -1645,6 +1802,7 @@ export interface Database{
     sideBarSize:number
     /** Global layout preferences shared across characters and chats. */
     characterSidebarWidth?: number
+    characterListSidebarWidth?: number
     chatListHeight?: number
     risuBardMemoryDialogSize?: {
         width: number
@@ -1670,20 +1828,30 @@ export interface Database{
         yRatio: number
     }>
     risuBardModelMode?: 'memory' | 'model'
+    risuBardBardChanEnabled?: boolean
+    risuBardBardChanModelMode?: 'memory' | 'model'
     risuBardAutoWikiEnabled?: boolean
+    risuBardWikiMarkdownPreview?: boolean
     risuBardRecentMessageCount?: number
     risuBardResponseMessageCount?: number
     risuBardResponseIncludeUserMessages?: boolean
     risuBardResponseExcludeUserMessages?: boolean
+    risuBardAnalysisExcludeUserMessages?: boolean
     risuBardAnalysisTokenLimit?: number
     risuBardAdditionalSearchLimit?: number
     risuBardCanonicalTargetLimit?: number
     risuBardCanonicalConcurrencyLimit?: number
     risuBardInquiryTargetTokenBudget?: number
+    risuBardInquiryEventTokenBudget?: number
+    risuBardInquirySourceTokenBudget?: number
     risuBardInquiryMaximumTokenBudget?: number
+    risuBardInquiryTimeoutMs?: number
+    risuBardHistoricalSourceMatchLimit?: number
     risuBardCanonicalWritingStyle?: import('../risubard/risuBardSettings').RisuBardCanonicalWritingStyle
     risuBardCanonicalCustomStyle?: string
     risuBardWikiWritingLanguage?: import('../risubard/wikiWritingLanguage').WikiWritingLanguage
+    risuBardGrimoireLanguage?: import('../lorebook/bardLoreLanguage').BardLoreAnalysisLanguage
+    risuBardGrimoireAnalysisDefaults?: BardLoreAnalysisSettings
     risuBardArcPlotterEnabled?: boolean
     risuBardArcPlotterCheckpointSize?: number
     risuBardArcPlotterMaxArcs?: number
@@ -1694,6 +1862,8 @@ export interface Database{
     risuBardArcPlotterCustomPresets?: ArcPlotterPreset[]
     risuBardWikiPromptPresets?: WikiPromptPreset[]
     risuBardChatWikiPromptPresetId?: string
+    risuBardGrimoirePromptPresets?: BardLoreInstructionPreset[]
+    risuBardGrimoirePromptPresetId?: string
     textAreaTextSize:number
     combineTranslation:boolean
     dynamicAssets:boolean
@@ -1771,6 +1941,7 @@ export interface Database{
     showModelInSidebar:boolean
     showPresetInSidebar:boolean
     showPersonaInSidebar:boolean
+    pinPersonaOnNewChat:boolean
     disableMobileDragDrop:boolean
     disableToggleBinding:boolean
     menuSideBar:boolean
@@ -1957,6 +2128,7 @@ export interface Database{
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
     preserveChatScrollPosition?: boolean
+    pinChatScrollNavigator?: boolean
     newMessageButtonStyle?: string
     pluginDevelopMode?: boolean
     echoMessage?:string
@@ -2038,12 +2210,39 @@ export interface loreBook{
 
 import type { FirstMessageStudioProject } from '../firstMessageStudio'
 
+export interface RisuBardGallerySlot {
+    id: string
+    title: string
+    summary: string
+    previewMessageIndex?: number
+    hideUserMessages?: boolean
+    categoryId?: string
+    sourceChatId?: string
+    sourceChatName: string
+    createdAt: number
+    messages: Message[]
+}
+
+export interface RisuBardGalleryCategory {
+    id: string
+    name: string
+}
+
+export interface RisuBardGallery {
+    title?: string
+    slotWidth?: number
+    slotHeight?: number
+    categories: RisuBardGalleryCategory[]
+    slots: RisuBardGallerySlot[]
+}
+
 export interface character{
     type?:"character"
     name:string
     image?:string
     firstMessage:string
     firstMessageStudio?:FirstMessageStudioProject
+    risuBardGallery?:RisuBardGallery
     desc:string
     notes:string
     chats:Chat[]
@@ -2054,6 +2253,7 @@ export interface character{
     bias: [string, number][]
     emotionImages: [string, string][]
     globalLore: loreBook[]
+    bardLore?: BardLoreState
     risuBardWikiGuide?: string
     chaId: string
     sdData: [string, string][]
@@ -2243,6 +2443,7 @@ export function purgeUnsupportedGroupChats(db: Database): number {
 export interface botPreset{
     id?: string
     name?:string
+    description?: string
     apiType?: string
     openAIKey?: string
     localNetworkMode?: boolean
@@ -2276,6 +2477,7 @@ export interface botPreset{
     autoSuggestPrefix?: string
     autoSuggestClean?: boolean
     promptTemplate?:PromptItem[]
+    promptBlockOverlay?: PromptBlockOverlayConfig | null
     NAIadventure?: boolean
     NAIappendName?: boolean
     localStopStrings?: string[]
@@ -2550,11 +2752,16 @@ export function normalizeChat(chat: Partial<Chat>): Chat {
     if (typeof c.note !== 'string') c.note = ''
     if (typeof c.name !== 'string') c.name = ''
     if (!Array.isArray(c.localLore)) c.localLore = []
+    c.supaMemory ??= false
     if (typeof c.risuBardWikiGuide !== 'string') c.risuBardWikiGuide = ''
     if (c.savedToggleValues && !c.GLGlobalVariables) {
         c.GLGlobalVariables = { ...c.savedToggleValues }
         c.useLocallySetGlobalVariables = true
+        c.togglePresetBaseline ??= createTogglePresetBaseline(c.savedToggleValues)
         c.savedToggleValues = undefined
+    }
+    if (c.useLocallySetGlobalVariables && c.GLGlobalVariables && !c.togglePresetBaseline) {
+        c.togglePresetBaseline = createTogglePresetBaseline(c.GLGlobalVariables)
     }
     c.risuBardWikiReboot = normalizeWikiRebootJob(c.risuBardWikiReboot)
     return c
@@ -2565,6 +2772,8 @@ export interface Chat{
     note:string
     name:string
     localLore: loreBook[]
+    /** Legacy per-chat gallery. New data is stored on the character. */
+    risuBardGallery?:RisuBardGallery
     risuBardWikiGuide?: string
     risuBardSettings?: import('../risubard/risuBardSettings').RisuBardChatSettings
     risuBardWikiReboot?: import('../risubard/wikiReboot').WikiRebootJob
@@ -2591,6 +2800,8 @@ export interface Chat{
     bookmarkNames?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
+    /** Immutable comparison/reset point for the current per-chat toggle values. */
+    togglePresetBaseline?: TogglePresetBaseline
     /** When enabled, global chat variables can be overridden by this chat without
      * mutating the application-wide values. */
     useLocallySetGlobalVariables?: boolean
@@ -2773,6 +2984,7 @@ export const defaultOoba:OobaSettings = {
 export const presetTemplate:botPreset = {
     id: '',
     name: "New Preset",
+    description: '',
     apiType: "gemini-3-flash-preview",
     openAIKey: "",
     localNetworkMode: false,
@@ -2956,6 +3168,7 @@ export function saveCurrentPreset(){
     const savedPreset:botPreset =  {
         id: pres[db.botPresetsId]?.id || uuidv4(),
         name: pres[db.botPresetsId].name,
+        description: pres[db.botPresetsId]?.description ?? '',
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         localNetworkMode: db.localNetworkMode,
@@ -2985,6 +3198,7 @@ export function saveCurrentPreset(){
         openrouterRequestModel: db.openrouterRequestModel,
         NAISettings: safeStructuredClone(db.NAIsettings),
         promptTemplate: normalizePromptTemplate(db.promptTemplate) ?? null,
+        promptBlockOverlay: safeStructuredClone(normalizePromptBlockOverlay(db.promptBlockOverlay)),
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
@@ -3057,10 +3271,13 @@ export function copyPreset(id:number){
 }
 
 export function changeToPreset(id =0, savecurrent = true){
+    let db = getDatabase()
+    if(id === db.botPresetsId){
+        return
+    }
     if(savecurrent){
         saveCurrentPreset()
     }
-    let db = getDatabase()
     let pres = db.botPresets
     const newPres = pres[id]
     db.botPresetsId = id
@@ -3103,6 +3320,7 @@ export function setPreset(db:Database, newPres: botPreset){
     db.autoSuggestPrefix = newPres.autoSuggestPrefix ?? db.autoSuggestPrefix
     db.autoSuggestClean = newPres.autoSuggestClean ?? db.autoSuggestClean
     db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
+    db.promptBlockOverlay = safeStructuredClone(normalizePromptBlockOverlay(newPres.promptBlockOverlay))
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName
     db.NAIsettings.cfg_scale ??= 1

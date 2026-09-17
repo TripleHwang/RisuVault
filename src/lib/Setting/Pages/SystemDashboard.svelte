@@ -69,8 +69,7 @@
     let modElapsed = $state<number | null>(null)
     let modShown = $state(50)
 
-    let optimizeOpen = $state(false)
-    let optimizeMessage = $state('')
+    let orphanCleanupOpen = $state(false)
 
     // Default off = show only RisuAI internal breakdown (smaller scope, more
     // useful at-a-glance). Toggle on to expand the bar to disk-total scale
@@ -146,28 +145,41 @@
         }
     }
 
-    async function runOptimize() {
-        const ok = await alertConfirm(language.storageOptimizeConfirm)
+    async function cleanupAllOrphans() {
+        if (!stats) return
+        const hypa = stats.prefixes['cache/hypa-vector/'] ?? { count: 0, totalSize: 0 }
+        const ok = await alertConfirm(language.storageOrphanCleanupConfirm(
+            stats.orphan.available ? stats.orphan.count : 0,
+            stats.orphan.available ? stats.orphan.totalSize : 0,
+            hypa.count,
+            hypa.totalSize,
+            stats.storage.reclaimable,
+        ))
         if (!ok) return
-        optimizeMessage = language.storageOptimizing
-        optimizeOpen = true
+        orphanCleanupOpen = true
         try {
             const auth = await forageStorage.createAuth()
-            const res = await fetch('/api/db/optimize', {
+            const res = await fetch('/api/db/orphans/cleanup', {
                 method: 'POST',
                 headers: { 'risu-auth': auth },
             })
             const json = await res.json().catch(() => ({}))
             if (!res.ok) {
-                notifyError(language.storageOptimizeFailed + ': ' + (json?.error || `HTTP ${res.status}`))
+                notifyError(language.storageOrphanCleanupFailed + ': ' + (json?.error || `HTTP ${res.status}`))
                 return
             }
-            notifySuccess(language.storageOptimizeDone(json.reclaimed ?? 0, json.elapsedMs ?? 0))
+            notifySuccess(language.storageOrphanCleanupDone(
+                json.assets?.count ?? 0,
+                json.hypaVectors?.count ?? 0,
+                json.objects?.count ?? 0,
+                json.reclaimed ?? 0,
+            ))
+            characters = null
             await loadStats()
         } catch (err) {
-            notifyError(language.storageOptimizeFailed + ': ' + (err instanceof Error ? err.message : String(err)))
+            notifyError(language.storageOrphanCleanupFailed + ': ' + (err instanceof Error ? err.message : String(err)))
         } finally {
-            optimizeOpen = false
+            orphanCleanupOpen = false
         }
     }
 
@@ -273,8 +285,12 @@
     const modSlice = $derived(modules?.modules.slice(0, modShown) ?? [])
     const modRemaining = $derived((modules?.modules.length ?? 0) - modShown)
 
-    // Referenced vs reclaimable file objects for the cleanup section bar.
-    const overheadUsed = $derived(stats ? Math.max(0, stats.files.db - stats.storage.reclaimable) : 0)
+    const hypaCache = $derived(stats?.prefixes['cache/hypa-vector/'] ?? { count: 0, totalSize: 0 })
+    const hasCleanupCandidates = $derived(!!stats && (
+        (stats.orphan.available && stats.orphan.count > 0)
+        || hypaCache.count > 0
+        || stats.storage.reclaimable > 0
+    ))
 
     // ⓘ button: opens a small markdown modal. Works on touch (where hover
     // tooltips are unreachable) and via keyboard.
@@ -437,66 +453,42 @@
         </div>
     </div>
 
-    <!-- ③ File-object cleanup ──────────────────────────────────────────── -->
+    <!-- ③ Orphan cleanup ──────────────────────────────────────────────── -->
     <div class="border border-darkborderc bg-darkbg/40 rounded-md p-4 mb-4">
-        <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
-                <SparklesIcon size={16} />
-                <span class="font-medium">{language.storageCleanup}</span>
+        <div class="flex items-center gap-2 text-textcolor mb-2">
+            <SparklesIcon size={16} />
+            <span class="font-medium">{language.storageOrphanCleanupTitle}</span>
+        </div>
+        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageOrphanCleanupDesc}</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3" aria-live="polite">
+            <div class="rounded-md border border-darkborderc bg-bgcolor/60 p-3">
+                <div class="text-textcolor2 text-xs mb-1">{language.storageOrphanCleanupMedia}</div>
+                <div class="text-textcolor text-sm font-medium tabular-nums">
+                    {stats.orphan.available
+                        ? language.storageOrphanCleanupCountSize(stats.orphan.count, stats.orphan.totalSize)
+                        : language.storageOrphanCleanupUnavailable}
+                </div>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
-                {language.storageOptimizeHeader(stats.files.db, stats.storage.reclaimable)}
-            </span>
+            <div class="rounded-md border border-darkborderc bg-bgcolor/60 p-3">
+                <div class="text-textcolor2 text-xs mb-1">{language.storageOrphanCleanupHypa}</div>
+                <div class="text-textcolor text-sm font-medium tabular-nums">
+                    {language.storageOrphanCleanupCountSize(hypaCache.count, hypaCache.totalSize)}
+                </div>
+            </div>
+            <div class="rounded-md border border-darkborderc bg-bgcolor/60 p-3">
+                <div class="text-textcolor2 text-xs mb-1">{language.storageOrphanCleanupObjects}</div>
+                <div class="text-textcolor text-sm font-medium tabular-nums">
+                    {language.storageOrphanCleanupSize(stats.storage.reclaimable)}
+                </div>
+            </div>
         </div>
 
-        <!-- Referenced vs unreachable file objects -->
-        <div class="flex h-7 bg-bgcolor border border-darkborderc rounded-md overflow-hidden mb-3">
-            <Tooltip.Root>
-                <Tooltip.Trigger>
-                    {#snippet child({ props })}
-                        <div {...props} class="bg-primary cursor-help" style:width={pctOf(overheadUsed, stats.files.db).toFixed(3) + '%'}></div>
-                    {/snippet}
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                    <Tooltip.Content
-                        class="bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg z-50 leading-relaxed"
-                        sideOffset={4}
-                        collisionPadding={8}
-                    >
-                        <div class="font-medium">{language.storageOptimizeBarUsed}</div>
-                        <div class="text-textcolor2 tabular-nums">{fmtBytes(overheadUsed)}</div>
-                    </Tooltip.Content>
-                </Tooltip.Portal>
-            </Tooltip.Root>
-            <Tooltip.Root>
-                <Tooltip.Trigger>
-                    {#snippet child({ props })}
-                        <div {...props} class="bg-warning cursor-help" style:width={pctOf(stats.storage.reclaimable, stats.files.db).toFixed(3) + '%'}></div>
-                    {/snippet}
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                    <Tooltip.Content
-                        class="bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg z-50 leading-relaxed"
-                        sideOffset={4}
-                        collisionPadding={8}
-                    >
-                        <div class="font-medium">{language.storageOptimizeBarReclaimable}</div>
-                        <div class="text-textcolor2 tabular-nums">{fmtBytes(stats.storage.reclaimable)}</div>
-                    </Tooltip.Content>
-                </Tooltip.Portal>
-            </Tooltip.Root>
-        </div>
-        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mb-3 tabular-nums">
-            <span><span class="inline-block size-2 bg-primary rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarUsed} {fmtBytes(overheadUsed)}</span>
-            <span><span class="inline-block size-2 bg-warning rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarReclaimable} {fmtBytes(stats.storage.reclaimable)}</span>
-        </div>
-
-        <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageOptimizeWhen}</p>
+        <p class="text-textcolor2 text-xs leading-relaxed mb-3">{language.storageOrphanCleanupInlayNote}</p>
         <div class="flex justify-end">
-            <ShButton variant="primary" onclick={runOptimize} disabled={stats.storage.reclaimable < 50 * 1024 * 1024}>
+            <ShButton variant="primary" onclick={cleanupAllOrphans} disabled={orphanCleanupOpen || !hasCleanupCandidates}>
                 <SparklesIcon size={16} />
-                {language.storageOptimize}
+                {language.storageOrphanCleanupAll}
             </ShButton>
         </div>
     </div>
@@ -652,4 +644,4 @@
     </Tooltip.Provider>
 {/if}
 
-<ShLoadingDialog open={optimizeOpen} message={optimizeMessage} tier="top" />
+<ShLoadingDialog open={orphanCleanupOpen} message={language.storageOrphanCleanuping} tier="top" />

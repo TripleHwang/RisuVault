@@ -116,7 +116,7 @@ export async function executeSelfUpdate(): Promise<void> {
     }
 }
 
-async function waitForServerRestart(expectedVersion: string, timeoutMs = 60000): Promise<void> {
+async function waitForServerRestart(expectedVersion: string, timeoutMs = 180000): Promise<void> {
     const start = Date.now()
     // Give the server a moment to shut down before polling
     await new Promise(r => setTimeout(r, 3000))

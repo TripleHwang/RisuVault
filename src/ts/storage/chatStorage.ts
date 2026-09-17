@@ -388,6 +388,23 @@ export async function hydrateRecentChatPage(
 /** Track in-flight hydration promises to avoid duplicate fetches */
 const hydrationPromises = new Map<string, Promise<Chat | null>>()
 
+const HYDRATION_PAINT_TIMEOUT_MS = 250
+
+function waitForHydrationPaint(): Promise<void> {
+    return new Promise(resolve => {
+        let settled = false
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const finish = () => {
+            if (settled) return
+            settled = true
+            if (timeout !== undefined) clearTimeout(timeout)
+            resolve()
+        }
+        timeout = setTimeout(finish, HYDRATION_PAINT_TIMEOUT_MS)
+        requestAnimationFrame(finish)
+    })
+}
+
 // ── Server fetch/save ───────────────────────────────────────────────────────
 
 export async function fetchChatFromServer(chaId: string, chatIndex: number, chatId: string): Promise<Chat | null> {
@@ -524,8 +541,9 @@ export async function ensureChatHydrated(
                 return currentSlot
             }
 
-            // Yield one frame so loading overlay dismissal paints before heavy DOM work
-            await new Promise<void>(r => requestAnimationFrame(() => r()))
+            // Yield one frame before heavy DOM work, but never let a suspended
+            // browser frame keep the placeholder and hydration cache forever.
+            await waitForHydrationPaint()
 
             // Apply to memory — mark JustApplied to suppress the reactive write-back
             beginHydrationApply(key)

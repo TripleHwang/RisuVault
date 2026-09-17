@@ -11,6 +11,7 @@ import { pluginV2 } from "./plugins/plugins.svelte";
 import type { GemmaTokenizer } from "@huggingface/transformers";
 import { LRUMap } from 'mnemonist';
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
+import { createRetryableAsyncSingleton } from "./util/retryableAsyncSingleton";
 
 const MAX_CACHE_SIZE = 1500;
 
@@ -229,14 +230,20 @@ async function tokenizeGoogleCloud(text:string) {
 }
 
 let gemmaTokenizer:GemmaTokenizer = null
+
+async function loadGemmaTokenizer():Promise<GemmaTokenizer> {
+    const {GemmaTokenizer} = await import('@huggingface/transformers')
+    return new GemmaTokenizer(
+        await (await fetch("/token/llama/llama3.json")).json(), {}
+    )
+}
+
+const getGemmaTokenizer = createRetryableAsyncSingleton(loadGemmaTokenizer)
+
 async function gemmaTokenize(text:string) {
-    if(!gemmaTokenizer){
-        const {GemmaTokenizer} = await import('@huggingface/transformers')
-        gemmaTokenizer = new GemmaTokenizer(
-            await (await fetch("/token/llama/llama3.json")
-        ).json(), {})
-    }
-    return gemmaTokenizer.encode(text)
+    const tokenizer = gemmaTokenizer ?? await getGemmaTokenizer()
+    gemmaTokenizer = tokenizer
+    return tokenizer.encode(text)
 }
 
 async function loadTikParser(model:string):Promise<Tiktoken> {

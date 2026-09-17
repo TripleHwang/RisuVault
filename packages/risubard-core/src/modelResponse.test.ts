@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseSingleJsonObject } from './modelOutput'
-import { ModelOutputError, readModelResponseText, runValidatedModelRequest } from './modelResponse'
+import {
+    ModelOutputError,
+    NativeStructuredOutputUnavailableError,
+    readModelResponseText,
+    runStructuredModelRequest,
+    runValidatedModelRequest,
+} from './modelResponse'
 
 describe('model response quality', () => {
     it.each(['length', 'max_tokens', 'MAX_TOKENS', 'max_output_tokens'])
@@ -93,6 +99,106 @@ describe('model response quality', () => {
         const request = vi.fn(async () => ({ type: 'success', result: '{', finishReason: 'length' }))
         await expect(runValidatedModelRequest({ request, parse: parseSingleJsonObject, maxAttempts: 1 }))
             .rejects.toThrow(expect.objectContaining({ reason: 'truncated' }))
+        expect(request).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('structured model response recovery', () => {
+    it('returns a valid native response without falling back', async () => {
+        const request = vi.fn(async () => ({
+            type: 'success', result: '{"ok":true}',
+        }))
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).resolves.toEqual({ ok: true })
+        expect(request).toHaveBeenCalledTimes(1)
+        expect(request.mock.calls[0][0]).toBe('native')
+    })
+
+    it('keeps the corrected native response when validation repair succeeds', async () => {
+        const request = vi.fn(async (_mode, feedback?: ModelOutputError) => ({
+            type: 'success', result: feedback ? '{"ok":true}' : 'not JSON',
+        }))
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).resolves.toEqual({ ok: true })
+        expect(request.mock.calls.map(([mode]) => mode))
+            .toEqual(['native', 'native'])
+    })
+
+    it('falls back once after corrected native output still fails validation', async () => {
+        const request = vi.fn(async (mode) => ({
+            type: 'success',
+            result: mode === 'prompt' ? '{"ok":true}' : 'not JSON',
+        }))
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).resolves.toEqual({ ok: true })
+        expect(request.mock.calls.map(([mode]) => mode))
+            .toEqual(['native', 'native', 'prompt'])
+        expect(request.mock.calls[2][1]).toBeInstanceOf(ModelOutputError)
+    })
+
+    it('falls back immediately when the provider rejects native schema', async () => {
+        const request = vi.fn(async (mode) => {
+            if (mode === 'native') {
+                throw new NativeStructuredOutputUnavailableError()
+            }
+            return { type: 'success', result: '{"ok":true}' }
+        })
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).resolves.toEqual({ ok: true })
+        expect(request.mock.calls.map(([mode]) => mode))
+            .toEqual(['native', 'prompt'])
+    })
+
+    it('does not retry an invalid prompt-schema fallback', async () => {
+        const request = vi.fn(async (mode) => {
+            if (mode === 'native') {
+                throw new NativeStructuredOutputUnavailableError()
+            }
+            return { type: 'success', result: 'not JSON' }
+        })
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).rejects.toThrow('응답 형식')
+        expect(request.mock.calls.map(([mode]) => mode))
+            .toEqual(['native', 'prompt'])
+    })
+
+    it.each([{ noRetry: true }, { toolExecuted: true }])
+    ('does not fall back after a non-replayable native result: %s', async (flags) => {
+        const request = vi.fn(async () => ({
+            type: 'success', result: 'not JSON', ...flags,
+        }))
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).rejects.toThrow('응답 형식')
+        expect(request).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not convert ordinary request failures into schema fallback', async () => {
+        const request = vi.fn(async () => {
+            throw new Error('rate limit')
+        })
+
+        await expect(runStructuredModelRequest({
+            request,
+            parse: parseSingleJsonObject,
+        })).rejects.toThrow('rate limit')
         expect(request).toHaveBeenCalledTimes(1)
     })
 })

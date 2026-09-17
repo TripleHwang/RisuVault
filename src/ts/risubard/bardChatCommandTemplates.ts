@@ -145,7 +145,7 @@ export const BARDCHAT_COMMAND_TEMPLATES: readonly BardChatCommandTemplate[] = [{
     description: '기존 문서의 안정 ID와 내용을 유지하며 유형을 변경합니다.',
     prompt: `작업: RECLASSIFY
 대상: <문서 제목 또는 ID>
-새 유형: <character / location / scene / faction / item / concept / other>
+새 유형: <character / location / scene / faction / creature / item / concept / other>
 규칙:
 - 기존 targetDocumentId를 사용하고 확정 내용과 링크를 보존하세요.
 - 사건(event)은 다른 유형으로 바꾸거나 새로 만들지 마세요.

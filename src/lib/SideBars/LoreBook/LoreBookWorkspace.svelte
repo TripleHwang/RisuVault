@@ -4,6 +4,15 @@
     import { v4 as createUuid } from 'uuid'
     import { language } from 'src/lang'
     import type { loreBook } from 'src/ts/storage/database.svelte'
+    import {
+        createBardLoreEntry,
+        type BardLoreEntry,
+        type BardLoreAnalysisRun,
+        type BardLoreKind,
+        type BardLoreActivation,
+        type BardLoreInjection,
+        type BardLoreSettings,
+    } from 'src/ts/lorebook/bardLore'
     import { DBState } from 'src/ts/stores.svelte'
     import {
         addLorebookEntry,
@@ -13,27 +22,31 @@
         ensureLorebookIds,
         filterLorebookEntries,
         moveLorebookEntries,
+        orderLorebookEntriesForDisplay,
         removeKeysFromEntries,
         updateLorebookEntry,
         type LorebookDropPosition,
     } from 'src/ts/lorebook/workspaceOperations'
     import { migrateLoremasterDisabledEntries } from 'src/ts/lorebook/loremasterMigration'
-    import { alertConfirm, notifySuccess } from 'src/ts/alert'
+    import { alertConfirm, alertNormal, notifySuccess } from 'src/ts/alert'
     import type { LorebookLocalActivation } from './loreBookWorkspaceConnections'
     import SolarIcon from './SolarIcon.svelte'
     import LoreBookStatusIcons from './LoreBookStatusIcons.svelte'
+    import BardLoreActivationLabel from './BardLoreActivationLabel.svelte'
+    import BardLoreAnalysisPanel from './BardLoreAnalysisPanel.svelte'
+    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import CbsConditionView from '../../UI/GUI/CbsConditionView.svelte'
     import { lorebookVariableContext } from 'src/ts/gui/cbsVariableEditor'
     import { resizeHandle } from 'src/ts/gui/resizeHandle'
     import { tooltip } from 'src/ts/gui/tooltip'
+    import BardLoreActivationSelect from './BardLoreActivationSelect.svelte'
+    import LoreBuilder from 'src/lib/Others/LoreBuilder.svelte'
     import { loreBookVisualStatus } from './loreBookVisualStatus'
     import {
         readLorebookWorkspaceSession,
         writeLorebookWorkspaceSession,
         type LorebookWorkspaceSession,
     } from './loreBookWorkspaceSession'
-    import squareAltArrowDownIcon from 'src/assets/solar-bold/square-alt-arrow-down-bold.svg'
-    import squareAltArrowRightIcon from 'src/assets/solar-bold/square-alt-arrow-right-bold.svg'
     import documentAddIcon from 'src/assets/solar-bold/document-add-bold.svg'
     import addFolderIcon from 'src/assets/solar-bold/add-folder-bold.svg'
     import fileDownloadIcon from 'src/assets/solar-bold/file-download-bold.svg'
@@ -48,6 +61,7 @@
     import folderOpenIcon from 'src/assets/solar-bold/folder-open-bold.svg'
     import folderIcon from 'src/assets/solar-bold/folder-bold.svg'
     import editIcon from 'src/assets/solar-bold/pen-2-bold.svg'
+    import magicWandIcon from 'src/assets/solar-bold/magic-wand-bold.svg'
 
     interface Props {
         entries: loreBook[]
@@ -55,6 +69,10 @@
         scopeKey?: string
         active?: boolean
         dragEnabled?: boolean
+        bardMode?: boolean
+        bardSettings?: BardLoreSettings
+        bardAnalysisRun?: BardLoreAnalysisRun
+        onBardAnalysisRunChange?: (run: BardLoreAnalysisRun | undefined) => void
         legacyDisabledBackups?: Record<string, loreBook & { disabled?: boolean }>
         localActivation?: LorebookLocalActivation
         onChange: (entries: loreBook[]) => void
@@ -69,6 +87,10 @@
         scopeKey,
         active = true,
         dragEnabled = true,
+        bardMode = false,
+        bardSettings,
+        bardAnalysisRun,
+        onBardAnalysisRunChange,
         legacyDisabledBackups,
         localActivation,
         onChange,
@@ -82,16 +104,20 @@
     let selectionAnchorId = $state<string | null>(null)
     let expandedFolderIds = $state(new Set<string>())
     let query = $state('')
-    let searchTarget = $state<'name' | 'keys'>('name')
+    let searchTarget = $state<'name' | 'keys' | 'all'>('name')
     let enabledFilter = $state<'all' | 'enabled' | 'disabled'>('all')
     let mobileView = $state<'list' | 'editor'>('list')
     let conditionView = $state(false)
+    let linksDialogOpen = $state(false)
+    let loreBuilderOpen = $state(false)
+    let loreBuilderTarget = $state<{ id: string; name: string; content: string } | null>(null)
     const editorId = $props.id()
     const keyFields = ['key', 'secondkey'] as const
     let expandedKeys = $state({ key: false, secondkey: false })
     let editorGrid: HTMLElement | undefined = $state()
     const variableContext = $derived(conditionView ? lorebookVariableContext(DBState.db, scopeKey) : undefined)
     let batchKeys = $state('')
+    let batchBardValues = $state('')
     let targetFolderId = $state('')
     let draftEntryId = $state<string | null>(null)
     type DraftField = 'comment' | 'key' | 'secondkey' | 'content' | 'insertorder'
@@ -123,12 +149,28 @@
     let normalizedSource: loreBook[] | null = null
     let normalizedEntries = $state.raw<loreBook[]>([])
     const persistedIdSources = new WeakSet<loreBook[]>()
-    let visibleEntries = $derived(filterLorebookEntries(normalizedEntries, {
-        query,
-        target: searchTarget,
-        enabled: enabledFilter,
-    }))
+    let visibleEntries = $derived(orderLorebookEntriesForDisplay(
+        filterLorebookEntries(normalizedEntries, {
+            query,
+            target: searchTarget,
+            enabled: enabledFilter,
+        }),
+    ))
     let activeEntry = $derived(normalizedEntries.find((item) => item.id === activeId) ?? null)
+    let activeBardEntry = $derived(
+        bardMode && activeEntry && 'bard' in activeEntry
+            ? activeEntry as BardLoreEntry
+            : null,
+    )
+    let bardLinkTargets = $derived(
+        normalizedEntries.filter((entry) =>
+            entry.id
+            && entry.id !== activeBardEntry?.id
+            && entry.mode !== 'folder'
+            && entry.mode !== 'child'
+            && 'bard' in entry,
+        ),
+    )
     let folders = $derived(normalizedEntries.filter((item) => item.mode === 'folder'))
     let folderByKey = $derived.by(() => new Map(folders.map((folder) => [folder.key, folder])))
     let folderChildCounts = $derived.by(() => {
@@ -149,6 +191,9 @@
     let batchAlwaysState = $derived(batchBooleanState('alwaysActive'))
     let batchSelectiveState = $derived(batchBooleanState('selective'))
     let batchRegexState = $derived(batchBooleanState('useRegex'))
+    let batchBardActivationState = $derived(batchBardFieldState('activation'))
+    let batchBardKindState = $derived(batchBardFieldState('kind'))
+    let batchBardInjectionState = $derived(batchBardFieldState('injection'))
 
     const isBatchEditable = (entry: loreBook) => entry.mode !== 'folder' && entry.mode !== 'child'
 
@@ -383,6 +428,67 @@
         emit(applyEntryPatch(base, id, patch))
     }
 
+    function patchBardMetadata(patch: Partial<BardLoreEntry['bard']>) {
+        if (!activeBardEntry?.id) return
+        patchEntry(activeBardEntry.id, {
+            bard: { ...activeBardEntry.bard, ...patch },
+        } as Partial<BardLoreEntry>)
+    }
+
+    function commaValues(value: string): string[] {
+        return [...new Set(value.split(/[,\n]/u).map((item) => item.trim()).filter(Boolean))]
+    }
+
+    function addBardLink() {
+        if (!activeBardEntry) return
+        const target = bardLinkTargets.find((entry) =>
+            !activeBardEntry.bard.links.some((link) => link.targetId === entry.id),
+        )
+        if (!target?.id) return
+        patchBardMetadata({
+            links: [...activeBardEntry.bard.links, {
+                targetId: target.id,
+                relation: '',
+                retrieval: 'none',
+            }],
+        })
+    }
+
+    function updateBardLink(index: number, patch: Partial<BardLoreEntry['bard']['links'][number]>) {
+        if (!activeBardEntry) return
+        patchBardMetadata({
+            links: activeBardEntry.bard.links.map((link, linkIndex) =>
+                linkIndex === index ? { ...link, ...patch } : link,
+            ),
+        })
+    }
+
+    function removeBardLink(index: number) {
+        if (!activeBardEntry) return
+        patchBardMetadata({
+            links: activeBardEntry.bard.links.filter((_, linkIndex) => linkIndex !== index),
+        })
+    }
+
+    function addBardFacet() {
+        if (!activeBardEntry) return
+        patchBardMetadata({ facets: [...activeBardEntry.bard.facets ?? [], { key: '', value: '', aliases: [] }] })
+    }
+
+    function updateBardFacet(index: number, patch: Partial<BardLoreEntry['bard']['facets'][number]>) {
+        if (!activeBardEntry) return
+        patchBardMetadata({
+            facets: (activeBardEntry.bard.facets ?? []).map((facet, facetIndex) =>
+                facetIndex === index ? { ...facet, ...patch } : facet,
+            ),
+        })
+    }
+
+    function removeBardFacet(index: number) {
+        if (!activeBardEntry) return
+        patchBardMetadata({ facets: (activeBardEntry.bard.facets ?? []).filter((_, facetIndex) => facetIndex !== index) })
+    }
+
     function commitDraft(field: DraftField) {
         if (!activeEntry?.id || !dirtyDraftFields.has(field) || activeEntry.mode === 'child') return
         const nextDirty = new Set(dirtyDraftFields)
@@ -500,11 +606,71 @@
         emit(next)
     }
 
+    function openLoreBuilder() {
+        if (!activeEntry?.id || activeEntry.mode === 'folder' || activeEntry.mode === 'child') return
+        const target = {
+            id: activeEntry.id,
+            name: drafts.comment.trim() || activeEntry.comment.trim() || activeEntry.key.trim() || language.lorebookWorkspace.untitledLore,
+            content: drafts.content,
+        }
+        commitDraft('content')
+        loreBuilderTarget = target
+        loreBuilderOpen = true
+    }
+
+    function applyLoreBuilderDraft(content: string) {
+        if (!loreBuilderTarget || !normalizedEntries.some((entry) => entry.id === loreBuilderTarget?.id)) {
+            throw new Error(language.lorebookWorkspace.loreBuilder.targetMissing)
+        }
+        if (activeId === loreBuilderTarget.id) {
+            const nextDirty = new Set(dirtyDraftFields)
+            nextDirty.delete('content')
+            dirtyDraftFields = nextDirty
+            drafts.content = content
+        }
+        patchEntry(loreBuilderTarget.id, { content })
+    }
+
+    function batchBardFieldState(field: 'activation'): BardLoreActivation | 'mixed'
+    function batchBardFieldState(field: 'kind'): BardLoreKind | 'mixed'
+    function batchBardFieldState(field: 'injection'): BardLoreInjection | 'mixed'
+    function batchBardFieldState(field: 'activation' | 'kind' | 'injection'): BardLoreActivation | BardLoreKind | BardLoreInjection | 'mixed' {
+        const selected = normalizedEntries.filter((entry): entry is BardLoreEntry =>
+            Boolean(entry.id && selectedIds.has(entry.id) && isBatchEditable(entry) && 'bard' in entry),
+        )
+        const first = field === 'injection' ? selected[0]?.bard.injection ?? 'full' : selected[0]?.bard[field]
+        return first && selected.every((entry) => (field === 'injection' ? entry.bard.injection ?? 'full' : entry.bard[field]) === first) ? first : 'mixed'
+    }
+
+    function batchBardPatch(patch: Partial<BardLoreEntry['bard']>) {
+        const base = commitAllDirty()
+        emit(base.map((entry) =>
+            entry.id && selectedIds.has(entry.id) && isBatchEditable(entry) && 'bard' in entry
+                ? { ...entry, bard: { ...(entry as BardLoreEntry).bard, ...patch } } as BardLoreEntry
+                : entry,
+        ))
+    }
+
+    function batchBardValuesChange(field: 'aliases' | 'tags', remove: boolean) {
+        const values = commaValues(batchBardValues)
+        if (values.length === 0) return
+        const removal = new Set(values)
+        const base = commitAllDirty()
+        emit(base.map((entry) => {
+            if (!entry.id || !selectedIds.has(entry.id) || !isBatchEditable(entry) || !('bard' in entry)) return entry
+            const bardEntry = entry as BardLoreEntry
+            const nextValues = remove
+                ? bardEntry.bard[field].filter((value) => !removal.has(value))
+                : [...new Set([...bardEntry.bard[field], ...values])]
+            return { ...bardEntry, bard: { ...bardEntry.bard, [field]: nextValues } }
+        }))
+    }
+
     function addEntry(mode: loreBook['mode'] = 'normal') {
         const base = commitAllDirty()
         const id = createUuid()
         const folderKey = `\uf000folder:${id}`
-        const next: loreBook = {
+        const legacyEntry: loreBook = {
             id,
             key: mode === 'folder' ? folderKey : '',
             secondkey: '',
@@ -517,6 +683,7 @@
             alwaysActive: false,
             selective: false,
         }
+        const next = bardMode ? createBardLoreEntry(legacyEntry) : legacyEntry
         emit(addLorebookEntry(base, next))
         activeId = id
         mobileView = 'editor'
@@ -541,11 +708,25 @@
                 target.comment || language.lorebookWorkspace.untitledLore,
             )
         if (!await alertConfirm(message)) return
-        const next = deleteLorebookEntries(sourceEntries, new Set([target.id!]))
+        let next = deleteLorebookEntries(sourceEntries, new Set([target.id!]))
         const retainedIds = new Set(next.map((item) => item.id).filter(Boolean))
         const removedIds = sourceEntries
             .map((item) => item.id)
             .filter((id): id is string => Boolean(id) && !retainedIds.has(id))
+        if (bardMode && removedIds.length > 0) {
+            const removedIdSet = new Set(removedIds)
+            next = next.map((entry) => {
+                const bardEntry = entry as BardLoreEntry
+                if (!bardEntry.bard) return entry
+                return {
+                    ...bardEntry,
+                    bard: {
+                        ...bardEntry.bard,
+                        links: bardEntry.bard.links.filter((link) => !removedIdSet.has(link.targetId)),
+                    },
+                }
+            })
+        }
         const scopeStillActive = stateScopeOwner?.key === targetScopeOwner?.key
         if (scopeStillActive) normalizedEntries = next
         targetOnChange(next)
@@ -633,6 +814,11 @@
         if (next.has(id)) next.delete(id)
         else next.add(id)
         expandedFolderIds = next
+    }
+
+    function openFolder(id: string, event: MouseEvent) {
+        openEntry(id, event)
+        toggleFolder(id)
     }
 
     function resolveDropPosition(
@@ -766,7 +952,7 @@
         if (!grid || !rail) return
         const width = grid.getBoundingClientRect().width
         const start = rail.getBoundingClientRect().width
-        return (dx: number) => grid.style.setProperty('--lore-state-width', `${Math.max(96, Math.min(width - 128, start - dx))}px`)
+        return (dx: number) => grid.style.setProperty('--lore-state-width', `${Math.max(240, Math.min(width - 320, start - dx))}px`)
     }
 
     onMount(() => {
@@ -822,6 +1008,7 @@
             >
                 <option value="name">{language.lorebookWorkspace.searchName}</option>
                 <option value="keys">{language.lorebookWorkspace.searchKeys}</option>
+                <option value="all">{language.lorebookWorkspace.searchAll}</option>
             </select>
             <select
                 data-lorebook-enabled-filter
@@ -872,30 +1059,14 @@
                         class:selected={Boolean(item.id && selectedIds.has(item.id))}
                         class:folder={item.mode === 'folder'}
                         class:hidden-entry={visualStatus.hidden}
-                        class:unreachable-entry={visualStatus.unreachable && !visualStatus.hidden}
+                        class:unreachable-entry={!bardMode && visualStatus.unreachable && !visualStatus.hidden}
                         class:dragging-group={Boolean(item.id && draggingIds.has(item.id))}
                         data-lorebook-row={item.id}
                         data-lorebook-folder={item.mode === 'folder'}
                         data-folder-key={item.folder ?? ''}
                         data-drop-position={dropIntent?.targetId === item.id ? dropIntent.position : undefined}
                     >
-                        {#if item.mode === 'folder'}
-                            <button
-                                type="button"
-                                class="folder-disclosure"
-                                data-lorebook-no-drag
-                                data-lorebook-folder-toggle
-                                aria-label={language.lorebookWorkspace.toggleFolder(item.comment || language.lorebookWorkspace.untitledFolder)}
-                                aria-expanded={Boolean(item.id && expandedFolderIds.has(item.id))}
-                                onclick={() => item.id && toggleFolder(item.id)}
-                            >
-                                {#if item.id && expandedFolderIds.has(item.id)}
-                                    <SolarIcon src={squareAltArrowDownIcon} name="square-alt-arrow-down-bold" size="1.35rem" />
-                                {:else}
-                                    <SolarIcon src={squareAltArrowRightIcon} name="square-alt-arrow-right-bold" size="1.35rem" />
-                                {/if}
-                            </button>
-                        {:else if item.mode !== 'child'}
+                        {#if item.mode !== 'folder' && item.mode !== 'child'}
                             <label class="row-select-hit-area" data-lorebook-no-drag>
                                 <input
                                     type="checkbox"
@@ -913,12 +1084,19 @@
                             class="row-main"
                             data-lorebook-open={item.mode === 'folder' ? undefined : ''}
                             data-lorebook-folder-edit={item.mode === 'folder' ? '' : undefined}
-                            onclick={(event) => item.id && openEntry(item.id, event)}
+                            data-lorebook-folder-toggle={item.mode === 'folder' ? '' : undefined}
+                            aria-expanded={item.mode === 'folder' ? Boolean(item.id && expandedFolderIds.has(item.id)) : undefined}
+                            aria-label={item.mode === 'folder' ? language.lorebookWorkspace.toggleFolder(item.comment || language.lorebookWorkspace.untitledFolder) : undefined}
+                            onclick={(event) => item.id && (item.mode === 'folder' ? openFolder(item.id, event) : openEntry(item.id, event))}
                         >
                             <span class="row-title">
                                 <SolarIcon
-                                    src={item.mode === 'folder' ? folderIcon : editIcon}
-                                    name={item.mode === 'folder' ? 'folder-bold' : 'pen-2-bold'}
+                                    src={item.mode === 'folder'
+                                        ? item.id && expandedFolderIds.has(item.id) ? folderOpenIcon : folderIcon
+                                        : editIcon}
+                                    name={item.mode === 'folder'
+                                        ? item.id && expandedFolderIds.has(item.id) ? 'folder-open-bold' : 'folder-bold'
+                                        : 'pen-2-bold'}
                                     size="1rem"
                                 />
                                 <strong>{item.mode === 'child' ? childLabel(item) : item.comment || language.lorebookWorkspace.untitledLore}</strong>
@@ -933,7 +1111,12 @@
                             </span>
                         </button>
                         <span class="row-actions" data-lorebook-no-drag>
-                            <LoreBookStatusIcons entry={item} />
+                            {#if bardMode && 'bard' in item && item.mode !== 'folder' && item.mode !== 'child'}
+                                <LoreBookStatusIcons entry={item} showActivation={false} />
+                                <BardLoreActivationLabel activation={(item as BardLoreEntry).bard.activation} />
+                            {:else}
+                                <LoreBookStatusIcons entry={item} />
+                            {/if}
                             <button
                                 type="button"
                                 class="row-delete"
@@ -981,7 +1164,7 @@
                         <span>{language.lorebookWorkspace.clearSelection}</span>
                     </button>
                 </header>
-                <p class="batch-notice">{language.lorebookWorkspace.batchSelectionHelp}</p>
+                <p class="batch-notice">{bardMode ? language.lorebookWorkspace.bardBatchSelectionHelp : language.lorebookWorkspace.batchSelectionHelp}</p>
                 <div class="batch-toggle-grid">
                     <button
                         type="button"
@@ -992,26 +1175,73 @@
                         data-lorebook-batch-enabled={batchHiddenState === true ? 'true' : 'false'}
                         onclick={toggleBatchHidden}
                     ><span>{language.lorebookWorkspace.hidden}</span><span class="toggle-mark" aria-hidden="true"></span></button>
-                    <button type="button" class="batch-toggle" class:mixed={batchAlwaysState === 'mixed'} role="checkbox" aria-checked={batchAlwaysState} onclick={() => toggleBatchBoolean('alwaysActive')}>
-                        <span>{language.lorebookWorkspace.alwaysActive}</span><span class="toggle-mark" aria-hidden="true"></span>
-                    </button>
-                    <button type="button" class="batch-toggle" class:mixed={batchSelectiveState === 'mixed'} role="checkbox" aria-checked={batchSelectiveState} onclick={() => toggleBatchBoolean('selective')}>
-                        <span>{language.lorebookWorkspace.selective}</span><span class="toggle-mark" aria-hidden="true"></span>
-                    </button>
-                    <button type="button" class="batch-toggle" class:mixed={batchRegexState === 'mixed'} role="checkbox" aria-checked={batchRegexState} onclick={() => toggleBatchBoolean('useRegex')}>
-                        <span>{language.lorebookWorkspace.regexKeys}</span><span class="toggle-mark" aria-hidden="true"></span>
-                    </button>
+                    {#if !bardMode}
+                        <button type="button" class="batch-toggle" class:mixed={batchAlwaysState === 'mixed'} role="checkbox" aria-checked={batchAlwaysState} data-lorebook-batch-always-active onclick={() => toggleBatchBoolean('alwaysActive')}>
+                            <span>{language.lorebookWorkspace.alwaysActive}</span><span class="toggle-mark" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="batch-toggle" class:mixed={batchSelectiveState === 'mixed'} role="checkbox" aria-checked={batchSelectiveState} data-lorebook-batch-selective onclick={() => toggleBatchBoolean('selective')}>
+                            <span>{language.lorebookWorkspace.selective}</span><span class="toggle-mark" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="batch-toggle" class:mixed={batchRegexState === 'mixed'} role="checkbox" aria-checked={batchRegexState} data-lorebook-batch-regex onclick={() => toggleBatchBoolean('useRegex')}>
+                            <span>{language.lorebookWorkspace.regexKeys}</span><span class="toggle-mark" aria-hidden="true"></span>
+                        </button>
+                    {/if}
                 </div>
-                <label class="batch-key-field">
-                    <span>{language.lorebookWorkspace.batchKeys}</span>
-                    <input bind:value={batchKeys} aria-label={language.lorebookWorkspace.batchKeys} placeholder={language.lorebookWorkspace.batchKeysPlaceholder} />
-                </label>
-                <div class="batch-key-actions">
-                    <button type="button" onclick={() => batchKeysChange('key', false)}>{language.lorebookWorkspace.addPrimaryKeys}</button>
-                    <button type="button" onclick={() => batchKeysChange('key', true)}>{language.lorebookWorkspace.removePrimaryKeys}</button>
-                    <button type="button" onclick={() => batchKeysChange('secondkey', false)}>{language.lorebookWorkspace.addSecondaryKeys}</button>
-                    <button type="button" onclick={() => batchKeysChange('secondkey', true)}>{language.lorebookWorkspace.removeSecondaryKeys}</button>
-                </div>
+                {#if bardMode}
+                    <div class="bard-batch-fields">
+                        <div class="bard-field">{language.lorebookWorkspace.bardActivation}
+                            <BardLoreActivationSelect
+                                batch
+                                value={batchBardActivationState === 'mixed' ? '' : batchBardActivationState}
+                                onChange={(activation) => batchBardPatch({ activation })}
+                            />
+                        </div>
+                        <label>{language.lorebookWorkspace.bardKind}
+                            <select
+                                data-bard-lore-batch-kind
+                                value={batchBardKindState === 'mixed' ? '' : batchBardKindState}
+                                onchange={(event) => event.currentTarget.value && batchBardPatch({ kind: event.currentTarget.value as BardLoreKind })}
+                            >
+                                <option value="" disabled>{language.lorebookWorkspace.bardBatchMixed}</option>
+                                {#each ['system', 'character', 'location', 'faction', 'item', 'event', 'concept', 'other'] as kind}
+                                    <option value={kind}>{kind}</option>
+                                {/each}
+                            </select>
+                        </label>
+                        <label>{language.lorebookWorkspace.bardInjection}
+                            <select
+                                data-bard-lore-batch-injection
+                                value={batchBardInjectionState === 'mixed' ? '' : batchBardInjectionState}
+                                onchange={(event) => event.currentTarget.value && batchBardPatch({ injection: event.currentTarget.value as BardLoreInjection })}
+                            >
+                                <option value="" disabled>{language.lorebookWorkspace.bardBatchMixed}</option>
+                                <option value="full">{language.lorebookWorkspace.bardInjectionFull}</option>
+                                <option value="index-only">{language.lorebookWorkspace.bardInjectionIndexOnly}</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="batch-key-field">
+                        <span>{language.lorebookWorkspace.bardBatchValues}</span>
+                        <input data-bard-lore-batch-values bind:value={batchBardValues} aria-label={language.lorebookWorkspace.bardBatchValues} placeholder={language.lorebookWorkspace.bardBatchValuesPlaceholder} />
+                    </label>
+                    <div class="batch-key-actions">
+                        <button type="button" data-bard-lore-batch-add-aliases onclick={() => batchBardValuesChange('aliases', false)}>{language.lorebookWorkspace.bardAddAliases}</button>
+                        <button type="button" data-bard-lore-batch-remove-aliases onclick={() => batchBardValuesChange('aliases', true)}>{language.lorebookWorkspace.bardRemoveAliases}</button>
+                        <button type="button" data-bard-lore-batch-add-tags onclick={() => batchBardValuesChange('tags', false)}>{language.lorebookWorkspace.bardAddTags}</button>
+                        <button type="button" data-bard-lore-batch-remove-tags onclick={() => batchBardValuesChange('tags', true)}>{language.lorebookWorkspace.bardRemoveTags}</button>
+                    </div>
+                {:else}
+                    <label class="batch-key-field">
+                        <span>{language.lorebookWorkspace.batchKeys}</span>
+                        <input bind:value={batchKeys} aria-label={language.lorebookWorkspace.batchKeys} placeholder={language.lorebookWorkspace.batchKeysPlaceholder} />
+                    </label>
+                    <div class="batch-key-actions">
+                        <button type="button" onclick={() => batchKeysChange('key', false)}>{language.lorebookWorkspace.addPrimaryKeys}</button>
+                        <button type="button" onclick={() => batchKeysChange('key', true)}>{language.lorebookWorkspace.removePrimaryKeys}</button>
+                        <button type="button" onclick={() => batchKeysChange('secondkey', false)}>{language.lorebookWorkspace.addSecondaryKeys}</button>
+                        <button type="button" onclick={() => batchKeysChange('secondkey', true)}>{language.lorebookWorkspace.removeSecondaryKeys}</button>
+                    </div>
+                {/if}
                 <p class="batch-drag-help">{language.lorebookWorkspace.dragSelectionHelp}</p>
             </section>
         {:else if activeEntry?.mode === 'child'}
@@ -1087,10 +1317,16 @@
                     <div class="content-field">
                         <div class="content-heading">
                             <span>{language.lorebookWorkspace.content}</span>
-                            <button type="button" data-cbs-view-toggle aria-pressed={conditionView} onclick={() => {
-                                commitDraft('content')
-                                conditionView = !conditionView
-                            }}>{conditionView ? language.cbsEditor.source : language.cbsEditor.view}</button>
+                            <div class="content-actions">
+                                <button type="button" data-lore-builder-open class="content-action lore-builder-launch" onclick={openLoreBuilder}>
+                                    <SolarIcon src={magicWandIcon} name="magic-wand-bold" size="1.15rem" />
+                                    {language.lorebookWorkspace.loreBuilder.launch}
+                                </button>
+                                <button type="button" data-cbs-view-toggle class="content-action" aria-pressed={conditionView} onclick={() => {
+                                    commitDraft('content')
+                                    conditionView = !conditionView
+                                }}>{conditionView ? language.cbsEditor.source : language.cbsEditor.view}</button>
+                            </div>
                         </div>
                         {#if conditionView}
                             <CbsConditionView
@@ -1126,21 +1362,103 @@
                         /> {language.lorebookWorkspace.activeInCurrentChat}</label>
                     {/if}
                     <label><input type="checkbox" data-lorebook-hidden checked={activeEntry.enabled === false} onchange={(event) => patchEntry(activeEntry.id!, { enabled: !event.currentTarget.checked })} /> {language.lorebookWorkspace.hidden}</label>
-                    <label><input type="checkbox" checked={activeEntry.alwaysActive} onchange={(event) => patchEntry(activeEntry.id!, { alwaysActive: event.currentTarget.checked })} /> {language.lorebookWorkspace.alwaysActive}</label>
-                    <label><input type="checkbox" checked={activeEntry.selective} onchange={(event) => patchEntry(activeEntry.id!, { selective: event.currentTarget.checked })} /> {language.lorebookWorkspace.selective}</label>
-                    <label><input type="checkbox" checked={activeEntry.useRegex ?? false} onchange={(event) => patchEntry(activeEntry.id!, { useRegex: event.currentTarget.checked })} /> {language.lorebookWorkspace.regexKeys}</label>
-                    <label class="activation-control">{language.lorebookWorkspace.activationPercent}
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            data-lorebook-activation-percent
-                            value={activeEntry.activationPercent ?? 100}
-                            onchange={(event) => patchEntry(activeEntry.id!, {
-                                activationPercent: Math.min(100, Math.max(0, Number(event.currentTarget.value) || 0)),
-                            })}
-                        />
-                    </label>
+                    {#if activeBardEntry}
+                        <div class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardActivation}</span><button type="button" data-bard-lore-help="activation" aria-label={language.lorebookWorkspace.bardActivationHelp} use:tooltip={language.lorebookWorkspace.bardActivationHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardActivationHelp)}>?</button></span>
+                            <BardLoreActivationSelect
+                                value={activeBardEntry.bard.activation}
+                                onChange={(activation) => patchBardMetadata({ activation })}
+                            />
+                        </div>
+                        <label class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardKind}</span><button type="button" data-bard-lore-help="kind" aria-label={language.lorebookWorkspace.bardKindHelp} use:tooltip={language.lorebookWorkspace.bardKindHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardKindHelp)}>?</button></span>
+                            <select
+                                data-bard-lore-kind
+                                value={activeBardEntry.bard.kind}
+                                onchange={(event) => patchBardMetadata({ kind: event.currentTarget.value as BardLoreKind })}
+                            >
+                                {#each ['system', 'character', 'location', 'faction', 'item', 'event', 'concept', 'other'] as kind}
+                                    <option value={kind}>{kind}</option>
+                                {/each}
+                            </select>
+                        </label>
+                        <label class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardInjection}</span><button type="button" data-bard-lore-help="injection" aria-label={language.lorebookWorkspace.bardInjectionHelp} use:tooltip={language.lorebookWorkspace.bardInjectionHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardInjectionHelp)}>?</button></span>
+                            <select
+                                data-bard-lore-injection
+                                value={activeBardEntry.bard.injection ?? 'full'}
+                                onchange={(event) => patchBardMetadata({ injection: event.currentTarget.value as BardLoreInjection })}
+                            >
+                                <option value="full">{language.lorebookWorkspace.bardInjectionFull}</option>
+                                <option value="index-only">{language.lorebookWorkspace.bardInjectionIndexOnly}</option>
+                            </select>
+                        </label>
+                        <label class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardAliases}</span><button type="button" data-bard-lore-help="aliases" aria-label={language.lorebookWorkspace.bardAliasesHelp} use:tooltip={language.lorebookWorkspace.bardAliasesHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardAliasesHelp)}>?</button></span>
+                            <textarea
+                                data-bard-lore-aliases
+                                rows="3"
+                                value={activeBardEntry.bard.aliases.join(', ')}
+                                onchange={(event) => patchBardMetadata({ aliases: commaValues(event.currentTarget.value) })}
+                            ></textarea>
+                        </label>
+                        <label class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardTags}</span><button type="button" data-bard-lore-help="tags" aria-label={language.lorebookWorkspace.bardTagsHelp} use:tooltip={language.lorebookWorkspace.bardTagsHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardTagsHelp)}>?</button></span>
+                            <textarea
+                                data-bard-lore-tags
+                                rows="3"
+                                value={activeBardEntry.bard.tags.join(', ')}
+                                onchange={(event) => patchBardMetadata({ tags: commaValues(event.currentTarget.value) })}
+                            ></textarea>
+                        </label>
+                        <label class="bard-field"><span class="bard-field-heading"><span>{language.lorebookWorkspace.bardSummary}</span><button type="button" data-bard-lore-help="summary" aria-label={language.lorebookWorkspace.bardSummaryHelp} use:tooltip={language.lorebookWorkspace.bardSummaryHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardSummaryHelp)}>?</button></span>
+                            <textarea
+                                data-bard-lore-summary
+                                rows="4"
+                                value={activeBardEntry.bard.summary}
+                                onchange={(event) => patchBardMetadata({ summary: event.currentTarget.value })}
+                            ></textarea>
+                        </label>
+                        <div class="bard-facets">
+                            <div class="bard-field-heading"><strong>{language.lorebookWorkspace.bardFacets}</strong><button type="button" data-bard-lore-help="facets" aria-label={language.lorebookWorkspace.bardFacetsHelp} use:tooltip={language.lorebookWorkspace.bardFacetsHelp} onclick={() => alertNormal(language.lorebookWorkspace.bardFacetsHelp)}>?</button></div>
+                            {#each activeBardEntry.bard.facets ?? [] as facet, index}
+                                <div class="bard-facet" data-bard-lore-facet>
+                                    <input data-bard-lore-facet-key={index} aria-label={language.lorebookWorkspace.bardFacetKey} value={facet.key} placeholder={language.lorebookWorkspace.bardFacetKey} onchange={(event) => updateBardFacet(index, { key: event.currentTarget.value })} />
+                                    <input data-bard-lore-facet-value={index} aria-label={language.lorebookWorkspace.bardFacetValue} value={facet.value} placeholder={language.lorebookWorkspace.bardFacetValue} onchange={(event) => updateBardFacet(index, { value: event.currentTarget.value })} />
+                                    <textarea aria-label={language.lorebookWorkspace.bardFacetAliases} rows="2" value={facet.aliases.join(', ')} placeholder={language.lorebookWorkspace.bardFacetAliases} onchange={(event) => updateBardFacet(index, { aliases: commaValues(event.currentTarget.value) })}></textarea>
+                                    <button type="button" class="danger" onclick={() => removeBardFacet(index)}>{language.lorebookWorkspace.bardRemoveFacet}</button>
+                                </div>
+                            {/each}
+                            <button type="button" data-bard-lore-add-facet onclick={addBardFacet}>{language.lorebookWorkspace.bardAddFacet}</button>
+                        </div>
+                        <button type="button" class="bard-links-launcher" data-bard-lore-links-open onclick={() => linksDialogOpen = true}>
+                            <span>{language.lorebookWorkspace.bardLinks}</span>
+                            <strong>{activeBardEntry.bard.links.length}</strong>
+                        </button>
+                        {#if bardSettings}
+                            <BardLoreAnalysisPanel
+                                entries={normalizedEntries as BardLoreEntry[]}
+                                settings={bardSettings}
+                                activeEntryId={activeBardEntry.id}
+                                analysisRun={bardAnalysisRun}
+                                compact
+                                onChange={(next) => emit(next)}
+                                onSettingsChange={(next) => { if (bardSettings) Object.assign(bardSettings, next) }}
+                                onAnalysisRunChange={onBardAnalysisRunChange}
+                            />
+                        {/if}
+                    {:else}
+                        <label><input type="checkbox" checked={activeEntry.alwaysActive} onchange={(event) => patchEntry(activeEntry.id!, { alwaysActive: event.currentTarget.checked })} /> {language.lorebookWorkspace.alwaysActive}</label>
+                        <label><input type="checkbox" checked={activeEntry.selective} onchange={(event) => patchEntry(activeEntry.id!, { selective: event.currentTarget.checked })} /> {language.lorebookWorkspace.selective}</label>
+                        <label><input type="checkbox" checked={activeEntry.useRegex ?? false} onchange={(event) => patchEntry(activeEntry.id!, { useRegex: event.currentTarget.checked })} /> {language.lorebookWorkspace.regexKeys}</label>
+                        <label class="activation-control">{language.lorebookWorkspace.activationPercent}
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                data-lorebook-activation-percent
+                                value={activeEntry.activationPercent ?? 100}
+                                onchange={(event) => patchEntry(activeEntry.id!, {
+                                    activationPercent: Math.min(100, Math.max(0, Number(event.currentTarget.value) || 0)),
+                                })}
+                            />
+                        </label>
+                    {/if}
                     <details class="entry-actions">
                         <summary>{language.lorebookWorkspace.entryActions}</summary>
                         <div class="entry-action-list">
@@ -1222,6 +1540,63 @@
     </main>
 </section>
 
+{#if loreBuilderTarget}
+    <LoreBuilder
+        bind:open={loreBuilderOpen}
+        targetEntryId={loreBuilderTarget.id}
+        entryName={loreBuilderTarget.name}
+        currentContent={loreBuilderTarget.content}
+        onApplyDraft={applyLoreBuilderDraft}
+    />
+{/if}
+
+{#if activeBardEntry}
+    <ShDialog
+        bind:open={linksDialogOpen}
+        closeOnEscape
+        closeOnOutsideClick
+        tier="alert"
+        size="xl"
+        contentClass="bard-links-dialog"
+        bodyClass="bard-links-dialog-body"
+        ariaLabel={language.lorebookWorkspace.bardLinksCount(activeBardEntry.bard.links.length)}
+        closeAriaLabel={language.lorebookWorkspace.close}
+    >
+        {#snippet title()}{language.lorebookWorkspace.bardLinksCount(activeBardEntry.bard.links.length)}{/snippet}
+        {#snippet description()}{language.lorebookWorkspace.bardLinksDescription}{/snippet}
+        <section class="bard-links-manager" data-bard-lore-links-dialog>
+            {#if activeBardEntry.bard.links.length === 0}
+                <p class="bard-links-empty">{language.lorebookWorkspace.bardLinksEmpty}</p>
+            {:else}
+                <div class="bard-links-grid">
+                    {#each activeBardEntry.bard.links as link, index}
+                        <article class="bard-link-card" data-bard-lore-link data-bard-lore-link-target={link.targetId}>
+                            <label>{language.lorebookWorkspace.bardLinkTarget}
+                                <select aria-label={language.lorebookWorkspace.bardLinkTarget} value={link.targetId} onchange={(event) => updateBardLink(index, { targetId: event.currentTarget.value })}>
+                                    {#each bardLinkTargets as target}<option value={target.id}>{target.comment || target.id}</option>{/each}
+                                </select>
+                            </label>
+                            <label>{language.lorebookWorkspace.bardLinkRelation}
+                                <input aria-label={language.lorebookWorkspace.bardLinkRelation} value={link.relation} placeholder={language.lorebookWorkspace.bardLinkRelation} onchange={(event) => updateBardLink(index, { relation: event.currentTarget.value })} />
+                            </label>
+                            <label>{language.lorebookWorkspace.bardLinkRetrieval}
+                                <select data-bard-lore-link-retrieval aria-label={language.lorebookWorkspace.bardLinkRetrieval} value={link.retrieval} onchange={(event) => updateBardLink(index, { retrieval: event.currentTarget.value as BardLoreEntry['bard']['links'][number]['retrieval'] })}>
+                                    <option value="none">{language.lorebookWorkspace.bardLinkNone}</option>
+                                    <option value="supporting">{language.lorebookWorkspace.bardLinkSupporting}</option>
+                                    <option value="discoverable">{language.lorebookWorkspace.bardLinkDiscoverable}</option>
+                                    <option value="ambient">{language.lorebookWorkspace.bardLinkAmbient}</option>
+                                </select>
+                            </label>
+                            <button type="button" class="danger" onclick={() => removeBardLink(index)}>{language.lorebookWorkspace.bardRemoveLink}</button>
+                        </article>
+                    {/each}
+                </div>
+            {/if}
+            <button type="button" class="bard-add-link" data-bard-lore-add-link disabled={!bardLinkTargets.some((target) => !activeBardEntry.bard.links.some((link) => link.targetId === target.id))} onclick={addBardLink}>{language.lorebookWorkspace.bardAddLink}</button>
+        </section>
+    </ShDialog>
+{/if}
+
 <style>
     .lore-workspace {
         --lore-surface-root: color-mix(in srgb, var(--color-darkbg) 98%, var(--color-selected) 2%);
@@ -1252,7 +1627,7 @@
     }
     .lore-pane { min-width: 0; min-height: 0; }
     .lore-list-pane { position: relative; display: flex; grid-row: 2; grid-column: 1; flex-direction: column; border-right: 1px solid var(--color-darkborderc); background: var(--lore-surface-root); }
-    .lore-toolbar { position: relative; z-index: 6; display: flex; grid-row: 1; grid-column: 1 / -1; flex-wrap: nowrap; align-items: center; gap: .45rem; padding: .68rem; border-bottom: 1px solid var(--color-darkborderc); background: var(--color-darkbg); }
+    .lore-toolbar { position: relative; z-index: 6; display: flex; grid-row: 1; grid-column: 1 / -1; flex-wrap: wrap; align-items: center; gap: .45rem; padding: .68rem; border-bottom: 1px solid var(--color-darkborderc); background: var(--color-darkbg); }
     .scope-mark { display: grid; min-width: 8.5rem; margin-right: .35rem; padding-left: .55rem; border-left: .25rem solid var(--color-borderc); }
     .scope-mark strong { overflow: hidden; font-size: .9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
     .scope-mark small { color: var(--color-textcolor2); font-size: .68rem; font-weight: 400; }
@@ -1284,7 +1659,6 @@
     [data-lorebook-row][data-drop-position='before'] { box-shadow: inset 0 .22rem 0 var(--lore-drop-target); }
     [data-lorebook-row][data-drop-position='after'] { box-shadow: inset 0 -.22rem 0 var(--lore-drop-target); }
     [data-lorebook-row][data-drop-position='inside'] { border-color: var(--lore-drop-target); background: color-mix(in srgb, var(--lore-drop-target) 12%, var(--lore-surface-folder)); box-shadow: inset 0 0 0 .16rem var(--lore-drop-target), 0 0 0 .12rem color-mix(in srgb, var(--lore-drop-target) 24%, transparent); }
-    .folder-disclosure { display: grid; width: 2.15rem; height: 2.15rem; padding: 0; place-items: center; background: color-mix(in srgb, var(--color-borderc) 24%, var(--color-darkbg)); color: var(--color-borderc); }
     .row-select-hit-area { display: contents; }
     .child-glyph { color: var(--color-textcolor2); font-size: .85rem; }
     .row-main { display: grid; min-width: 0; gap: .12rem; padding: .12rem .2rem; border: 0; background: transparent; text-align: left; }
@@ -1319,13 +1693,16 @@
     .batch-key-field input { min-height: 2.65rem; padding: .5rem .65rem; }
     .batch-key-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
     .batch-key-actions button { min-height: 2.4rem; padding: .45rem; }
+    .bard-batch-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+    .bard-batch-fields label { display: grid; gap: .38rem; color: var(--color-textcolor2); font-size: .74rem; font-weight: 650; }
+    .bard-batch-fields select { min-height: 2.65rem; padding: .5rem .65rem; }
     .lore-splitter { position: absolute; top: 0; bottom: 0; left: calc(var(--lore-effective-list-width) - .25rem); z-index: 5; width: .5rem; border: 0; border-radius: 0; background: transparent; cursor: col-resize; touch-action: none; }
     .lore-splitter::after, .state-splitter::after { position: absolute; top: calc(50% - 1rem); bottom: calc(50% - 1rem); left: 3px; border-left: 2px solid var(--color-borderc); content: ''; }
     .lore-splitter:hover, .lore-splitter:focus-visible, .lore-splitter:global([data-resizing]), .state-splitter:hover, .state-splitter:focus-visible, .state-splitter:global([data-resizing]) { background: color-mix(in srgb, var(--color-borderc) 45%, transparent); box-shadow: none; }
     .lore-editor-pane { display: flex; grid-row: 2; grid-column: 2; flex-direction: column; background: var(--color-darkbg); }
     .mobile-back { display: none; }
     .lore-editor-grid {
-        --lore-effective-state-width: clamp(6rem, var(--lore-state-width, 12rem), calc(100% - 8rem));
+        --lore-effective-state-width: clamp(15rem, var(--lore-state-width, 20rem), calc(100% - 20rem));
         position: relative;
         display: grid;
         grid-template-columns: minmax(0, 1fr) var(--lore-effective-state-width);
@@ -1345,7 +1722,9 @@
     .editor-fields input, .editor-fields textarea { min-width: 0; width: 100%; padding: .48rem .55rem; color: var(--color-textcolor); }
     .content-field { display: grid; min-height: 6rem; flex: 1; gap: .3rem; grid-template-rows: auto minmax(0, 1fr); }
     .content-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; color: var(--color-textcolor2); font-size: .74rem; font-weight: 650; }
-    .content-heading button { padding: .25rem .6rem; border: 1px solid var(--color-darkborderc); border-radius: .35rem; color: var(--color-textcolor); font-size: .72rem; font-weight: 500; }
+    .content-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+    .content-heading .content-action { display: inline-flex; min-height: 2.15rem; align-items: center; justify-content: center; gap: .38rem; padding: 0 .62rem; border: 1px solid var(--color-darkborderc); border-radius: .5rem; color: var(--color-textcolor); font-size: .8rem; font-weight: 650; }
+    .content-heading .lore-builder-launch { background: var(--color-selected); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-borderc) 55%, transparent); }
     .content-heading button:hover, .content-heading button[aria-pressed='true'] { background: var(--color-selected); }
     .lore-content {
         min-height: 0;
@@ -1358,15 +1737,35 @@
     }
     .lore-state-rail { display: flex; min-width: 0; min-height: 0; overflow: auto; flex-direction: column; gap: .5rem; padding: .65rem; border-left: 1px solid var(--color-darkborderc); background: color-mix(in srgb, var(--color-selected) 15%, transparent); }
     .lore-state-rail input, .lore-state-rail select { min-width: 0; }
+    .lore-state-rail textarea { width: 100%; min-height: 3rem; padding: .42rem; resize: vertical; }
     .lore-state-rail input[type='checkbox'] { flex-shrink: 0; }
     .lore-state-rail label { display: flex; align-items: center; gap: .48rem; font-size: .77rem; }
+    .lore-state-rail .bard-field { display: grid; align-items: stretch; gap: .3rem; color: var(--color-textcolor2); font-weight: 650; }
+    .bard-field-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .45rem; color: var(--color-textcolor2); }
+    .bard-field-heading button { display: grid; width: 1.25rem; min-width: 1.25rem !important; height: 1.25rem; min-height: 1.25rem !important; padding: 0; place-items: center; border: 1px solid var(--color-darkborderc); border-radius: 50%; color: var(--color-textcolor2); font-size: .68rem; }
+    .bard-field-heading button:hover { border-color: var(--color-borderc); color: var(--color-textcolor); }
     .lore-state-rail button, .lore-state-rail select { width: 100%; min-height: 2.15rem; padding: .42rem; }
+    .lore-state-rail .bard-field-heading button { width: 1.25rem; min-width: 1.25rem; height: 1.25rem; min-height: 1.25rem; flex: 0 0 1.25rem; padding: 0; cursor: help; }
     .entry-actions { margin-top: .3rem; padding-top: .7rem; border-top: 1px solid var(--color-darkborderc); }
     .entry-actions summary { padding: .42rem; border-radius: .45rem; color: var(--color-textcolor2); cursor: pointer; font-size: .76rem; font-weight: 600; }
     .entry-actions summary:hover { background: var(--lore-surface-child); color: var(--color-textcolor); }
     .entry-action-list { display: grid; gap: .45rem; padding-top: .55rem; }
     .activation-control { display: grid !important; align-items: stretch !important; gap: .24rem !important; }
     .activation-control input { width: 100%; padding: .35rem; }
+    .bard-facets, .bard-facet { display: grid; gap: .4rem; }
+    .bard-facets { padding-top: .45rem; border-top: 1px solid var(--color-darkborderc); }
+    .bard-links-launcher { display: flex; width: 100%; min-height: 2.6rem !important; align-items: center; justify-content: space-between; gap: .6rem; padding: .5rem .65rem !important; border: 1px solid var(--color-darkborderc); }
+    .bard-links-launcher strong { display: grid; min-width: 1.6rem; height: 1.6rem; padding: 0 .35rem; place-items: center; border-radius: 999px; background: var(--color-selected); font-variant-numeric: tabular-nums; }
+    :global(.bard-links-dialog) { width: min(94vw, 1500px); max-width: calc(100vw - 1rem); max-height: min(90dvh, 920px); background: var(--color-darkbg); }
+    :global(.bard-links-dialog-body) { min-height: 0; overflow: auto; }
+    .bard-links-manager { display: grid; min-height: 0; gap: 1rem; padding: .25rem; }
+    .bard-links-grid { display: grid; grid-template-columns: repeat(4, minmax(12rem, 1fr)); gap: .75rem; align-items: start; }
+    .bard-link-card { display: grid; gap: .6rem; padding: .75rem; border: 1px solid var(--color-darkborderc); border-radius: .65rem; background: color-mix(in srgb, var(--color-selected) 14%, var(--color-darkbg)); }
+    .bard-link-card label { display: grid; gap: .28rem; color: var(--color-textcolor2); font-size: .72rem; font-weight: 650; }
+    .bard-link-card input, .bard-link-card select { min-width: 0; width: 100%; min-height: 2.2rem; padding: .42rem; }
+    .bard-link-card button, .bard-add-link { min-height: 2.2rem; padding: .45rem .65rem; }
+    .bard-add-link { justify-self: end; min-width: 10rem; }
+    .bard-links-empty { margin: 0; padding: 2rem; border: 1px dashed var(--color-darkborderc); border-radius: .65rem; color: var(--color-textcolor2); text-align: center; }
     .danger { background: var(--color-danger); color: var(--color-on-danger); }
     .danger:hover { background: color-mix(in srgb, var(--color-danger) 85%, var(--color-darkbg)); }
     .editor-empty, .folder-editor, .child-link-editor { display: grid; height: 100%; place-content: center; gap: .35rem; padding: 2rem; color: var(--color-textcolor2); text-align: center; }
@@ -1387,6 +1786,7 @@
         .lore-toolbar { flex-wrap: wrap; }
         .scope-mark { width: 100%; }
     }
+    @media (max-width: 1100px) { .bard-links-grid { grid-template-columns: repeat(2, minmax(12rem, 1fr)); } }
     @media (max-width: 899px) {
         .lore-workspace { display: flex; flex-direction: column; border: 0; border-radius: 0; }
         .lore-pane { min-height: 0; height: auto; flex: 1; }
@@ -1399,19 +1799,19 @@
         .editor-fields { min-height: 42rem; }
         .lore-state-rail {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: 1fr;
             border-top: 1px solid var(--color-darkborderc);
             border-left: 0;
         }
         .batch-editor { min-height: auto; overflow-y: auto; padding: .9rem .8rem calc(.9rem + env(safe-area-inset-bottom)); }
         .batch-toggle-grid, .batch-key-actions { grid-template-columns: 1fr; }
         button, input, select { min-height: 3rem; touch-action: manipulation; }
-        .folder-disclosure, .row-select-hit-area { min-width: 3rem; min-height: 3rem; }
         .row-select-hit-area { display: grid; min-width: 3rem; min-height: 3rem; place-items: center; }
         [data-lorebook-row] { min-height: 3.35rem; padding: .46rem .35rem; }
         [data-lorebook-row][data-folder-key]:not([data-folder-key='']) { margin-left: 1.4rem; }
         .toolbar-action { flex: 1 1 auto; }
         [data-lorebook-select] { width: 1rem; min-width: 1rem; height: 1rem; min-height: 1rem; margin: 0; }
         textarea { touch-action: manipulation; }
+        .bard-links-grid { grid-template-columns: minmax(0, 1fr); }
     }
 </style>

@@ -35,6 +35,21 @@ afterEach(() => {
 })
 
 describe('disk-backed backup entry streaming', () => {
+    it('restores the client import timeout after Node clears the request socket', () => {
+        const source = fs.readFileSync('server/node/server.cjs', 'utf8')
+        const start = source.indexOf("app.post('/api/backup/import'")
+        const end = source.indexOf('// ── Server-side backup endpoints', start)
+        const route = source.slice(start, end)
+        const cleanup = route.slice(route.indexOf('} finally {'))
+
+        expect(start).toBeGreaterThan(-1)
+        expect(end).toBeGreaterThan(start)
+        expect(route).toContain('const requestSocket = req.socket;')
+        expect(route).toContain('const requestServer = requestSocket.server;')
+        expect(cleanup).toContain('requestServer.requestTimeout = prevRequestTimeout;')
+        expect(cleanup).not.toContain('req.socket')
+    })
+
     it('keeps server-side restores alive throughout post-stream publication work', () => {
         const source = fs.readFileSync('server/node/server.cjs', 'utf8')
         const start = source.indexOf("app.post('/api/backup/server/restore'")
@@ -77,10 +92,38 @@ describe('disk-backed backup entry streaming', () => {
         expect(entries[1]).not.toHaveProperty('data')
     })
 
+    it('finishes receiving the backup before processing staged entries', async () => {
+        const { stageBackupEntries } = require('./backup-entry-stream.cjs')
+        const stagingDir = tempRoot()
+        const encoded = Buffer.concat([
+            encodeEntry('large-animation.webp', Buffer.alloc(1024 * 1024, 0x5a)),
+            encodeEntry('database.risudat', Buffer.from('db')),
+        ])
+        let sourceFullyRead = false
+        const source = (async function* () {
+            yield* chunks(encoded, [4096])
+            sourceFullyRead = true
+        })()
+        const processingStartedAfterUpload: boolean[] = []
+
+        await stageBackupEntries(source, {
+            stagingDir,
+            maxNameBytes: 1024,
+            onEntry: async () => {
+                processingStartedAfterUpload.push(sourceFullyRead)
+            },
+        })
+
+        expect(processingStartedAfterUpload).toEqual([true, true])
+    })
+
     it('rejects truncated bodies without publishing a complete entry', async () => {
         const { stageBackupEntries } = require('./backup-entry-stream.cjs')
         const stagingDir = tempRoot()
-        const encoded = encodeEntry('asset.bin', Buffer.from('complete-body'))
+        const encoded = Buffer.concat([
+            encodeEntry('complete.bin', Buffer.from('complete-body')),
+            encodeEntry('truncated.bin', Buffer.from('truncated-body')),
+        ])
         const entries: unknown[] = []
 
         await expect(stageBackupEntries(chunks(encoded.subarray(0, -1), [3]), {

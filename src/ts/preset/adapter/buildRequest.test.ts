@@ -209,6 +209,59 @@ describe('buildPreparedRequest', () => {
         expect(result.body).toEqual({ thinking: { budget_tokens: 1024 } })
     })
 
+    test('omits invalid numeric user values without mutating the preset', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    {
+                        key: 'temperature',
+                        type: 'number',
+                        label: 'Temperature',
+                        min: 0,
+                        max: 2,
+                        mapsTo: { target: 'body', path: 'temperature' },
+                    },
+                    {
+                        key: 'top_k',
+                        type: 'integer',
+                        label: 'Top K',
+                        min: 0,
+                        max: 100,
+                        mapsTo: { target: 'body', path: 'top_k' },
+                    },
+                ],
+            }),
+            userValues: { temperature: 2.01, top_k: 1.5 },
+        })
+        const before = structuredClone(preset.userValues)
+
+        const result = buildPreparedRequest({ preset, credential: { apiKey: 'sk' } })
+
+        expect(result.body).not.toHaveProperty('temperature')
+        expect(result.body).not.toHaveProperty('top_k')
+        expect(preset.userValues).toEqual(before)
+    })
+
+    test('keeps valid low numeric values such as temperature 0.01', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    {
+                        key: 'temperature',
+                        type: 'number',
+                        label: 'Temperature',
+                        min: 0,
+                        max: 2,
+                        mapsTo: { target: 'body', path: 'temperature' },
+                    },
+                ],
+            }),
+            userValues: { temperature: 0.01 },
+        })
+
+        expect(buildPreparedRequest({ preset, credential: { apiKey: 'sk' } }).body).toMatchObject({ temperature: 0.01 })
+    })
+
     test('customBody and customHeaders override prior merges', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({

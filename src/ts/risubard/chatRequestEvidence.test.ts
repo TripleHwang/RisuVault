@@ -113,6 +113,69 @@ describe('chat request evidence', () => {
         expect(markdown).not.toContain('must-not-export')
     })
 
+    it('identifies native structured-output validation failures without exporting output', () => {
+        const failed: RequestLogEntry = {
+            ...entry,
+            success: false,
+            errorMessage: '[PageFold] Structured output validation failed: /schemaVersion: value does not match const',
+        }
+        const evidence = buildChatRequestEvidence('chat-7', [failed])
+        const markdown = formatChatRequestEvidenceMarkdown(evidence)
+
+        expect(evidence.requests[0].failureCategory).toBe('format')
+        expect(markdown).toContain('| 오류 유형 | 구조화 응답 검증 오류 |')
+        expect(markdown).not.toContain('/schemaVersion')
+    })
+
+    it('identifies provider invalid-argument rejections without exporting request data', () => {
+        const failed: RequestLogEntry = {
+            ...entry,
+            success: false,
+            errorMessage: '[PageFold] Request contains an invalid argument.',
+        }
+        const evidence = buildChatRequestEvidence('chat-7', [failed])
+        const markdown = formatChatRequestEvidenceMarkdown(evidence)
+
+        expect(evidence.requests[0].failureCategory).toBe('invalid-request')
+        expect(markdown).toContain('| 오류 유형 | 요청 인자 거부 |')
+        expect(markdown).not.toContain('Request contains')
+    })
+
+    it('identifies invalid-argument rejections preserved only in the provider response body', () => {
+        const failed: RequestLogEntry = {
+            ...entry,
+            success: false,
+            status: 400,
+            errorMessage: undefined,
+            responseBody: JSON.stringify({
+                error: {
+                    code: 400,
+                    status: 'INVALID_ARGUMENT',
+                    message: 'Request contains an invalid argument.',
+                },
+            }),
+        }
+        const evidence = buildChatRequestEvidence('chat-7', [failed])
+        const markdown = formatChatRequestEvidenceMarkdown(evidence)
+
+        expect(evidence.requests[0].failureCategory).toBe('invalid-request')
+        expect(markdown).toContain('| 오류 유형 | 요청 인자 거부 |')
+        expect(markdown).not.toContain('Request contains')
+    })
+
+    it('records successful BardWiki HTTP calls as responses, not completed work', () => {
+        const evidence = buildChatRequestEvidence('chat-7', [{
+            ...entry,
+            source: 'memory',
+            purpose: 'bardwiki-canonical-update',
+        }])
+        const markdown = formatChatRequestEvidenceMarkdown(evidence)
+
+        expect(evidence.requests[0].outcome).toBe('response-received')
+        expect(markdown).toContain('| 결과 | 응답 수신 (후속 검증·저장 결과 별도) |')
+        expect(markdown).not.toContain('| 결과 | done |')
+    })
+
     it('formats the card fields and every injection row as readable Markdown', () => {
         const evidence = buildChatRequestEvidence(
             'chat-7',
@@ -138,6 +201,32 @@ describe('chat request evidence', () => {
         expect(markdown).not.toContain('secret prose')
         expect(markdown).not.toContain('가상 레거시')
         expect(markdown).not.toContain('레거시 입력 구성')
+        expect(markdown).toContain('## 요청 #7 · 채팅 답변 생성')
+        expect(markdown).not.toContain('## 요청 1')
+    })
+
+    it('groups instruction blocks and adjacent chat ranges for display', () => {
+        const evidence = buildChatRequestEvidence('chat-7', [{
+            ...entry,
+            inputTokens: 1_000,
+            injectionManifest: {
+                totalTokens: 1_000,
+                items: [
+                    { kind: 'chatHistory', name: '4개 (1~4)', tokens: 300 },
+                    { kind: 'instruction', name: '작업 지시', tokens: 120 },
+                    { kind: 'chatHistory', name: '1개 (5~5)', tokens: 200 },
+                    { kind: 'instruction', name: '추가 프롬프트', tokens: 180 },
+                    { kind: 'chatHistory', name: '1개 (6~6)', tokens: 200 },
+                ],
+            },
+        }])
+
+        const markdown = formatChatRequestEvidenceMarkdown(evidence)
+
+        expect(markdown.match(/\| 추가 지침 · 2개 항목 \| 300 \|/g)).toHaveLength(1)
+        expect(markdown.match(/\| 채팅 기록 · 6개 \(1~6\) \| 700 \|/g)).toHaveLength(1)
+        expect(markdown).not.toContain('5~5')
+        expect(markdown).not.toContain('6~6')
     })
 
     it('counts only retained assistant bodies and the currently selected reroll', async () => {

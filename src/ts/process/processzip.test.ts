@@ -58,10 +58,45 @@ describe('CharXImporter asset persistence', () => {
         await importer.parse(archive)
         await importer.done()
 
-        expect(mocks.setItems).toHaveBeenCalledTimes(2)
-        expect(mocks.setItems.mock.calls[0][0]).toHaveLength(50)
-        expect(mocks.setItems.mock.calls[1][0]).toHaveLength(1)
+        expect(mocks.setItems).toHaveBeenCalledTimes(1)
+        expect(mocks.setItems.mock.calls[0][0]).toHaveLength(51)
         expect(mocks.saveAsset).not.toHaveBeenCalled()
         expect(Object.keys(importer.assets)).toHaveLength(51)
     })
+
+    it('finishes archives with hundreds of compressed metadata entries', async () => {
+        const archiveEntries: Record<string, Uint8Array> = {
+            'card.json': new TextEncoder().encode('{}'),
+            'module.risum': Uint8Array.of(111, 0),
+        }
+        for (let index = 0; index < 728; index++) {
+            archiveEntries[`x_meta/${index}.json`] = new TextEncoder().encode(`{"index":${index}}`)
+            archiveEntries[`assets/${index}.webp`] = Uint8Array.of(index % 256)
+        }
+        const archive = fflate.zipSync(archiveEntries, { level: 6 })
+        const importer = new CharXImporter()
+
+        await importer.parse(archive)
+        await importer.done()
+
+        expect(importer.cardData).toBeTruthy()
+        expect(importer.moduleData).toBeTruthy()
+        expect(Object.keys(importer.assets)).toHaveLength(728)
+    }, 30_000)
+
+    it('imports animation assets larger than 50 MiB', async () => {
+        const animation = new Uint8Array(64 * 1024 * 1024)
+        const archive = fflate.zipSync({
+            'card.json': new TextEncoder().encode('{}'),
+            'assets/animation.webp': animation,
+        }, { level: 6 })
+        const importer = new CharXImporter()
+
+        await importer.parse(archive)
+        await importer.done()
+
+        expect(importer.excludedFiles).not.toContain('assets/animation.webp')
+        expect(importer.assets['assets/animation.webp']).toBe('single-write')
+    }, 30_000)
+
 })

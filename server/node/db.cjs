@@ -5,7 +5,7 @@
 const { createFileKv } = require('./file-kv.cjs');
 const { resolveDataRoot } = require('./data-root.cjs');
 const { createUserDataRepository } = require('./user-data-repository.cjs');
-const { encodeRisuSaveLegacy } = require('./utils.cjs');
+const { encodeRisuSaveLegacyBuffer } = require('./utils.cjs');
 const { migrateLegacySqlite } = require('./legacy-sqlite-import.cjs');
 const fs = require('fs');
 const path = require('path');
@@ -25,7 +25,7 @@ store.kvGet = key => {
     const value = originalGet(key);
     if (value || key !== 'database/database.bin') return value;
     if (!fs.existsSync(path.join(dataRoot, 'index', 'sidebar.json'))) return null;
-    const rebuilt = Buffer.from(encodeRisuSaveLegacy(repository.exportLegacyDatabase()));
+    const rebuilt = encodeRisuSaveLegacyBuffer(repository.exportLegacyDatabase());
     store.kvSet(key, rebuilt);
     return rebuilt;
 };

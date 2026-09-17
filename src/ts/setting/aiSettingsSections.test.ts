@@ -10,7 +10,6 @@ describe('AI settings section registry', () => {
     test('maps all existing AI routes to one in-page section each', () => {
         expect(aiSettingsSections.map((section) => section.route)).toEqual([
             SettingsRoute.ModelPreset,
-            SettingsRoute.PromptPreset,
             SettingsRoute.ChatBot,
             SettingsRoute.OtherBots,
         ])
@@ -24,7 +23,6 @@ describe('AI settings section registry', () => {
     test('keeps the public AI settings tabs in task order', () => {
         expect(aiSettingsSections.map((section) => section.id)).toEqual([
             'model-presets',
-            'chat-prompt-presets',
             'legacy-model',
             'auxiliary-ai',
         ])
@@ -32,6 +30,8 @@ describe('AI settings section registry', () => {
 
     test('does not absorb unrelated settings routes', () => {
         expect(getAISettingsSection(SettingsRoute.Display)).toBeUndefined()
+        expect(getAISettingsSection(SettingsRoute.PromptPreset)).toBeUndefined()
         expect(isAISettingsRoute(SettingsRoute.Display)).toBe(false)
+        expect(isAISettingsRoute(SettingsRoute.PromptPreset)).toBe(false)
     })
 })

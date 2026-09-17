@@ -12,6 +12,11 @@
     import { normalizeChatPageSize } from 'src/ts/chatPagination';
     import { isCurrentChatWindowRequest } from 'src/ts/chatWindow';
     import { createOlderMessageLoader } from 'src/ts/chatScrollPaging';
+    import {
+        buildChatTurnNavigation,
+        normalizeChatNavigationTarget,
+        type ChatTurnNavigation,
+    } from 'src/ts/chatTurnNavigation';
     import { loadChatViewSession, saveChatViewSession, type ChatViewSession } from 'src/ts/chatViewSession'
     import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
@@ -20,6 +25,7 @@
         chatProcessStage,
         cancelCurrentWikiReboot,
         confirmCurrentNarrativeMessage,
+        reanalyzeNarrativeMessage,
         doingChat,
         executeCurrentNarrativeWikiCommand,
         forceCurrentNarrativeWikiUpdate,
@@ -133,7 +139,14 @@ import { isMobile } from 'src/ts/platform'
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let showScrollNav = $state(false)
+    let scrollNavFocused = $state(false)
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
+    /**
+     * The toolbar's page field, kept at 1: this screen has no pages, only a
+     * resident slice that scrolling extends, so the whole of it is "page 1".
+     */
+    let pageJumpInput = $state<number | undefined>(1)
+    let turnJumpInput = $state<number | undefined>(1)
     let chatsInstance: any = $state()
     let chatScrollContainer: HTMLElement | undefined = $state()
     let isScrollingToMessage = $state(false)
@@ -151,9 +164,6 @@ import { isMobile } from 'src/ts/platform'
     let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
     let wikiRebootBlocksGeneration = $derived(
         blocksChatGeneration(currentChatSlot?.risuBardWikiReboot)
-    )
-    let wikiBlocksGeneration = $derived(
-        wikiRebootBlocksGeneration || $isWikiGenerating
     )
     /**
      * A reboot job left claiming to be running when nothing is running it.
@@ -216,6 +226,28 @@ import { isMobile } from 'src/ts/platform'
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     /** How many messages one older page carries. */
     let chatPageSize = $derived(normalizeChatPageSize(DBState.db.chatPageSize))
+    /**
+     * Whether the resident array begins at the first message of the
+     * conversation. The same question the greeting gate below asks, and for
+     * the same reason: anything counted from `currentChat[0]` -- the response
+     * turn numbers -- is only counted from the start when this is true.
+     */
+    let historyStartResident = $derived(!hasOlderSqlMessages(currentChatSlot))
+    const NO_TURN_NAVIGATION: ChatTurnNavigation = buildChatTurnNavigation([])
+    /**
+     * Response turns of the resident history, for the toolbar's turn jump.
+     *
+     * Upstream numbered turns within the current page of a whole-conversation
+     * render. There are no pages here: the array is a bounded resident slice
+     * of the history, so the turns are counted over that slice, and only when
+     * it starts at the conversation's start -- a count that began part-way
+     * through would call some later reply "Turn 1". While older messages are
+     * still on disk the toolbar shows no turns, which disables its input,
+     * rather than a numbering that is wrong by an amount nobody can see.
+     */
+    let residentTurnNavigation = $derived(
+        historyStartResident ? buildChatTurnNavigation(currentChat) : NO_TURN_NAVIGATION
+    )
 
     /**
      * Holds the reading position across content shifts. The state machine lives
@@ -299,6 +331,8 @@ import { isMobile } from 'src/ts/platform'
         // Switching chats invalidates any in-flight lazy window request; bump
         // first so a late response for the previous chat is discarded.
         chatWindowVersion += 1
+        pageJumpInput = 1
+        turnJumpInput = 1
         const savedView = loadChatViewSession(nextKey)
         if (savedView) void restoreChatViewScroll(nextKey, savedView)
     })
@@ -435,7 +469,22 @@ import { isMobile } from 'src/ts/platform'
     function bumpScrollNav() {
         showScrollNav = true
         if (scrollNavTimer) clearTimeout(scrollNavTimer)
-        scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
+        scrollNavTimer = null
+        if (!scrollNavFocused && !DBState.db.pinChatScrollNavigator) {
+            scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
+        }
+    }
+
+    function holdScrollNav() {
+        scrollNavFocused = true
+        showScrollNav = true
+        if (scrollNavTimer) clearTimeout(scrollNavTimer)
+        scrollNavTimer = null
+    }
+
+    function releaseScrollNav() {
+        scrollNavFocused = false
+        bumpScrollNav()
     }
 
     function getLoadedMessages(container: HTMLElement) {
@@ -444,13 +493,15 @@ import { isMobile } from 'src/ts/platform'
             .sort((a, b) => a.idx - b.idx)
     }
 
-    // Top of currently loaded messages (no force-load of older pages).
-    function scrollToLoadedTop() {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
+    // Top of the mounted window (no force-load of older pages). Upstream's
+    // `scrollToPageStart` went to the first message of the current page; the
+    // nearest thing a sliding window has is its oldest mounted row.
+    function scrollToLoadedTop(behavior: ScrollBehavior = 'smooth') {
+        const container = chatScrollContainer
         if (!container) return
         const messages = getLoadedMessages(container)
         if (messages.length === 0) return
-        scrollWithinContainer(messages[0].el, container, { block: 'start', behavior: 'smooth' })
+        scrollWithinContainer(messages[0].el, container, { block: 'start', behavior })
     }
 
     /**
@@ -522,6 +573,33 @@ import { isMobile } from 'src/ts/platform'
         chatFoldedState.data = null
         await tick()
         chatsInstance?.scrollToLatestMessage()
+    }
+
+    /**
+     * The toolbar's turn jump: reveal the Nth response of the conversation.
+     *
+     * Upstream selected a page and then scrolled within it. Here the turn is
+     * resolved to a resident index and handed to `scrollToMessage`, which
+     * re-anchors the mounted window on that message before looking for its
+     * row -- the same route a search hit or a story-source link takes. With no
+     * turns to jump to (an empty chat, or one whose start is still on disk)
+     * the field is simply put back to 1.
+     */
+    async function jumpToPageTurn() {
+        pageJumpInput = 1
+        const navigation = residentTurnNavigation
+        if (navigation.turnCount === 0) {
+            turnJumpInput = 1
+            return
+        }
+        const target = normalizeChatNavigationTarget(
+            turnJumpInput,
+            navigation.turnCount,
+            1,
+        )
+        const messageIndex = navigation.messageIndexByTurn[target - 1]
+        if (messageIndex !== undefined) await scrollToMessage(messageIndex)
+        turnJumpInput = target
     }
 
     // Literal bottom of the scroll (end of the latest message).
@@ -663,10 +741,8 @@ import { isMobile } from 'src/ts/platform'
         if($doingChat){
             return
         }
-        if (wikiBlocksGeneration) {
-            alertError($isWikiGenerating
-                ? language.risuBardWikiGenerationChatLocked
-                : language.risuBardWikiRebootChatLocked)
+        if (wikiRebootBlocksGeneration) {
+            alertError(language.risuBardWikiRebootChatLocked)
             return
         }
 
@@ -808,10 +884,8 @@ import { isMobile } from 'src/ts/platform'
 
     async function reroll() {
         if($doingChat) return
-        if (wikiBlocksGeneration) {
-            alertError($isWikiGenerating
-                ? language.risuBardWikiGenerationChatLocked
-                : language.risuBardWikiRebootChatLocked)
+        if (wikiRebootBlocksGeneration) {
+            alertError(language.risuBardWikiRebootChatLocked)
             return
         }
         const lastMsg = getLastCharMsg()
@@ -961,7 +1035,7 @@ import { isMobile } from 'src/ts/platform'
     async function sendChatMain(continued:boolean = false) {
 
         messageInput = ''
-        if (wikiBlocksGeneration) return false
+        if (wikiRebootBlocksGeneration) return false
         const genKey = currentChatGenKey()
         // Mirror sendChat's per-chat guard BEFORE any side effects: a blocked
         // send must not run the unconditional conclude below, which would tear
@@ -1005,7 +1079,7 @@ import { isMobile } from 'src/ts/platform'
     // server-side CLAIM must succeed — the atomic claim is what makes the
     // re-run at-most-once across devices, tabs and reloads.
     async function resumeInterruptedSend(chatId: string) {
-        if (wikiBlocksGeneration) {
+        if (wikiRebootBlocksGeneration) {
             markResumable(chatId)
             return
         }
@@ -1264,40 +1338,58 @@ import { isMobile } from 'src/ts/platform'
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <div
-            class="absolute right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
-            class:opacity-0={!showScrollNav}
-            class:pointer-events-none={!showScrollNav}
+            class="absolute right-3 bottom-16 z-40 flex min-w-16 flex-col overflow-hidden rounded-lg border border-darkborderc border-opacity-30 bg-bgcolor/90 shadow-lg backdrop-blur-sm transition-opacity duration-300"
+            class:opacity-0={!DBState.db.pinChatScrollNavigator && !showScrollNav && !scrollNavFocused}
+            class:pointer-events-none={!DBState.db.pinChatScrollNavigator && !showScrollNav && !scrollNavFocused}
+            onfocusin={holdScrollNav}
+            onfocusout={releaseScrollNav}
         >
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
-                <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
-                    onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
-                >
-                    <ChevronsUpIcon size={18} />
-                </button>
-                <div class="border-t border-darkborderc border-opacity-30"></div>
+            <button
+                data-chat-page-top
+                type="button"
+                class="h-9 w-full text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                title={language.chatPageTop}
+                aria-label={language.chatPageTop}
+                onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
+            >
+                <ChevronsUpIcon size={18} />
+            </button>
+            <div class="border-t border-darkborderc border-opacity-30"></div>
             {/if}
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                data-chat-message-previous
+                type="button"
+                class="h-9 w-full text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                title={language.chatMessagePrevious}
+                aria-label={language.chatMessagePrevious}
                 onclick={() => { bumpScrollNav(); navigateMessage('prev') }}
             >
                 <ChevronUpIcon size={18} />
             </button>
             <div class="border-t border-darkborderc border-opacity-30"></div>
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                data-chat-message-next
+                type="button"
+                class="h-9 w-full text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                title={language.chatMessageNext}
+                aria-label={language.chatMessageNext}
                 onclick={() => { bumpScrollNav(); navigateMessage('next') }}
             >
                 <ChevronDownIcon size={18} />
             </button>
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
-                <div class="border-t border-darkborderc border-opacity-30"></div>
-                <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
-                    onclick={() => { bumpScrollNav(); scrollToLoadedBottom() }}
-                >
-                    <ChevronsDownIcon size={18} />
-                </button>
+            <div class="border-t border-darkborderc border-opacity-30"></div>
+            <button
+                data-chat-page-bottom
+                type="button"
+                class="h-9 w-full text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                title={language.chatPageBottom}
+                aria-label={language.chatPageBottom}
+                onclick={() => { bumpScrollNav(); scrollToLoadedBottom() }}
+            >
+                <ChevronsDownIcon size={18} />
+            </button>
             {/if}
         </div>
     {/if}
@@ -1404,6 +1496,11 @@ import { isMobile } from 'src/ts/platform'
                             onLoad={onOpenChatLoad}
                             {onQuickSave}
                             {onQuickLoad}
+                            bind:page={pageJumpInput}
+                            bind:turn={turnJumpInput}
+                            pageCount={1}
+                            turnCount={residentTurnNavigation.turnCount}
+                            onJump={jumpToPageTurn}
                         />
                     </div>
                 {/if}
@@ -1491,7 +1588,6 @@ import { isMobile } from 'src/ts/platform'
                                 <ReplyIcon /><span>{language.autoSuggest}</span>
                             </ShDropdownMenuItem>
                             <ShDropdownMenuItem onSelect={() => {
-                                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                 openModuleList = true
                             }}>
                                 <PackageIcon /><span>{language.modules}</span>
@@ -1614,11 +1710,9 @@ import { isMobile } from 'src/ts/platform'
                 {:else}
                     <button
                             onclick={send}
-                            disabled={wikiBlocksGeneration}
-                            title={wikiBlocksGeneration
-                                ? ($isWikiGenerating
-                                    ? language.risuBardWikiGenerationChatLocked
-                                    : language.risuBardWikiRebootChatLocked)
+                            disabled={wikiRebootBlocksGeneration}
+                            title={wikiRebootBlocksGeneration
+                                ? language.risuBardWikiRebootChatLocked
                                 : undefined}
                             aria-label={willResend ? language.reroll : language.send}
                             class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full bg-primary text-accenttext hover:bg-primary/80 transition-colors button-icon-send disabled:opacity-45 disabled:cursor-not-allowed"
@@ -1845,11 +1939,13 @@ import { isMobile } from 'src/ts/platform'
                     atOldestEnd = state.atOldestEnd
                     atNewestEnd = state.atNewestEnd
                 }}
+                {historyStartResident}
                 saverMode={$saverModeStore}
                 onReroll={reroll}
                 onNextSwipe={nextSwipe}
                 onDeleteSwipe={deleteSwipe}
                 onConfirmMemory={confirmCurrentNarrativeMessage}
+                onReanalyzeMemory={reanalyzeNarrativeMessage}
                 unReroll={unReroll}
                 currentCharacter={currentCharacter}
                 currentUsername={currentUsername}
@@ -1974,11 +2070,9 @@ import { isMobile } from 'src/ts/platform'
             ></textarea>
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"
-                        disabled={wikiBlocksGeneration}
-                        title={wikiBlocksGeneration
-                            ? ($isWikiGenerating
-                                ? language.risuBardWikiGenerationChatLocked
-                                : language.risuBardWikiRebootChatLocked)
+                        disabled={wikiRebootBlocksGeneration}
+                        title={wikiRebootBlocksGeneration
+                            ? language.risuBardWikiRebootChatLocked
                             : undefined}
                         class="flex items-center gap-1 px-4 h-10 rounded-full bg-primary text-accenttext hover:bg-primary/80 transition-colors disabled:opacity-45 disabled:cursor-not-allowed">
                     <Send size={18} />

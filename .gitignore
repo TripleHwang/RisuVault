@@ -48,6 +48,8 @@ __pycache__/
 dist.zip
 /scripts/*
 !/scripts/updater.cjs
+!/scripts/updater-recovery.cjs
+!/scripts/portable-smoke.cjs
 !/scripts/portable/
 !/scripts/termux/
 !/scripts/check-help-keys.mjs
@@ -59,6 +61,9 @@ dist.zip
 !/scripts/generate-update-manifest.test.ts
 !/scripts/perf/
 !/scripts/perf/**
+!/scripts/dev-launcher.mjs
+!/scripts/dev-launcher.test.ts
+!/scripts/launch-risubard-dev.cmd
 .env
 /server/node/ssl/certificate
 /bin/

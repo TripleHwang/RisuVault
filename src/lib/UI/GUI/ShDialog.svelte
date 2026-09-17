@@ -2,10 +2,8 @@
     // shadcn-svelte Dialog — ported to RisuAI theme tokens.
     // See _reference/shadcn-components/dialog/* for source patterns.
     export type ShDialogSize = 'sm' | 'default' | 'lg' | 'xl';
-    // Stacking tier — see .agent/guide/ui.md "Dialog z-index 컨벤션".
-    // base (z-40): 베이스 리스트/관리 다이얼로그 (위에 alert 떠야 함)
-    // alert (z-[2147483600]): 모든 앱 surface 위의 일반 팝업
-    // top (z-[2147483640]): 확인/로딩 등 최상위 blocking surface
+    // Static stacking tiers. Individual callers may use a small local override
+    // when a nested dialog must sit above its owning base-tier window.
     export type ShDialogTier = 'base' | 'alert' | 'top';
 </script>
 
@@ -78,8 +76,8 @@
 
     const tierClasses: Record<ShDialogTier, string> = {
         base: 'z-40',
-        alert: 'z-[2147483600]',
-        top: 'z-[2147483640]',
+        alert: 'z-50',
+        top: 'z-[60]',
     };
 
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any

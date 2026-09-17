@@ -67,6 +67,24 @@ export function parseSingleJsonObject(value: string): unknown {
     return candidates[0]
 }
 
+export function parseSingleJsonObjectMatching(
+    value: string,
+    matches: (candidate: Record<string, unknown>) => boolean
+): unknown {
+    if (typeof value !== 'string') {
+        throw new Error('Model output must be a string')
+    }
+    const candidates = jsonObjectCandidates(stripModelReasoning(value))
+    if (candidates.length === 1) return candidates[0]
+    const matching = candidates.filter((candidate) =>
+        matches(candidate as Record<string, unknown>)
+    )
+    if (matching.length !== 1) {
+        throw new Error('Model output must contain exactly one JSON object')
+    }
+    return matching[0]
+}
+
 export function normalizeNarrativeBaseline(value: string): string {
     if (typeof value !== 'string') {
         throw new Error('Baseline output must be a string')

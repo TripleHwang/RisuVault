@@ -31,6 +31,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         // to blank leaves '' in userValues, and sending e.g. reasoning_effort:''
         // is rejected by providers (no enum match). Skip it like undefined.
         if (effective === undefined || effective === '') continue
+        if (!isSchemaValueValid(field, effective)) continue
         switch (field.mapsTo.target) {
             case 'body':
                 setNested(body, field.mapsTo.path, effective)
@@ -75,6 +76,18 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         body,
     }
     return applyAuth(prepared, snapshot.auth, ctx.credential)
+}
+
+function isSchemaValueValid(
+    field: ResolvedModelProfileSnapshot['schema'][number],
+    value: unknown,
+): boolean {
+    if (field.type !== 'number' && field.type !== 'integer') return true
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false
+    if (field.type === 'integer' && !Number.isInteger(value)) return false
+    if (field.min !== undefined && value < field.min) return false
+    if (field.max !== undefined && value > field.max) return false
+    return true
 }
 
 function resolveEndpointUrl(

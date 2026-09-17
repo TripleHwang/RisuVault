@@ -9,7 +9,6 @@
     import BotSettings from './Pages/BotSettings.svelte'
     import ModelPresetSettings from './Pages/Model/ModelPresetSettings.svelte'
     import OtherBotSettings from './Pages/OtherBotSettings.svelte'
-    import PromptPresetSettings from './Pages/PromptPresetSettings.svelte'
     import SettingsSectionTabs from 'src/lib/UI/GUI/SettingsSectionTabs.svelte'
     import SettingPage from 'src/lib/UI/GUI/SettingPage.svelte'
 
@@ -45,6 +44,7 @@
             selected={activeRoute}
             onSelect={onNavigate}
             ariaLabel={language.settingsWorkspace.aiWorkspace.sectionNavigation}
+            variant="prominent"
         />
 
         <section class="section-detail" aria-labelledby="active-ai-section-title">
@@ -57,8 +57,6 @@
             <div class="embedded-settings">
                 {#if activeSection.id === 'model-presets'}
                     <ModelPresetSettings embedded />
-                {:else if activeSection.id === 'chat-prompt-presets'}
-                    <PromptPresetSettings embedded />
                 {:else if activeSection.id === 'legacy-model'}
                     <BotSettings embedded />
                 {:else}

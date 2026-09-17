@@ -8,6 +8,13 @@ const componentPath = resolve(process.cwd(), 'src/lib/Setting/SettingsNavigation
 const workspacePath = resolve(process.cwd(), 'src/lib/Setting/Settings.svelte')
 
 describe('SettingsNavigation', () => {
+    test('places chat prompt presets immediately after AI settings', () => {
+        expect(settingsSections[0].items.slice(0, 2)).toEqual([
+            expect.objectContaining({ id: 'ai-settings', route: SettingsRoute.ModelPreset }),
+            expect.objectContaining({ id: 'chat-prompt-presets', route: SettingsRoute.PromptPreset }),
+        ])
+    })
+
     test('places the unified RisuBard common page and wiki prompt directly below AI', () => {
         expect(settingsSections.map((section) => section.id).slice(0, 3)).toEqual([
             'ai',
@@ -21,6 +28,7 @@ describe('SettingsNavigation', () => {
                 aliases: [SettingsRoute.RisuBardChat],
             }),
             expect.objectContaining({ id: 'risubard-wiki-prompt', route: SettingsRoute.RisuBardWikiPrompt }),
+            expect.objectContaining({ id: 'risubard-grimoire-prompt', route: SettingsRoute.RisuBardGrimoirePrompt }),
         ])
     })
 
@@ -57,5 +65,14 @@ describe('SettingsNavigation', () => {
 
         expect(source).toContain("event.key.toLowerCase() === 'k'")
         expect(source).toContain('event.ctrlKey || event.metaKey')
+    })
+
+    test('does not expose a separate legacy migration page', () => {
+        expect(settingsSections.flatMap((section) => section.items).map((item) => item.id))
+            .not.toContain('migration')
+
+        const source = readFileSync(workspacePath, 'utf8')
+        expect(source).not.toContain("import MigrationSettings")
+        expect(source).not.toContain('<MigrationSettings')
     })
 })

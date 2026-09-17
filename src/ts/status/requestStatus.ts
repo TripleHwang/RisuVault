@@ -45,6 +45,8 @@ export type RequestInjectionKind =
     | 'character'
     | 'persona'
     | 'lorebook'
+    | 'grimoire'
+    | 'grimoireRequired'
     | 'wiki'
     | 'memory'
     | 'exampleDialogue'

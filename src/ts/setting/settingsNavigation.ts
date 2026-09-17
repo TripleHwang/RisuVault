@@ -30,11 +30,11 @@ export const settingsSections: SettingsNavigationSection[] = [
                 route: SettingsRoute.ModelPreset,
                 aliases: [
                     SettingsRoute.ChatBot,
-                    SettingsRoute.PromptPreset,
                     SettingsRoute.OtherBots,
                 ],
                 scope: 'full',
             },
+            { id: 'chat-prompt-presets', route: SettingsRoute.PromptPreset, scope: 'full' },
             { id: 'advanced', route: SettingsRoute.Advanced, scope: 'full' },
         ],
     },
@@ -48,6 +48,7 @@ export const settingsSections: SettingsNavigationSection[] = [
                 scope: 'full',
             },
             { id: 'risubard-wiki-prompt', route: SettingsRoute.RisuBardWikiPrompt, scope: 'full' },
+            { id: 'risubard-grimoire-prompt', route: SettingsRoute.RisuBardGrimoirePrompt, scope: 'full' },
         ],
     },
     {
@@ -73,10 +74,10 @@ export const settingsSections: SettingsNavigationSection[] = [
     {
         id: 'system',
         items: [
-            { id: 'migration', route: SettingsRoute.Migration },
             { id: 'remote-access', route: SettingsRoute.RemoteAccess, scope: 'full' },
             { id: 'system', route: SettingsRoute.System, scope: 'full' },
-            { id: 'developer', route: SettingsRoute.DevPanel, scope: 'dev' },
+            { id: 'developer', route: SettingsRoute.Developer, scope: 'full' },
+            { id: 'dev-panel', route: SettingsRoute.DevPanel, scope: 'dev' },
         ],
     },
 ]

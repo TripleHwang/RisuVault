@@ -22,7 +22,7 @@ and one-step rollback. Review-first mode and the explicit Wiki Workbench remain
 available for directed edits.
 
 The in-app file tree also supports AI-free manual pages for characters,
-locations, factions, items, concepts, the current scene, and other notes.
+locations, factions, creatures, items, concepts, the current scene, and other notes.
 Manual saves keep program-owned IDs and frontmatter, archive prior revisions,
 move renamed/type-changed files safely, and update editable wikilinks. Delete
 moves canonical bytes under `.risubard-trash/`; confirmed `events/` evidence

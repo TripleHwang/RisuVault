@@ -41,6 +41,7 @@ function splitSecrets(source) {
             const nested = splitSecrets(value);
             if (Object.keys(nested.settings).length) settings[key] = nested.settings;
             if (Object.keys(nested.secrets).length) secrets[key] = nested.secrets;
+            if (!Object.keys(nested.settings).length && !Object.keys(nested.secrets).length) settings[key] = {};
         } else {
             settings[key] = value;
         }
@@ -259,14 +260,19 @@ function createUserDataRepository(options = {}) {
                 const metadata = without(rawChat, new Set(['message']));
                 operations.push({
                     path: chatMetadataPath(characterId, chatId),
-                    data: jsonBytes({ ...metadata, id: chatId }),
+                    data: jsonBytes(metadata),
                 });
                 const messages = Array.isArray(rawChat?.message) ? rawChat.message : [];
                 operations.push({
                     path: messagesPath(characterId, chatId),
                     data: Buffer.from(messages.map(message => JSON.stringify(message)).join('\n') + (messages.length ? '\n' : ''), 'utf8'),
                 });
-                chats.push({ id: chatId, name: rawChat?.name || '', lastDate: rawChat?.lastDate ?? 0 });
+                chats.push({
+                    id: chatId,
+                    name: rawChat?.name || '',
+                    lastDate: rawChat?.lastDate ?? 0,
+                    legacyMessagePresent: Object.prototype.hasOwnProperty.call(rawChat, 'message'),
+                });
             }
             const metadata = without(rawCharacter, new Set(['chats']));
             operations.push({
@@ -285,7 +291,7 @@ function createUserDataRepository(options = {}) {
         const sidebarCharacters = mode === 'merge' ? mergeById(previousIndex.characters, characters) : characters;
         const sidebar = { schemaVersion: 1, updatedAt: Date.now(), characters: sidebarCharacters, collections };
         operations.push({ path: 'index/sidebar.json', data: jsonBytes(sidebar) });
-        commitTransaction(dataRoot, operations);
+        const transaction = commitTransaction(dataRoot, operations);
 
         if (mode !== 'merge') {
             for (const [legacyName, directory] of COLLECTIONS) {
@@ -310,7 +316,43 @@ function createUserDataRepository(options = {}) {
                 }
             }
         }
-        return { mode, characters: characters.length, files: operations.length };
+        return { mode, characters: characters.length, files: operations.length, transaction };
+    }
+
+    function syncLegacyCollection(legacyName, values) {
+        const collection = COLLECTIONS.find(([name]) => name === legacyName);
+        if (!collection) throw new Error(`Unsupported legacy collection: ${legacyName}`);
+        if (!Array.isArray(values)) throw new Error(`Legacy collection must be an array: ${legacyName}`);
+
+        const [, directory] = collection;
+        const previousIndex = loadSidebarIndex();
+        const incomingIds = [];
+        const operations = [];
+        for (const item of values) {
+            const id = stableId(item?.id, directory.slice(0, -1));
+            incomingIds.push(id);
+            operations.push({ path: path.join(directory, `${id}.json`), data: jsonBytes({ ...item, id }) });
+        }
+        const sidebar = {
+            ...previousIndex,
+            schemaVersion: 1,
+            updatedAt: Date.now(),
+            collections: {
+                ...(previousIndex.collections || {}),
+                [legacyName]: incomingIds,
+            },
+        };
+        operations.push({ path: 'index/sidebar.json', data: jsonBytes(sidebar) });
+        const transaction = commitTransaction(dataRoot, operations);
+
+        const retained = new Set(incomingIds);
+        for (const id of previousIndex.collections?.[legacyName] || []) {
+            const relativePath = path.join(directory, `${id}.json`);
+            if (!retained.has(id) && fs.existsSync(resolveInside(dataRoot, relativePath))) {
+                moveToTrash(dataRoot, relativePath);
+            }
+        }
+        return { legacyName, files: operations.length, transaction };
     }
 
     function loadCollection(directory, ids, options = {}) {
@@ -330,7 +372,15 @@ function createUserDataRepository(options = {}) {
         }
         database.characters = index.characters.map(summary => {
             const character = loadCharacter(summary.id, readOptions);
-            return { ...character, chats: summary.chats.map(chat => loadChat(summary.id, chat.id, readOptions)) };
+            return {
+                ...character,
+                chats: summary.chats.map(chat => {
+                    const loaded = loadChat(summary.id, chat.id, readOptions);
+                    if (chat.legacyMessagePresent !== false) return loaded;
+                    const { message: _message, ...withoutMessage } = loaded;
+                    return withoutMessage;
+                }),
+            };
         });
         return database;
     }
@@ -349,6 +399,7 @@ function createUserDataRepository(options = {}) {
         loadMessages,
         loadSidebarIndex,
         saveAssistantDraft,
+        syncLegacyCollection,
     };
 }
 

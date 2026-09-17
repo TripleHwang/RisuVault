@@ -1,17 +1,16 @@
 <script lang="ts">
+    import { registerSettingsBack } from "src/ts/setting/settingsBack";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import Button from "src/lib/UI/GUI/Button.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints, UsersRoundIcon } from "@lucide/svelte";
+    import { SquarePen, TrashIcon, Globe, PlusIcon, HardDriveUpload, Waypoints, UsersRoundIcon, ArrowLeftIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
-    import { tooltip } from "src/ts/gui/tooltip";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import { onDestroy } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { importMCPModule } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
@@ -25,8 +24,14 @@
         description: '',
         id: v4(),
     })
+    function returnToModules() {
+        if (mode === 0) return false
+        mode = 0
+        return true
+    }
+    onMount(() => registerSettingsBack(returnToModules))
+
     let mode = $state(0)
-    let editModuleIndex = $state(-1)
     let selectedModuleFolder = $state<string | null | undefined>(undefined)
     let personaAssignmentOpen = $state(false)
     let personaAssignmentModuleId = $state('')
@@ -71,13 +76,6 @@
         personaAssignmentModuleId = moduleId
         personaSearch = ''
         personaAssignmentOpen = true
-    }
-
-    function personaAssignmentCount(moduleId:string){
-        const validPersonaIds = new Set(personaOptions().map((persona) => persona.id))
-        return Object.entries(DBState.db.personaEnabledModules ?? {})
-            .filter(([personaId, moduleIds]) => validPersonaIds.has(personaId) && moduleIds.includes(moduleId))
-            .length
     }
 
     function isAssignedToPersona(personaId:string){
@@ -128,27 +126,64 @@
         }
     }
 
+    function removeModules(moduleIds:readonly string[]){
+        const moduleIdsToDelete = new Set(moduleIds)
+        DBState.db.enabledModules = DBState.db.enabledModules.filter((moduleId) => !moduleIdsToDelete.has(moduleId))
+        DBState.db.modules = DBState.db.modules.filter((module) => !moduleIdsToDelete.has(module.id))
+        if(DBState.db.collectionOrganizers){
+            DBState.db.collectionOrganizers = {
+                ...DBState.db.collectionOrganizers,
+                modules: normalizeCollectionOrganizerState(
+                    DBState.db.collectionOrganizers.modules,
+                    DBState.db.modules.map((module) => module.id),
+                ),
+            }
+        }
+        normalizeAssignments()
+        void requestImmediateSave()
+    }
+
+    async function deleteModules(moduleIds:string[]){
+        const existingCount = DBState.db.modules.filter((module) => moduleIds.includes(module.id)).length
+        if(!existingCount) return false
+        if(!await alertConfirm(language.collectionOrganizer.deleteSelectedConfirm.replace('{}', String(existingCount)))) return false
+        removeModules(moduleIds)
+        notifySuccess(language.collectionOrganizer.deleteSelectedDone.replace('{}', String(existingCount)))
+        return true
+    }
+
     onDestroy(() => {
         refreshModules()
     })
 </script>
+{#snippet backButton()}
+    <ShButton
+        variant="ghost"
+        size="icon-sm"
+        aria-label={language.moduleBackToList}
+        title={language.moduleBackToList}
+        onclick={returnToModules}
+    ><ArrowLeftIcon size={18}/></ShButton>
+{/snippet}
 {#if mode === 0}
-    <SettingPage resizable title={language.modules}>
+    <SettingPage resizable title={language.modules} description={language.collectionOrganizer.description}>
 
     <CollectionOrganizerList
+        managerLayout
         kind="modules"
         items={organizerModuleItems}
         collectionLabel={language.modules}
+        onDeleteItems={deleteModules}
         bind:selectedFolderId={selectedModuleFolder}
     >
         {#snippet toolbar(_selectedFolderId)}
             <div class="flex items-center gap-1">
-                <ShButton variant="ghost" size="icon-sm" aria-label={language.createModule} onclick={() => {
+                <ShButton variant="outline" size="icon-sm" aria-label={language.createModule} onclick={() => {
                     tempModule = { name: '', description: '', id: v4() }
                     mode = 1
                 }}><PlusIcon /></ShButton>
-                <ShButton variant="ghost" size="icon-sm" aria-label="MCP" onclick={() => importModulesToSelectedFolder(importMCPModule)}><Waypoints /></ShButton>
-                <ShButton variant="ghost" size="icon-sm" aria-label={language.importModule} onclick={() => importModulesToSelectedFolder(importModule)}><HardDriveUpload /></ShButton>
+                <ShButton variant="outline" size="icon-sm" aria-label="MCP" onclick={() => importModulesToSelectedFolder(importMCPModule)}><Waypoints /></ShButton>
+                <ShButton variant="outline" size="icon-sm" aria-label={language.importModule} onclick={() => importModulesToSelectedFolder(importModule)}><HardDriveUpload /></ShButton>
             </div>
         {/snippet}
 
@@ -156,21 +191,25 @@
             {@const moduleIndex = DBState.db.modules.findIndex((module) => module.id === moduleId)}
             {#if moduleIndex >= 0}
                 {@const rmodule = DBState.db.modules[moduleIndex]}
-                <div class="module-item-header pl-3 pt-3 text-left">
+                <div class="module-item-header text-left">
                     <div class="module-item-title font-bold">
-                        {#if rmodule.mcp}
-                            <Waypoints size={18} class="shrink-0" />
-                        {/if}
-                        <span class="min-w-0">{rmodule.name}</span>
+                        <div class="module-item-name">
+                            {#if rmodule.mcp}
+                                <Waypoints size={18} class="shrink-0" />
+                            {/if}
+                            <span class="block min-w-0">{rmodule.name}</span>
+                        </div>
+                        <div class="module-item-description">
+                            <span class="text-sm text-textcolor2">{rmodule.description || 'No description provided'}</span>
+                        </div>
                     </div>
                     <div class="module-item-actions">
-                        <button class={(DBState.db.enabledModules.includes(rmodule.id)) ?
-                                "mr-2 cursor-pointer text-info" :
-                                rmodule.namespace && 
-                                DBState.db.moduleIntergration?.split(',').map((s) => s.trim()).includes(rmodule.namespace) ?
-                                "text-warning hover:text-primary mr-2 cursor-pointer" :
-                                "text-textcolor2 hover:text-primary mr-2 cursor-pointer"
-                            } use:tooltip={language.enableGlobal} onclick={async (e) => {
+                        <ShButton
+                            variant="outline"
+                            size="icon-xs"
+                            aria-label={language.enableGlobal}
+                            title={language.enableGlobal}
+                            onclick={async (e) => {
                             e.stopPropagation()
                             if(DBState.db.enabledModules.includes(rmodule.id)){
                                 DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
@@ -180,67 +219,44 @@
                             }
                             DBState.db.enabledModules = DBState.db.enabledModules
                         }}>
-                            <Globe size={18}/>
-                        </button>
-                        <button
-                            class="text-textcolor2 hover:text-primary mr-2 cursor-pointer inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-borderc/50"
+                            <span class="module-activation-icon" class:module-activation-icon--active={DBState.db.enabledModules.includes(rmodule.id)}><Globe size={18}/></span>
+                        </ShButton>
+                        <ShButton
+                            variant="outline"
+                            size="icon-xs"
                             aria-label={language.managePersonaModules}
-                            use:tooltip={language.managePersonaModules}
+                            title={language.managePersonaModules}
                             onclick={(e) => {
                                 e.stopPropagation()
                                 openPersonaAssignments(rmodule.id)
                             }}
                         >
                             <UsersRoundIcon size={18}/>
-                            <span class="min-w-4 rounded-full bg-selected px-1 text-center text-xs text-textcolor">
-                                {personaAssignmentCount(rmodule.id)}
-                            </span>
-                        </button>
+                        </ShButton>
                         {#if !rmodule.mcp}
-                            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" use:tooltip={language.download} onclick={async (e) => {
+                            <ShButton variant="outline" size="icon-xs" aria-label={language.edit} title={language.edit} onclick={async (e) => {
                                 e.stopPropagation()
-                                exportModule(rmodule)
-                            }}>
-                                <Share2Icon size={18}/>
-                            </button>
-                            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" use:tooltip={language.edit} onclick={async (e) => {
-                                e.stopPropagation()
-                                const index = DBState.db.modules.findIndex((v) => v.id === rmodule.id)
                                 tempModule = rmodule
-                                editModuleIndex = index
                                 mode = 2
                             }}>
                                 <SquarePen size={18}/>
-                            </button>
+                            </ShButton>
                         {:else}
-                            <button class="text-textcolor2 mr-2 cursor-not-allowed">
-                                <Share2Icon size={18}/>
-                            </button>
-                            <button class="text-textcolor2 mr-2 cursor-not-allowed">
+                            <ShButton variant="outline" size="icon-xs" aria-label={language.edit} disabled>
                                 <SquarePen size={18}/>
-                            </button>
+                            </ShButton>
                         {/if}
-                        <button class="text-textcolor2 hover:text-danger/80 mr-2 cursor-pointer" use:tooltip={language.remove} onclick={async (e) => {
+                        <ShButton variant="destructive" size="icon-xs" aria-label={language.remove} title={language.remove} onclick={async (e) => {
                             e.stopPropagation()
                             const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
                             if(d){
-                                if(DBState.db.enabledModules.includes(rmodule.id)){
-                                    DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                    DBState.db.enabledModules = DBState.db.enabledModules
-                                }
-                                const index = DBState.db.modules.findIndex((v) => v.id === rmodule.id)
-                                DBState.db.modules.splice(index, 1)
-                                DBState.db.modules = DBState.db.modules
-                                normalizeAssignments()
+                                removeModules([rmodule.id])
                                 notifySuccess(language.moduleDeleted)
                             }
                         }}>
                             <TrashIcon size={18}/>
-                        </button>
+                        </ShButton>
                     </div>
-                </div>
-                <div class="module-item-description mt-1 mb-3 pl-3">
-                    <span class="text-sm text-textcolor2">{rmodule.description || 'No description provided'}</span>
                 </div>
             {/if}
         {/snippet}
@@ -248,30 +264,30 @@
 
     </SettingPage>
 {:else if mode === 1}
-    <SettingPage title={language.createModule}>
+    <SettingPage title={language.createModule} leading={backButton}>
     <ModuleMenu bind:currentModule={tempModule}/>
-    <Button className="mt-6" onclick={() => {
+    <ShButton variant="outline" size="xs" className="mt-6 self-start" onclick={() => {
         DBState.db.modules.push(tempModule)
         assignModuleToFolder(tempModule.id, selectedModuleFolder)
         notifySuccess(language.moduleCreated)
         mode = 0
-    }}>{language.createModule}</Button>
+    }}>{language.createModule}</ShButton>
     </SettingPage>
 {:else if mode === 2}
-    <SettingPage title={language.editModule}>
+    <SettingPage title={language.editModule} leading={backButton}>
     <ModuleMenu bind:currentModule={tempModule}/>
     {#if tempModule.name !== ''}
-        <Button className="mt-6" onclick={() => {
-            DBState.db.modules[editModuleIndex] = tempModule
-            notifySuccess(language.moduleUpdated)
-            mode = 0
-        }}>{language.editModule}</Button>
-        <Button className="mt-2" onclick={() => {
+      <div class="module-editor-actions">
+        <button type="button" class="module-editor-action" onclick={() => exportModule(tempModule)}>
+            {language.download}
+        </button>
+        <button type="button" class="module-editor-action" onclick={() => {
             const char = convertModuleToCharacter(tempModule)
             DBState.db.characters.push(char)
             checkCharOrder()
             notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</Button>
+        }}>{language.convertToCharacter}</button>
+      </div>
     {/if}
     </SettingPage>
 {/if}
@@ -319,9 +335,25 @@
 </ShDialog>
 
 <style>
+    .module-editor-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--settings-border, var(--color-darkborderc)); }
+    .module-editor-action {
+        min-height: 3rem;
+        padding: .72rem 1.15rem;
+        border: 1px solid color-mix(in srgb, var(--risu-theme-primary) 48%, var(--risu-theme-darkborderc));
+        border-radius: .62rem;
+        background: color-mix(in srgb, var(--risu-theme-primary) 62%, var(--risu-theme-bgcolor));
+        color: var(--risu-theme-textcolor);
+        font-size: .96rem;
+        font-weight: 700;
+        letter-spacing: -.01em;
+        transition: background-color 180ms ease, box-shadow 180ms ease;
+    }
+    .module-editor-action:hover { background: color-mix(in srgb, var(--risu-theme-primary) 72%, var(--risu-theme-bgcolor)); }
+    .module-editor-action:focus-visible { outline: 2px solid color-mix(in srgb, var(--risu-theme-textcolor) 74%, var(--risu-theme-primary)); outline-offset: -3px; }
     .module-item-header {
+        height: 100%;
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
         gap: 0.5rem;
         min-width: 0;
@@ -329,8 +361,10 @@
 
     .module-item-title {
         display: flex;
-        align-items: center;
-        gap: 0.5rem;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: .3rem;
         flex: 1 1 10rem;
         min-width: 0;
         overflow-wrap: anywhere;
@@ -338,20 +372,41 @@
 
     .module-item-actions {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         justify-content: flex-end;
-        row-gap: 0.5rem;
+        gap: .25rem;
+        align-items: center;
+        flex-shrink: 0;
         min-width: 0;
         max-width: 100%;
         margin-left: auto;
     }
 
-    .module-item-actions > button {
+    .module-item-actions :global(button) {
         flex-shrink: 0;
+    }
+
+    .module-item-name {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .module-activation-icon {
+        display: inline-flex;
+        color: var(--risu-theme-textcolor2);
+        transition: color 180ms ease, filter 180ms ease;
+    }
+
+    .module-activation-icon--active {
+        color: var(--color-info);
+        filter: drop-shadow(0 0 .28rem color-mix(in srgb, var(--color-info) 75%, transparent));
     }
 
     .module-item-description {
         min-width: 0;
+        font-weight: 400;
         overflow-wrap: anywhere;
     }
 </style>

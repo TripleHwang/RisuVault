@@ -17,6 +17,7 @@ export interface CollectionOrganizerItem {
     id: string
     title: string
     detail?: string
+    status?: string
 }
 
 export interface CollectionFolderCounts {
@@ -174,6 +175,7 @@ export function getVisibleCollectionItems(
     items: readonly CollectionOrganizerItem[],
     folderId: FolderFilter,
     search: string,
+    status = '',
 ): CollectionOrganizerItem[] {
     const itemById = new Map(items.map((item) => [item.id, item]))
     const query = search.trim().toLocaleLowerCase()
@@ -181,6 +183,7 @@ export function getVisibleCollectionItems(
         .map((itemId) => itemById.get(itemId))
         .filter((item): item is CollectionOrganizerItem => Boolean(item))
         .filter((item) => !query || `${item.title}\n${item.detail ?? ''}`.toLocaleLowerCase().includes(query))
+        .filter((item) => !status || item.status === status)
 }
 
 export function getCollectionFolderCounts(state: CollectionOrganizerState): CollectionFolderCounts {
@@ -214,6 +217,33 @@ export function getCollectionItemDragState(
         primaryItemId: grabbedItemId,
         itemIds: selectedItemIds.includes(grabbedItemId) ? validItemIds(selectedItemIds) : [grabbedItemId],
     }
+}
+
+export function reorderCollectionItemDragGroup(
+    visibleItemIds: readonly string[],
+    draggedItemIds: readonly string[],
+    primaryItemId: string,
+    targetItemId: string,
+): string[] {
+    const visibleIds = validItemIds(visibleItemIds)
+    const visibleIdSet = new Set(visibleIds)
+    const dragged = new Set(validItemIds(draggedItemIds).filter((itemId) => visibleIdSet.has(itemId)))
+    const primaryIndex = visibleIds.indexOf(primaryItemId)
+    const targetIndex = visibleIds.indexOf(targetItemId)
+    if (primaryIndex < 0 || targetIndex < 0 || dragged.has(targetItemId)) return visibleIds
+
+    const movingDown = primaryIndex < targetIndex
+    const group = visibleIds.filter((itemId) => dragged.has(itemId))
+    const remaining = visibleIds.filter((itemId) => !dragged.has(itemId))
+    const remainingTargetIndex = remaining.indexOf(targetItemId)
+    if (!group.length || remainingTargetIndex < 0) return visibleIds
+
+    const insertionIndex = remainingTargetIndex + (movingDown ? 1 : 0)
+    return [
+        ...remaining.slice(0, insertionIndex),
+        ...group,
+        ...remaining.slice(insertionIndex),
+    ]
 }
 
 export function reorderVisibleCollectionItems(

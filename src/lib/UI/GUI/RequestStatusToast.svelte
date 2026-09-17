@@ -104,6 +104,8 @@
             character: rs?.injectionKinds?.character ?? 'Character',
             persona: rs?.injectionKinds?.persona ?? 'Persona',
             lorebook: rs?.injectionKinds?.lorebook ?? 'Lorebook',
+            grimoire: rs?.injectionKinds?.grimoire ?? 'Grimoire',
+            grimoireRequired: rs?.injectionKinds?.grimoireRequired ?? 'Grimoire (required)',
             wiki: rs?.injectionKinds?.wiki ?? 'BardWiki',
             memory: rs?.injectionKinds?.memory ?? 'Memory',
             exampleDialogue: rs?.injectionKinds?.exampleDialogue ?? 'Example dialogue',
@@ -114,7 +116,9 @@
         }
         const label = labels[item.kind]
         if (!item.name) return label
-        return item.kind === 'lorebook' ? `${label} “${item.name}”` : `${label} · ${item.name}`
+        if (item.kind === 'lorebook') return `${label} “${item.name}”`
+        if (item.kind === 'grimoire' || item.kind === 'grimoireRequired') return `${label} ${item.name}`
+        return `${label} · ${item.name}`
     }
 
     function dismiss(): void {

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { findHistoricalSourceMatches } from './historicalSourceRecall'
+import {
+    findHistoricalSourceMatches,
+    resolveHistoricalSourceMatchesById,
+} from './historicalSourceRecall'
 
 describe('historical source recall', () => {
     test('recovers a small early detail from a one-thousand-message chat', () => {
@@ -40,7 +43,7 @@ describe('historical source recall', () => {
     test('ignores current, recent, disabled, comment, and id-less messages', () => {
         const matches = findHistoricalSourceMatches({
             currentInput: '플러피풋 사과 에일을 기억한다.',
-            excludeRecentMessages: 2,
+            excludeRecentMessages: 1,
             messages: [
                 { role: 'char', data: '플러피풋 사과 에일', chatId: 'old' },
                 { role: 'char', data: '플러피풋 사과 에일', chatId: 'disabled', disabled: true },
@@ -67,5 +70,53 @@ describe('historical source recall', () => {
         })
 
         expect(matches).toEqual([])
+    })
+
+    test('uses the configured maximum candidate count, including zero', () => {
+        const messages = [
+            ...Array.from({ length: 10 }, (_, index) => ({
+                role: 'char' as const,
+                data: `수녀들이 마을 처녀들을 데려간 증언 ${index}`,
+                chatId: `evidence-${index}`,
+            })),
+            { role: 'user' as const, data: '수녀들이 데려간 처녀들', chatId: 'current' },
+        ]
+
+        expect(findHistoricalSourceMatches({
+            currentInput: '수녀들이 데려간 처녀들',
+            messages,
+            excludeRecentMessages: 1,
+            maximumMatches: 3,
+        })).toHaveLength(3)
+        expect(findHistoricalSourceMatches({
+            currentInput: '수녀들이 데려간 처녀들',
+            messages,
+            excludeRecentMessages: 1,
+            maximumMatches: 0,
+        })).toEqual([])
+    })
+
+    test('resolves selected event provenance by ID without lexical overlap', () => {
+        const matches = resolveHistoricalSourceMatchesById({
+            messageIds: ['turn-1', 'turn-4'],
+            messages: [
+                {
+                    role: 'char',
+                    data: '촌장은 한 달 전 딸을 포함한 처녀 넷이 사라졌다고 증언했다.',
+                    chatId: 'turn-1',
+                },
+                { role: 'user', data: '교회를 수색한다.', chatId: 'turn-2' },
+                {
+                    role: 'char',
+                    data: '기도실과 본당 어디에도 시신은 없었다.',
+                    chatId: 'turn-4',
+                },
+                { role: 'user', data: '지도에 관해 묻는다.', chatId: 'current' },
+            ],
+            excludeRecentMessages: 1,
+        })
+
+        expect(matches.map((match) => match.messageId)).toEqual(['turn-1'])
+        expect(matches[0]?.score).toBeGreaterThan(100)
     })
 })

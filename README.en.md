@@ -111,6 +111,8 @@ Everything stays in the directory you point it at. RisuVault sends your data now
 - [Migrate from RisuAI](docs/en/migration.md)
 - [File-canonical storage](docs/en/file-native-storage.md)
 - [BardWiki memory](docs/ko/memory-wiki.md) (Korean only)
+- [BardWiki plugin API](docs/ko/bardwiki-plugin-api.md) (Korean only)
+- [Grimoire and AI analysis](docs/ko/grimoire-ai-analysis.md) (Korean only)
 - [Remote access](docs/en/remote.md)
 - [Termux (Android)](docs/en/termux.md)
 - [Plugin and provider compatibility](docs/ko/plugin-provider-compatibility.md) (Korean only)

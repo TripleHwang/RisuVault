@@ -131,3 +131,44 @@ describe('requestOpenAIResponseAPI parameters', () => {
         expect(body.reasoning).toMatchObject({ effort: 'none', summary: 'auto' })
     })
 })
+
+describe('requestOpenAILegacyInstruct sampling validation', () => {
+    test('omits invalid stored penalties without changing them', async () => {
+        mocks.db.PresensePenalty = -1
+        mocks.db.frequencyPenalty = 201
+        mocks.globalFetch.mockResolvedValue({ ok: true, data: { choices: [{ text: 'ok' }] } })
+        const { requestOpenAILegacyInstruct } = await import('./requests')
+
+        await requestOpenAILegacyInstruct({
+            formated: [{ role: 'user', content: 'Hello' }],
+            maxTokens: 100,
+            temperature: 0.7,
+        } as any)
+
+        const body = mocks.globalFetch.mock.calls[0][1].body
+        expect(body).not.toHaveProperty('presence_penalty')
+        expect(body).not.toHaveProperty('frequency_penalty')
+        expect(mocks.db.PresensePenalty).toBe(-1)
+        expect(mocks.db.frequencyPenalty).toBe(201)
+    })
+
+    test('preserves an explicit zero penalty', async () => {
+        mocks.db.PresensePenalty = 70
+        mocks.db.frequencyPenalty = 70
+        mocks.globalFetch.mockResolvedValue({ ok: true, data: { choices: [{ text: 'ok' }] } })
+        const { requestOpenAILegacyInstruct } = await import('./requests')
+
+        await requestOpenAILegacyInstruct({
+            formated: [{ role: 'user', content: 'Hello' }],
+            maxTokens: 100,
+            temperature: 0.7,
+            PresensePenalty: 0,
+            frequencyPenalty: 0,
+        } as any)
+
+        expect(mocks.globalFetch.mock.calls[0][1].body).toMatchObject({
+            presence_penalty: 0,
+            frequency_penalty: 0,
+        })
+    })
+})

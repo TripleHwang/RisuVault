@@ -4,30 +4,39 @@
     import { language } from 'src/lang'
     import { alertMd } from 'src/ts/alert'
     import { tooltip } from 'src/ts/gui/tooltip'
-    import { openPersonaManager, personaSelectCallback } from 'src/ts/stores.svelte'
-    import type { PersonaSelection } from 'src/ts/personaScopes'
+    import { DBState, openPersonaManager, personaSelectCallback, selectedCharID } from 'src/ts/stores.svelte'
+    import { getEffectivePersona, type PersonaSelection } from 'src/ts/personaScopes'
     import PersonaSettings from '../Setting/Pages/PersonaSettings.svelte'
 
     const PERSONA_MANAGER_WIDTH_KEY = 'risubard-persona-manager-width'
     const MIN_MANAGER_WIDTH = 520
-    const MAX_MANAGER_WIDTH = 1080
     let managerWidth = $state(672)
     let stopManagerResize: (() => void) | null = null
+    let pointerStartedOnBackdrop = false
+    const currentSelection = $derived.by(() => {
+        const character = DBState.db.characters[$selectedCharID]
+        const chat = character?.chats?.[character.chatPage]
+        return getEffectivePersona(DBState.db, character, chat)
+    })
 
     function close() {
         personaSelectCallback.set(null)
         openPersonaManager.set(false)
     }
 
+    function closeFromBackdrop(event: MouseEvent) {
+        if (!pointerStartedOnBackdrop) return
+        pointerStartedOnBackdrop = false
+        if (event.target === event.currentTarget) close()
+    }
+
     function selectPersona(selection: PersonaSelection): void {
         $personaSelectCallback?.(selection)
-        close()
     }
 
     function normalizeManagerWidth(value: number): number {
-        if (!Number.isFinite(value)) return 672
-        const viewportMaximum = Math.max(MIN_MANAGER_WIDTH, window.innerWidth - 32)
-        return Math.min(MAX_MANAGER_WIDTH, viewportMaximum, Math.max(MIN_MANAGER_WIDTH, Math.round(value)))
+        const viewportMaximum = Math.max(0, window.innerWidth - 32)
+        return Math.min(viewportMaximum, Math.max(MIN_MANAGER_WIDTH, Math.round(Number.isFinite(value) ? value : 672)))
     }
 
     function persistManagerWidth(): void {
@@ -47,12 +56,16 @@
         const stop = () => {
             window.removeEventListener('pointermove', update)
             window.removeEventListener('pointerup', stop)
+            window.removeEventListener('pointercancel', stop)
+            window.removeEventListener('blur', stop)
             persistManagerWidth()
             stopManagerResize = null
         }
         stopManagerResize = stop
         window.addEventListener('pointermove', update)
         window.addEventListener('pointerup', stop, { once: true })
+        window.addEventListener('pointercancel', stop, { once: true })
+        window.addEventListener('blur', stop, { once: true })
     }
 
     function resizeManagerByKeyboard(event: KeyboardEvent): void {
@@ -66,7 +79,10 @@
 
     onMount(() => {
         const storedWidth = Number(localStorage.getItem(PERSONA_MANAGER_WIDTH_KEY))
-        if (storedWidth) managerWidth = normalizeManagerWidth(storedWidth)
+        managerWidth = normalizeManagerWidth(storedWidth || managerWidth)
+        const fitViewport = () => { managerWidth = normalizeManagerWidth(managerWidth) }
+        window.addEventListener('resize', fitViewport)
+        return () => window.removeEventListener('resize', fitViewport)
     })
 
     onDestroy(() => {
@@ -75,7 +91,11 @@
     })
 </script>
 
-<div class="risu-modal-overlay persona-manager-backdrop">
+<!-- Backdrop dismissal has a keyboard-equivalent close-button path. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="risu-modal-overlay persona-manager-backdrop" onclick={closeFromBackdrop}
+    onpointerdowncapture={(event) => { pointerStartedOnBackdrop = event.target === event.currentTarget }}>
     <dialog open class="risu-modal-surface persona-manager" style={`--persona-manager-width: ${managerWidth}px`} aria-labelledby="persona-manager-title">
         <header class="risu-modal-header">
             <div class="persona-manager-title">
@@ -95,7 +115,7 @@
             </button>
         </header>
         <div class="persona-manager-content">
-            <PersonaSettings embedded onSelect={$personaSelectCallback ? selectPersona : undefined} />
+            <PersonaSettings embedded initialSelection={currentSelection} onSelect={$personaSelectCallback ? selectPersona : undefined} />
         </div>
         <button
             data-persona-manager-resizer
@@ -117,7 +137,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 1rem;
+        padding: 16px;
         background: color-mix(in srgb, var(--color-overlay) 58%, transparent);
         backdrop-filter: blur(4px);
     }
@@ -125,7 +145,10 @@
     .persona-manager {
         position: relative;
         margin: 0;
-        width: min(var(--persona-manager-width), calc(100vw - 2rem));
+        width: min(var(--persona-manager-width), calc(100vw - 32px));
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
         height: calc(100dvh - 2rem);
         display: flex;
         flex-direction: column;

@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest'
 const source = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8')
 
 describe('persona scope UI connections', () => {
-    test('centers the manager and returns a selected persona to the binding caller', () => {
+    test('centers the manager and returns a selected persona without closing it', () => {
         const dialog = source('src/lib/Others/PersonaManager.svelte')
         const manager = source('src/lib/Setting/Pages/PersonaSettings.svelte')
         const binding = source('src/lib/SideBars/PersonaBind.svelte')
@@ -15,7 +15,8 @@ describe('persona scope UI connections', () => {
         expect(dialog).toMatch(/\.persona-manager-backdrop\s*\{[^}]*align-items:\s*center/s)
         expect(dialog).toContain('personaSelectCallback.set(null)')
         expect(dialog).toContain('onSelect={$personaSelectCallback ? selectPersona : undefined}')
-        expect(dialog).toMatch(/function selectPersona\([^)]*\)[^{]*\{\s*\$personaSelectCallback\?\.\(selection\)\s*close\(\)/)
+        expect(dialog).toMatch(/function selectPersona\([^)]*\)[^{]*\{\s*\$personaSelectCallback\?\.\(selection\)\s*\}/)
+        expect(dialog).not.toMatch(/function selectPersona\([^)]*\)[^{]*\{[^}]*close\(\)/s)
         expect(manager).toContain('onSelect?: (selection: PersonaSelection) => void')
         expect(manager).toContain('onclick={() => choosePersona(i)}')
         expect(manager).toMatch(/onSelect\(\{ persona, index, scope: activeScope \}\)/)
@@ -31,9 +32,15 @@ describe('persona scope UI connections', () => {
     })
 
     test('switches the manager between global and current-character repositories', () => {
+        const dialog = source('src/lib/Others/PersonaManager.svelte')
         const manager = source('src/lib/Setting/Pages/PersonaSettings.svelte')
 
+        expect(dialog).toContain('getEffectivePersona')
+        expect(dialog).toContain('initialSelection={currentSelection}')
         expect(manager).toContain("type PersonaManagerScope = 'global' | 'character'")
+        expect(manager).toContain("initialSelection?.scope ?? 'global'")
+        expect(manager).toContain("initialSelection?.scope === 'global' && onSelect")
+        expect(manager).toContain("initialSelection?.scope === 'character'")
         expect(manager).toContain('data-persona-scope-tabs')
         expect(manager).toContain('language.settingsWorkspace.personaManager.globalTab')
         expect(manager).toContain('language.settingsWorkspace.personaManager.characterTab')

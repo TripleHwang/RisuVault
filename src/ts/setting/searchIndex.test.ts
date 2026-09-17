@@ -53,3 +53,11 @@ describe('searchSettings — unified RisuBard common settings', () => {
         expect(hits.every((result) => result.route !== SettingsRoute.RisuBardChat)).toBe(true)
     })
 })
+
+describe('searchSettings — storage diagnostics', () => {
+    test('finds the public developer diagnostics page', () => {
+        const hits = searchSettings('저장 진단', ctx)
+
+        expect(hits.some((result) => result.route === (SettingsRoute as any).Developer)).toBe(true)
+    })
+})

@@ -37,6 +37,48 @@ describe('progressive Markdown inquiry', () => {
         ])
     })
 
+    test('retrieves current character canon from a unique lore entity hint', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '손을 뻗는다.',
+            entityHints: [{
+                kind: 'character',
+                names: ['Haania', 'Hanya', 'Hania', '하니아', '수녀'],
+            }],
+            documents: [document({
+                id: 'haania', type: 'character', title: '하니아',
+                aliases: ['Haania', 'Hania'],
+                relativePath: 'characters/haania.md',
+                content: '## 하니아\n\n### 현재 상태\n\n교회 밖 나무 아래에 있다.',
+            })],
+        })
+
+        expect(result.sources.map((source) => source.id)).toEqual([
+            'narrative-memory:wiki:characters/haania.md',
+        ])
+        expect(result.sources[0]?.content).toContain('교회 밖 나무 아래')
+    })
+
+    test('does not guess a character from an ambiguous lore entity alias', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '손을 뻗는다.',
+            entityHints: [{ kind: 'character', names: ['수녀'] }],
+            documents: [
+                document({
+                    id: 'haania', type: 'character', title: '하니아',
+                    aliases: ['수녀'], relativePath: 'characters/haania.md',
+                    content: '## 하니아\n\n교회 밖에 있다.',
+                }),
+                document({
+                    id: 'maria', type: 'character', title: '마리아',
+                    aliases: ['수녀'], relativePath: 'characters/maria.md',
+                    content: '## 마리아\n\n수도원에 있다.',
+                }),
+            ],
+        })
+
+        expect(result.sources).toEqual([])
+    })
+
     test('follows a wikilink written with a unique alias', () => {
         const result = inquireMarkdownDocuments({
             currentInput: '북문 경비대 관계를 알려 줘.',
@@ -281,6 +323,146 @@ describe('progressive Markdown inquiry', () => {
         expect(result.metrics.auxiliaryModelCalls).toBe(0)
     })
 
+    test('reserves directly linked old evidence without requiring a memory phrase', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '수녀들이 데려갔다는 여자들이 어디로 향했는지 주인에게 묻는다.',
+            documents: [
+                document({
+                    id: 'village-abduction', type: 'event', title: '아르세존 마을 입구',
+                    relativePath: 'events/village-abduction.md',
+                    sourceMessageIds: ['turn-2'],
+                    content: '# 아르세존 마을 입구\n\n촌장은 한 달 전 수녀들이 자신의 딸을 포함한 마을 처녀 넷을 데려간 뒤 모두 실종되었다고 밝혔다.',
+                }),
+                ...Array.from({ length: 8 }, (_, index) => document({
+                    id: `recent-${index}`, type: 'event', title: `최근 술집 사건 ${index}`,
+                    relativePath: `events/recent-${index}.md`,
+                    content: `# 최근 술집 사건 ${index}\n\n주인은 아는 바가 없는 것 같다고 말했다.`,
+                })),
+            ],
+            sourceMatches: [{
+                messageId: 'turn-2', role: 'assistant', occurredAt: 2,
+                score: 2,
+                content: '촌장은 수녀들이 마을 처녀 넷을 데려갔다고 말했다.',
+            }],
+        })
+
+        expect(result.sources.map((source) => source.id)).toEqual(
+            expect.arrayContaining([
+                'narrative-memory:wiki:events/village-abduction.md',
+                'narrative-memory:source:turn-2:2',
+            ])
+        )
+    })
+
+    test('requests exact source messages from the events that were actually selected', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '수녀들이 데려간 처녀들이 어디로 갔는지 묻는다.',
+            documents: [
+                document({
+                    id: 'abduction', type: 'event', title: '네 처녀의 실종',
+                    relativePath: 'events/abduction.md',
+                    sourceMessageIds: ['turn-1', 'turn-4'],
+                    content: '# 네 처녀의 실종\n\n수녀들이 처녀 넷을 데려갔고 교회에는 시신이 없었다.',
+                }),
+                document({
+                    id: 'unrelated', type: 'event', title: '수녀 괴물과의 전투',
+                    relativePath: 'events/unrelated.md',
+                    sourceMessageIds: ['turn-9'],
+                    content: `# 수녀 괴물과의 전투\n\n${'괴물과 전투가 벌어졌다. '.repeat(200)}`,
+                }),
+            ],
+            tokenBudget: {
+                target: 1_024,
+                events: 256,
+                perSource: 256,
+                maximum: 1_280,
+            },
+        })
+
+        expect((result as any).evidenceRequests).toEqual([
+            {
+                messageId: 'turn-1',
+                eventTitle: '네 처녀의 실종',
+            },
+            {
+                messageId: 'turn-4',
+                eventTitle: '네 처녀의 실종',
+            },
+        ])
+        expect((result as any).evidenceRequests).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ messageId: 'turn-9' }),
+            ])
+        )
+    })
+
+    test('selects as many original sources as the user limit and token budget allow', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '과거 사건의 근거를 확인한다.',
+            documents: [document({
+                id: 'evidence', type: 'event', title: '세 단서',
+                relativePath: 'events/evidence.md',
+                sourceMessageIds: ['turn-1', 'turn-2', 'turn-3'],
+                content: '# 세 단서\n\n과거 사건의 근거 세 가지가 남아 있다.',
+            })],
+            sourceMatches: ['turn-1', 'turn-2', 'turn-3'].map(
+                (messageId, index) => ({
+                    messageId,
+                    role: 'assistant' as const,
+                    occurredAt: index * 2 + 1,
+                    score: 10 - index,
+                    content: `직접 원문 근거 ${index + 1}`,
+                })
+            ),
+            sourceLimit: 3,
+            tokenBudget: {
+                target: 1_024,
+                events: 1_024,
+                perSource: 256,
+                maximum: 2_048,
+            },
+        } as any)
+
+        const recalled = result.sources.filter((source) =>
+            source.id.startsWith('narrative-memory:source:'))
+        expect(recalled).toHaveLength(3)
+        expect(recalled.map((source: any) => source.displayName)).toEqual([
+            '과거 원문 · 턴 1 응답 · 출처 기반 · 세 단서',
+            '과거 원문 · 턴 2 응답 · 출처 기반 · 세 단서',
+            '과거 원문 · 턴 3 응답 · 출처 기반 · 세 단서',
+        ])
+    })
+
+    test('labels event sources with their canonical title and stable ID', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '네 처녀의 실종을 확인한다.',
+            documents: [document({
+                id: 'abduction', type: 'event', title: '네 처녀의 실종',
+                relativePath: 'events/turn-bU0ZpK1B.md',
+                content: '# 네 처녀의 실종\n\n처녀 넷이 실종되었다.',
+            })],
+        })
+
+        expect((result.sources[0] as any).displayName).toBe(
+            '사건 · 네 처녀의 실종 · abduction'
+        )
+    })
+
+    test('caps every selected item with the configured tokenizer budget', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '필수 설정을 확인한다.',
+            tokenBudget: { target: 768, events: 768, perSource: 256, maximum: 1_024 },
+            documents: [document({
+                id: 'required-token-cap', type: 'concept', title: '필수 설정',
+                relativePath: 'concepts/required-token-cap.md',
+                content: `# 필수 설정\n\n${'가나다라마바사 '.repeat(1_000)}`,
+                contextMode: 'always',
+            })],
+        })
+
+        expect(result.sources[0]?.tokens).toBeLessThanOrEqual(256)
+    })
+
     test('uses a compact default budget instead of filling the hard limit', () => {
         const result = inquireMarkdownDocuments({
             currentInput: '프로도에 대한 관련 정보를 알려 줘.',
@@ -307,9 +489,10 @@ describe('progressive Markdown inquiry', () => {
     })
 
     test.each(['## 작중 행적', '### 작중 행적', '### Story History'])(
-        'answers chronology intent from the compressed character history (%s)', (historyHeading) => {
+        'uses character turning points as a map and shops linked events for chronology (%s)', (historyHeading) => {
         const result = inquireMarkdownDocuments({
             currentInput: '프로도의 모험과 작중 행적을 순서대로 나열해 줘.',
+            tokenBudget: { target: 256, events: 768, maximum: 1_024 },
             documents: [
                 document({
                     id: 'frodo', type: 'character', title: '프로도',
@@ -334,16 +517,22 @@ describe('progressive Markdown inquiry', () => {
             ],
         })
 
-        expect(result.sources.map((source) => source.id)).toEqual([
+        expect(result.sources.map((source) => source.id)).toEqual(expect.arrayContaining([
             'narrative-memory:wiki:characters/frodo.md',
-        ])
+            'narrative-memory:wiki:events/event-0.md',
+            'narrative-memory:wiki:events/event-1.md',
+            'narrative-memory:wiki:events/event-2.md',
+        ]))
         expect(result.sources[0]?.content).toContain(historyHeading)
+        expect(result.metrics.selectedEventTokens).toBeGreaterThan(0)
+        expect(result.metrics.selectedEventTokens).toBeLessThanOrEqual(768)
+        expect(result.metrics.selectedTokens).toBeLessThanOrEqual(1_024)
     })
 
     test('reserves linked event evidence for past causal analysis', () => {
         const result = inquireMarkdownDocuments({
             currentInput: '진우가 초반에 주인공 자리를 잃은 원인과 세부 사건을 분석해 줘.',
-            tokenBudget: { target: 256, maximum: 512 },
+            tokenBudget: { target: 256, events: 512, maximum: 768 },
             documents: [
                 document({
                     id: 'jinwoo', type: 'character', title: '진우',
@@ -379,8 +568,107 @@ describe('progressive Markdown inquiry', () => {
                 'narrative-memory:wiki:events/shoes.md',
             ])
         )
-        expect(result.metrics.selectedTokens).toBeLessThanOrEqual(256)
+        expect(result.metrics.selectedEventTokens).toBeGreaterThan(0)
+        expect(result.metrics.selectedEventTokens).toBeLessThanOrEqual(512)
+        expect(result.metrics.selectedTokens).toBeLessThanOrEqual(768)
         expect(result.metrics.auxiliaryModelCalls).toBe(0)
+    })
+
+    test.each([
+        '프로도의 현재 상태와 목표를 상세히 알려 줘.',
+        '프로도의 상태와 목표를 알려 줘.',
+        '프로도의 능력은 지금 어때?',
+    ])('does not activate the event lane for a current-state query: %s', (currentInput) => {
+        const result = inquireMarkdownDocuments({
+            currentInput,
+            tokenBudget: { target: 256, events: 768, maximum: 1_024 },
+            documents: [
+                document({
+                    id: 'frodo', type: 'character', title: '프로도',
+                    relativePath: 'characters/frodo.md',
+                    content: '# 프로도\n\n### 현재 상태\n\n- 모르도르로 향한다.\n\n[[샤이어 출발]]',
+                    links: ['샤이어 출발'],
+                }),
+                document({
+                    id: 'departure', type: 'event', title: '샤이어 출발',
+                    relativePath: 'events/departure.md',
+                    content: '# 샤이어 출발\n\n프로도가 샤이어를 떠났다.',
+                }),
+            ],
+        })
+
+        expect(result.sources.map((source) => source.id)).toEqual([
+            'narrative-memory:wiki:characters/frodo.md',
+        ])
+        expect(result.metrics.selectedEventTokens).toBe(0)
+    })
+
+    test('keeps a directly matched event for a current-time event query', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '지금 벌어진 사건은 무엇이지?',
+            tokenBudget: { target: 512, events: 768, maximum: 1_280 },
+            documents: [document({
+                id: 'current-incident', type: 'event', title: '지금 벌어진 사건',
+                relativePath: 'events/current-incident.md',
+                content: '# 지금 벌어진 사건\n\n성문 앞에서 폭발이 일어났다.',
+            })],
+        })
+
+        expect(result.sources.map((source) => source.id)).toEqual([
+            'narrative-memory:wiki:events/current-incident.md',
+        ])
+    })
+
+    test.each([
+        '그 사건은 어디서 일어났어?',
+        '샤이어 출발은 어디에서 일어났어?',
+    ])('retrieves event location evidence instead of treating it as current state: %s', (currentInput) => {
+        const result = inquireMarkdownDocuments({
+            currentInput,
+            tokenBudget: { target: 512, events: 768, maximum: 1_280 },
+            documents: [document({
+                id: 'departure-location', type: 'event', title: '샤이어 출발',
+                relativePath: 'events/departure-location.md',
+                content: '# 샤이어 출발\n\n그 사건에서 프로도는 백 엔드의 집에서 출발했다.',
+            })],
+        })
+
+        expect(result.sources.map((source) => source.id)).toEqual([
+            'narrative-memory:wiki:events/departure-location.md',
+        ])
+    })
+
+    test('reserves event slots before lower-priority documents for detailed queries', () => {
+        const eventTitle = '검은 문 대치'
+        const result = inquireMarkdownDocuments({
+            currentInput: '프로도가 왜 검은 문에서 물러났는지 상세히 알려 줘.',
+            tokenBudget: { target: 1_024, events: 512, maximum: 1_536 },
+            documents: [
+                document({
+                    id: 'frodo', type: 'character', title: '프로도',
+                    relativePath: 'characters/frodo.md',
+                    content: `# 프로도\n\n### 큰 전환점\n\n- [[${eventTitle}]]에서 후퇴했다.`,
+                    links: [eventTitle],
+                }),
+                document({
+                    id: 'black-gate', type: 'event', title: eventTitle,
+                    relativePath: 'events/black-gate.md',
+                    content: '# 검은 문 대치\n\n프로도는 정면 돌파가 불가능하다는 사실을 확인하고 후퇴했다.',
+                }),
+                ...Array.from({ length: 12 }, (_, index) => document({
+                    id: `note-${index}`, type: 'concept',
+                    title: `프로도 검은 문 기록 ${index}`,
+                    relativePath: `concepts/note-${index}.md`,
+                    content: `# 프로도 검은 문 기록 ${index}\n\n검은 문에 관한 보조 기록이다.`,
+                })),
+            ],
+        })
+
+        expect(result.sources.map((source) => source.id)).toContain(
+            'narrative-memory:wiki:events/black-gate.md'
+        )
+        expect(result.metrics.selectedEventTokens).toBeGreaterThan(0)
+        expect(result.sources.length).toBeLessThanOrEqual(12)
     })
 
     test('retrieves an indirectly recalled old puzzle beside a newer item', () => {
@@ -567,5 +855,41 @@ describe('progressive Markdown inquiry', () => {
         expect(result.sources).toHaveLength(1)
         expect(result.metrics.selectedTokens).toBeGreaterThan(256)
         expect(result.metrics.selectedTokens).toBeLessThanOrEqual(512)
+    })
+
+    test('falls back to recent conversation terms when the current input has no candidates', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: '*says nothing*',
+            fallbackInput: '하니아는 침수된 도서관에서 은빛 열쇠를 들었다.',
+            documents: [document({
+                id: 'flooded-library',
+                type: 'location',
+                title: '침수된 도서관',
+                relativePath: 'locations/flooded-library.md',
+                content: '# 침수된 도서관\n\n하니아가 은빛 열쇠를 발견한 장소다.',
+            })],
+        })
+
+        expect(result.sources.map((source) => source.id)).toContain(
+            'narrative-memory:wiki:locations/flooded-library.md'
+        )
+        expect(result.metrics.candidateCount).toBe(1)
+    })
+
+    test('does not use recent conversation fallback for a long unmatched query', () => {
+        const result = inquireMarkdownDocuments({
+            currentInput: 'unmatched deliberate request '.repeat(8),
+            fallbackInput: '침수된 도서관',
+            documents: [document({
+                id: 'flooded-library',
+                type: 'location',
+                title: '침수된 도서관',
+                relativePath: 'locations/flooded-library.md',
+                content: '# 침수된 도서관',
+            })],
+        })
+
+        expect(result.sources).toEqual([])
+        expect(result.metrics.candidateCount).toBe(0)
     })
 })

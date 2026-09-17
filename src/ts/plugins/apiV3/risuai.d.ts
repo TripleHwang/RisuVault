@@ -1152,6 +1152,19 @@ interface ProviderArguments {
     top_p: number;
     /** Generation mode */
     mode: string;
+    /** True whenever the caller expects schema-constrained JSON, including prompt-fallback retries. */
+    structured_output?: boolean;
+    /** Native structured output request. Present only when the provider opts in. */
+    response_schema?: ProviderStructuredOutput;
+}
+
+interface ProviderStructuredOutput {
+    /** Stable schema name for OpenAI-compatible providers */
+    name: string;
+    /** Whether the upstream provider should enforce the schema strictly */
+    strict: boolean;
+    /** JSON Schema for the final response */
+    schema: Record<string, unknown>;
 }
 
 /**
@@ -1181,11 +1194,106 @@ interface ProviderOptions {
     /** Custom tokenizer function */
     tokenizerFunc?: (content: string) => number[] | Promise<number[]>;
     /** RisuVault keeps its host status UI by default; set true only when the plugin replaces the host request status UI. */
-    overrideRequestStatus?: boolean | (() => boolean);
+    overrideRequestStatus?: boolean | (() => boolean | Promise<boolean>);
     /** Legacy inverse switch. Prefer `overrideRequestStatus: true` for plugin-owned status UI. */
-    hostRequestStatus?: boolean | (() => boolean);
+    hostRequestStatus?: boolean | (() => boolean | Promise<boolean>);
     /** Plugin storage key whose `risubard` value opts in dynamically. */
     hostRequestStatusStorageKey?: string;
+    /** Receive response_schema and translate it to the upstream provider's native structured-output format. */
+    structuredOutput?: boolean | (() => boolean);
+}
+
+type BardWikiDocumentType = 'event' | 'character' | 'location' | 'scene'
+    | 'faction' | 'creature' | 'item' | 'concept' | 'other';
+type BardWikiContextMode = 'always' | 'auto' | 'never';
+type BardWikiDocumentStatus = 'active' | 'superseded' | 'retracted';
+
+interface BardWikiContextOptions {
+    /** Optional retrieval query. The latest user message is used when omitted. */
+    query?: string;
+}
+
+interface BardWikiContextResult {
+    /** Ready-to-insert BardWiki context followed by the configured recent messages. */
+    content: string;
+    sources: Array<{
+        id: string;
+        kind: 'static' | 'scene' | 'user-input' | 'memory' | 'recent' | 'tool';
+        role: 'system' | 'user' | 'assistant' | 'tool';
+        content: string;
+        tokens: number;
+        displayName?: string;
+    }>;
+    recentMessages: Array<{
+        role: 'user' | 'char' | 'assistant';
+        data: string;
+    }>;
+    metrics: {
+        candidateCount: number;
+        inspectedNodeCount: number;
+        inspectedEdgeCount: number;
+        selectedNodeCount: number;
+        selectedTokens: number;
+        selectedEventTokens: number;
+        semanticCandidateCount?: number;
+        hopCount: number;
+        auxiliaryModelCalls: number;
+    };
+}
+
+interface BardWikiDocument {
+    id: string;
+    type: BardWikiDocumentType;
+    status: BardWikiDocumentStatus;
+    supersededBy?: string;
+    title: string;
+    aliases?: string[];
+    relativePath: string;
+    sourceMessageIds: string[];
+    updated: string;
+    content: string;
+    links: string[];
+    created?: string;
+    authoring?: 'automatic' | 'ai-assisted' | 'manual';
+    contextMode: BardWikiContextMode;
+    contentHash: string;
+    reviewStatus?: 'unreviewed' | 'reviewed';
+    reviewBaseContent?: string;
+}
+
+interface BardWikiDocumentQuery {
+    types?: BardWikiDocumentType[];
+    statuses?: BardWikiDocumentStatus[];
+}
+
+interface BardWikiDocumentWrite {
+    /** Omit to create a document. Supply it to update an existing document. */
+    documentId?: string;
+    type: BardWikiDocumentType;
+    title: string;
+    aliases?: string[];
+    markdown: string;
+    /** Required by the host when updating an existing document. */
+    expectedContentHash?: string;
+}
+
+interface BardWikiContextModeWrite {
+    documentId: string;
+    contextMode: BardWikiContextMode;
+    expectedContentHash: string;
+}
+
+interface BardWikiAPI {
+    /** Retrieves BardWiki context and the recent-message window for the current chat. */
+    getContext(options?: BardWikiContextOptions): Promise<BardWikiContextResult>;
+    /** Lists BardWiki documents for the current chat. */
+    getDocuments(options?: BardWikiDocumentQuery): Promise<BardWikiDocument[]>;
+    /** Creates or updates a document. Requests BardWiki write permission. */
+    saveDocument(document: BardWikiDocumentWrite): Promise<BardWikiDocument | null>;
+    /** Changes retrieval behavior. Requests BardWiki write permission. */
+    setContextMode(input: BardWikiContextModeWrite): Promise<BardWikiDocument | null>;
+    /** Moves a document to trash. Requests BardWiki write permission. */
+    trashDocument(documentId: string): Promise<{ id: string; trashed: true } | null>;
 }
 
 // ============================================================================
@@ -1358,6 +1466,18 @@ interface RisuaiPluginAPI {
      * @returns Raw lorebook entries from the current character/chat/module sources
      */
     getCurrentLorebookEntries(): Promise<any[]>;
+
+    /**
+     * Current-chat BardWiki access. Read methods need no permission. Write
+     * methods show a dedicated permission prompt before changing documents.
+     *
+     * @example
+     * ```typescript
+     * const context = await risuai.bardWiki.getContext();
+     * const events = await risuai.bardWiki.getDocuments({ types: ['event'] });
+     * ```
+     */
+    bardWiki: BardWikiAPI;
 
     // ========== Storage APIs ==========
 

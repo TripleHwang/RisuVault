@@ -9,7 +9,9 @@
     import {
         addRetainedAssistantSummary,
         buildLegacyChatRequestEvidence,
+        chatRequestFailureLabel,
         formatChatRequestEvidenceMarkdown,
+        groupInjectionManifestItems,
         loadChatRequestEvidence,
         type ChatRequestEvidence,
     } from 'src/ts/risubard/chatRequestEvidence'
@@ -18,6 +20,7 @@
         type RequestLogSource,
     } from 'src/ts/requestLog'
     import { requestPurposeLabels } from 'src/ts/requestPurpose'
+    import { canonicalTurnNeedsRetry } from 'src/ts/risubard/canonicalTurnReceipt'
     import type { RequestInjectionKind } from 'src/ts/status/requestStatus'
     import { downloadFile } from 'src/ts/globalApi.svelte'
 
@@ -50,6 +53,39 @@
             : []
     }).reverse())
     let requestEntries = $derived(storedEvidence?.requests ?? [])
+    let receiptEntries = $derived(messages.flatMap((message) => {
+        const receipt = message.risubardCanonicalReceipt
+        if (message.role !== 'char' || !receipt) return []
+        const failed = canonicalTurnNeedsRetry(receipt)
+        return [{
+            id: message.chatId ?? receipt.recordedAt,
+            timestamp: receipt.recordedAt,
+            failed,
+            eventCount: receipt.eventIds.length,
+            changeCount: receipt.changes.length,
+            message: receipt.warnings.join(' ') || (receipt.changes.length > 0
+                ? `정본 ${receipt.changes.length}건을 반영했습니다.`
+                : '확정 사실을 검사했으며 정본 변경은 없었습니다.'),
+        }]
+    }).reverse())
+    let storedActivityEntries = $derived([
+        ...requestEntries.map((request) => ({
+            kind: 'request' as const,
+            key: `request-${request.id}`,
+            timestamp: request.timestamp,
+            request,
+        })),
+        ...receiptEntries.map((receipt) => ({
+            kind: 'receipt' as const,
+            key: `receipt-${receipt.id}-${receipt.timestamp}`,
+            timestamp: receipt.timestamp,
+            receipt,
+        })),
+    ].sort((a, b) => {
+        const byTimestamp = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        if (byTimestamp !== 0) return byTimestamp
+        return b.key.localeCompare(a.key)
+    }))
     let recordedGenerationIds = $derived(new Set(requestEntries.flatMap(
         (entry) => entry.generationId ? [entry.generationId] : []
     )))
@@ -83,13 +119,6 @@
         plugin: '플러그인 작업',
         other: '기타 요청',
     }
-    const injectionLabels: Record<RequestInjectionKind, string> = {
-        systemPrompt: '주입 컨텍스트', jailbreak: '탈옥 프롬프트',
-        globalNote: '전역 메모', authorNote: '작가 노트', character: '캐릭터',
-        persona: '페르소나', lorebook: '로어북', wiki: 'BardWiki',
-        memory: '메모리', exampleDialogue: '예시 대화', chatHistory: '채팅 기록',
-        instruction: '추가 지침', tool: '도구', other: '기타',
-    }
     const formatTimestamp = (value: string | number) =>
         new Date(value).toLocaleString('ko-KR')
     const formatDuration = (value: number | null | undefined) =>
@@ -98,8 +127,10 @@
             : `${(value / 1_000).toFixed(1)}초`
     const formatFirstTokenDuration = (value: number | null | undefined) =>
         value == null ? '확인 불가 ms' : formatDuration(value)
-    const outcomeLabel = (outcome: 'done' | 'failed' | 'aborted') =>
-        outcome === 'done' ? '성공' : outcome === 'aborted' ? '중단' : '실패'
+    const outcomeLabel = (outcome: ChatRequestEvidence['requests'][number]['outcome']) =>
+        outcome === 'done' ? '성공'
+            : outcome === 'response-received' ? '응답 수신'
+            : outcome === 'aborted' ? '중단' : '요청 실패'
     const requestLabel = (request: ChatRequestEvidence['requests'][number]) =>
         request.purpose === 'chat-response'
             ? '스토리 생성'
@@ -110,11 +141,12 @@
         systemPrompt: '시스템', jailbreak: '시스템', globalNote: '시스템',
         authorNote: '시스템', instruction: '시스템', tool: '시스템',
         character: '캐릭터', persona: '페르소나', lorebook: '로어북',
+        grimoire: '그리모어', grimoireRequired: '그리모어',
         wiki: 'BardWiki', memory: 'BardWiki', exampleDialogue: '예시 대화',
         chatHistory: '채팅', other: '기타',
     }
     const injectionGroupOrder = [
-        '시스템', '캐릭터', '페르소나', 'BardWiki', '로어북',
+        '시스템', '캐릭터', '페르소나', 'BardWiki', '그리모어', '로어북',
         '채팅', '예시 대화', '기타',
     ]
     const groupedInjectionTokens = (
@@ -122,8 +154,9 @@
     ) => {
         if (!manifest) return []
         const grouped = new Map<string, number>()
-        const chatItems = manifest.items.filter((item) => item.kind === 'chatHistory')
-        for (const item of manifest.items) {
+        const displayItems = groupInjectionManifestItems(manifest)
+        const chatItems = displayItems.filter((item) => item.kind === 'chatHistory')
+        for (const item of displayItems) {
             if (item.kind === 'chatHistory') continue
             const label = injectionGroup[item.kind]
             grouped.set(label, (grouped.get(label) ?? 0) + item.tokens)
@@ -131,7 +164,7 @@
         return injectionGroupOrder.flatMap((label) => {
             if (label === '채팅') {
                 return chatItems.map((item) => ({
-                    label: item.name ? `채팅 기록 ${item.name}` : '채팅 기록',
+                    label: item.label.replace('채팅 기록 · ', '채팅 기록 '),
                     tokens: item.tokens,
                 }))
             }
@@ -139,13 +172,9 @@
             return tokens > 0 ? [{ label, tokens }] : []
         })
     }
-    const injectionItemLabel = (
-        item: NonNullable<ChatRequestEvidence['requests'][number]['injectionManifest']>['items'][number]
-    ) => item.kind === 'other' && item.name
-        ? item.name
-        : item.kind === 'other'
-            ? '요청 프롬프트 오버헤드'
-        : `${injectionLabels[item.kind]}${item.name ? ` ${item.name}` : ''}`
+    const injectionItemLabel = (label: string) => label
+        .replace('채팅 기록 · ', '채팅 기록 ')
+        .replace('추가 지침 · ', '추가 지침 ')
     const legacyEvidence = () => buildLegacyChatRequestEvidence(
         chatId,
         generationEntries.map((entry) => ({
@@ -286,23 +315,41 @@
             </details>
         {/if}
 
-        {#each requestEntries as request (request.id)}
-            <details class="request-entry" data-request-source={request.source}>
+        {#each storedActivityEntries as item (item.key)}
+            {#if item.kind === 'receipt'}
+                <article
+                    class="result-entry"
+                    data-outcome={item.receipt.failed ? 'failed' : 'done'}
+                >
+                    <div class="result-heading">
+                        <strong>BardWiki 정본 반영</strong>
+                        <span class="entry-type">정본 처리</span>
+                        <time datetime={item.receipt.timestamp}>{formatTimestamp(item.receipt.timestamp)}</time>
+                        <em class="outcome" data-outcome={item.receipt.failed ? 'failed' : 'done'}>
+                            {item.receipt.failed ? '실패' : '완료'}
+                        </em>
+                    </div>
+                    <p>{item.receipt.message}</p>
+                    <small>사건 보존 {item.receipt.eventCount}건 · 정본 변경 {item.receipt.changeCount}건</small>
+                </article>
+            {:else}
+            <details class="request-entry" data-request-source={item.request.source}>
                 <summary class="request-summary">
                     <span class="summary-line">
-                        <strong class="request-kind">{requestLabel(request)}</strong>
-                        <time datetime={request.timestamp}>{formatTimestamp(request.timestamp)}</time>
-                        <em class="outcome" data-outcome={request.outcome}>{outcomeLabel(request.outcome)}</em>
+                        <strong class="request-kind">{requestLabel(item.request)}</strong>
+                        <span class="entry-type">AI 요청</span>
+                        <time datetime={item.request.timestamp}>{formatTimestamp(item.request.timestamp)}</time>
+                        <em class="outcome" data-outcome={item.request.outcome}>{outcomeLabel(item.request.outcome)}</em>
                     </span>
                     <span class="summary-data">
                         <span class="summary-metrics">
-                            <b>입력 {formatNumber(request.inputTokens)}</b>
-                            <b>출력 {formatNumber(request.outputTokens)}</b>
-                            <b>소요 {formatDuration(request.durationMs)}</b>
+                            <b>입력 {formatNumber(item.request.inputTokens)}</b>
+                            <b>출력 {formatNumber(item.request.outputTokens)}</b>
+                            <b>소요 {formatDuration(item.request.durationMs)}</b>
                         </span>
-                        {#if request.injectionManifest}
+                        {#if item.request.injectionManifest}
                             <span class="summary-groups">
-                            {#each groupedInjectionTokens(request.injectionManifest) as group}
+                            {#each groupedInjectionTokens(item.request.injectionManifest) as group}
                                 <b>{group.label} {formatNumber(group.tokens)}</b>
                             {/each}
                             </span>
@@ -312,34 +359,65 @@
                 </summary>
                 <div class="request-details">
                     <div class="metadata-grid">
-                        <span><small>모델</small><strong>{request.model ?? '확인 불가'}</strong></span>
-                        <span><small>공급자</small><strong>{request.provider ?? '확인 불가'}</strong></span>
-                        <span><small>생성 ID</small><code>{request.generationId ?? `#${request.id}`}</code></span>
-                        <span><small>로그 종류</small><strong>{request.source}</strong></span>
-                        <span><small>첫 응답</small> <strong>{formatFirstTokenDuration(request.firstTokenMs)}</strong></span>
-                        <span><small>추론 / 캐시</small><strong>{formatNumber(request.reasoningTokens)} / {formatNumber(request.cachedTokens)}</strong></span>
-                        {#if request.selectedHistoryMessageCount !== undefined}
-                            <span><small>선택 채팅</small><strong>{request.selectedHistoryMessageCount}개</strong></span>
+                        <span><small>로그 ID</small><strong>#{item.request.id}</strong></span>
+                        <span><small>모델</small><strong>{item.request.model ?? '확인 불가'}</strong></span>
+                        <span><small>공급자</small><strong>{item.request.provider ?? '확인 불가'}</strong></span>
+                        <span><small>생성 ID</small><code>{item.request.generationId ?? '확인 불가'}</code></span>
+                        <span><small>로그 종류</small><strong>{item.request.source}</strong></span>
+                        <span><small>첫 응답</small> <strong>{formatFirstTokenDuration(item.request.firstTokenMs)}</strong></span>
+                        <span><small>추론 / 캐시</small><strong>{formatNumber(item.request.reasoningTokens)} / {formatNumber(item.request.cachedTokens)}</strong></span>
+                        {#if item.request.selectedHistoryMessageCount !== undefined}
+                            <span><small>선택 채팅</small><strong>{item.request.selectedHistoryMessageCount}개</strong></span>
                         {/if}
                     </div>
-                    {#if request.injectionManifest}
+                    {#if item.request.injectionManifest}
                         <div class="composition">
                             <div class="detail-title">
-                                입력 상세 · {formatNumber(request.injectionManifest.totalTokens)} tokens
-                                {request.injectionManifest.estimated ? ' · 추정' : ''}
+                                입력 상세 · {formatNumber(item.request.injectionManifest.totalTokens)} tokens
+                                {item.request.injectionManifest.estimated ? ' · 추정' : ''}
                             </div>
                             <div class="composition-list">
-                                {#each request.injectionManifest.items as item}
+                                {#each groupInjectionManifestItems(item.request.injectionManifest) as injectionItem}
+                                    {#if injectionItem.details}
+                                    <details
+                                        class="composition-group"
+                                        data-injection-group={injectionItem.kind}
+                                    >
+                                        <summary>
+                                            <span>{injectionItemLabel(injectionItem.label)}</span>
+                                            <strong>{formatNumber(injectionItem.tokens)}</strong>
+                                        </summary>
+                                        <div class="composition-sublist">
+                                            {#each injectionItem.details as detail}
+                                                <span>
+                                                    <span>{detail.label}</span>
+                                                    <strong>{formatNumber(detail.tokens)}</strong>
+                                                </span>
+                                            {/each}
+                                        </div>
+                                    </details>
+                                    {:else}
                                     <span>
-                                        <span>{injectionItemLabel(item)}</span>
-                                        <strong>{formatNumber(item.tokens)}</strong>
+                                        <span>{injectionItemLabel(injectionItem.label)}</span>
+                                        <strong>{formatNumber(injectionItem.tokens)}</strong>
                                     </span>
+                                    {/if}
                                 {/each}
                             </div>
                         </div>
                     {/if}
+                    {#if item.request.outcome === 'response-received'}
+                        <p class="transport-note">
+                            모델 응답을 받은 기록입니다. 검증·저장 결과는 시간순 로그의 정본 처리 항목을 확인하세요.
+                        </p>
+                    {:else if item.request.failureCategory}
+                        <p class="transport-note" data-failure-category={item.request.failureCategory}>
+                            오류 유형: {chatRequestFailureLabel(item.request.failureCategory)}
+                        </p>
+                    {/if}
                 </div>
             </details>
+            {/if}
         {/each}
 
         {#if entries.length > 0}
@@ -401,7 +479,7 @@
             </details>
         {/each}
 
-        {#if live.length === 0 && requestEntries.length === 0 && entries.length === 0}
+        {#if live.length === 0 && storedActivityEntries.length === 0 && entries.length === 0}
             <div class="empty">이 채팅에 보존된 요청 기록이 없습니다.</div>
         {/if}
     </div>
@@ -425,6 +503,12 @@
     .section-toggle small { color: var(--risu-theme-textcolor2); font-size: calc(.58rem + var(--activity-font-step)); }
     .live-list { display: grid; gap: .35rem; padding: 0 .45rem .45rem; }
     .live-entry { display: grid; gap: .35rem; padding: .5rem .58rem; border-radius: .35rem; background: color-mix(in srgb, var(--risu-theme-darkbg) 88%, transparent); }
+    .result-entry { display: grid; gap: .3rem; padding: .58rem .72rem; border: 1px solid color-mix(in srgb, var(--color-success) 30%, var(--risu-theme-darkborderc)); border-radius: .48rem; background: color-mix(in srgb, var(--color-success) 5%, var(--risu-theme-darkbg)); }
+    .result-entry[data-outcome='failed'] { border-color: color-mix(in srgb, var(--risu-theme-error) 45%, var(--risu-theme-darkborderc)); background: color-mix(in srgb, var(--risu-theme-error) 6%, var(--risu-theme-darkbg)); }
+    .result-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .45rem; }
+    .result-heading strong { font-size: calc(.68rem + var(--activity-font-step)); }
+    .result-entry p { margin: 0; color: var(--risu-theme-textcolor); font-size: calc(.61rem + var(--activity-font-step)); line-height: 1.45; }
+    .result-entry > small { color: var(--risu-theme-textcolor2); font-size: calc(.58rem + var(--activity-font-step)); }
     .request-entry { position: relative; overflow: hidden; border: 1px solid color-mix(in srgb, var(--risu-theme-primary) 19%, var(--risu-theme-darkborderc)); border-radius: .48rem; background: color-mix(in srgb, var(--risu-theme-darkbg) 93%, transparent); }
     .request-entry::before { position: absolute; inset: 0 auto 0 0; width: 2px; content: ''; background: color-mix(in srgb, var(--risu-theme-primary) 72%, transparent); }
     .request-summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem .6rem; padding: .58rem .72rem .58rem .78rem; cursor: pointer; list-style: none; }
@@ -435,6 +519,7 @@
     .request-kind { color: var(--risu-theme-textcolor); font-size: calc(.68rem + var(--activity-font-step)); font-weight: 850; }
     .outcome { padding: .12rem .32rem; border-radius: 999px; font-size: calc(.56rem + var(--activity-font-step)); font-style: normal; font-weight: 800; }
     .outcome[data-outcome='done'] { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 10%, transparent); }
+    .outcome[data-outcome='response-received'] { color: var(--risu-theme-primary); background: color-mix(in srgb, var(--risu-theme-primary) 10%, transparent); }
     .outcome[data-outcome='failed'] { color: var(--risu-theme-error); background: color-mix(in srgb, var(--risu-theme-error) 10%, transparent); }
     .outcome[data-outcome='aborted'] { color: var(--risu-theme-textcolor2); background: color-mix(in srgb, var(--risu-theme-textcolor2) 9%, transparent); }
     .summary-data { grid-column: 1; }
@@ -454,6 +539,12 @@
     .composition-list > span { display: flex; align-items: baseline; justify-content: space-between; gap: .55rem; min-width: 0; padding: .25rem .32rem; border-bottom: 1px dotted color-mix(in srgb, var(--risu-theme-textcolor2) 18%, transparent); color: var(--risu-theme-textcolor2); font-size: calc(.59rem + var(--activity-font-step)); }
     .composition-list > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .composition-list strong { flex: 0 0 auto; color: var(--risu-theme-textcolor); font: 400 calc(.58rem + var(--activity-font-step)) ui-monospace, monospace; }
+    .composition-group { min-width: 0; border-bottom: 1px dotted color-mix(in srgb, var(--risu-theme-textcolor2) 18%, transparent); color: var(--risu-theme-textcolor2); font-size: calc(.59rem + var(--activity-font-step)); }
+    .composition-group > summary, .composition-sublist > span { display: flex; align-items: baseline; justify-content: space-between; gap: .55rem; min-width: 0; padding: .25rem .32rem; }
+    .composition-group > summary { cursor: pointer; list-style: none; }
+    .composition-group > summary > span, .composition-sublist > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .composition-sublist { display: grid; padding: 0 0 .2rem .55rem; color: color-mix(in srgb, var(--risu-theme-textcolor2) 82%, transparent); }
+    .transport-note { margin: 0; padding: .4rem .5rem; border-left: 2px solid var(--risu-theme-primary); color: var(--risu-theme-textcolor2); background: color-mix(in srgb, var(--risu-theme-primary) 5%, transparent); font-size: calc(.58rem + var(--activity-font-step)); line-height: 1.4; }
     .entry-title { display: flex; align-items: center; gap: .38rem; }
     .entry-title strong { font-size: calc(.64rem + var(--activity-font-step)); }
     time, .empty, .path-list span { color: var(--risu-theme-textcolor2); font-size: calc(.61rem + var(--activity-font-step)); }

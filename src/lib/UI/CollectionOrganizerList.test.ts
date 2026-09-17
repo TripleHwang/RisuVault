@@ -21,17 +21,44 @@ describe('inline collection organizer list', () => {
         expect(component).toContain('@container collection-manager (min-width: 720px)')
     })
 
-    test('keeps folder deletion, immediate persistence, bulk movement, and accessible reorder controls inline', () => {
+    test('keeps folder deletion, immediate persistence, and bulk movement inline', () => {
         const component = source('src/lib/UI/CollectionOrganizerList.svelte')
 
         expect(component).toContain('deleteCollectionFolder')
         expect(component).toContain('requestImmediateSave')
         expect(component).toContain('assignItemsToFolder')
         expect(component).toContain('moveFolderUp')
-        expect(component).toContain('moveItemDown')
-        expect(component).toContain('GripVerticalIcon')
-        expect(component).toContain('data-collection-drag-handle')
         expect(component).toContain('selectedItemIds.filter((id) => itemIds.includes(id))')
+    })
+
+    test('replaces manager reorder buttons with selection and makes the card body the drag handle', () => {
+        const component = source('src/lib/UI/CollectionOrganizerList.svelte')
+        const managerRail = component.match(/\{#if managerLayout\}\s*<div\s+class="collection-item-selection-rail"([\s\S]*?)\{:else\}/)?.[1] ?? ''
+
+        expect(component).toContain('collection-item-selection-rail')
+        expect(managerRail).toContain('aria-pressed={selectedItemIds.includes(item.id)}')
+        expect(managerRail).toContain('toggleSelection(item.id')
+        expect(managerRail).not.toContain('moveVisibleItem')
+        expect(component).toContain('data-collection-item-drag-handle')
+        expect(component).toContain('draggable={managerLayout}')
+        expect(component).toContain('reorderCollectionItemDragGroup(')
+        expect(component).toContain('tabindex={managerLayout ? 0 : undefined}')
+        expect(component).toContain('moveManagerItemWithKeyboard(event, item.id)')
+        expect(component).toContain('copy.dragItemKeyboardHint')
+        const keyboardHandler = component.match(/function moveManagerItemWithKeyboard[\s\S]*?function startItemDrag/)?.[0] ?? ''
+        expect(keyboardHandler).toContain("event.target.closest('button, a, input, select, textarea')")
+    })
+
+    test('places clear selection before search and exposes contextual bulk deletion', () => {
+        const component = source('src/lib/UI/CollectionOrganizerList.svelte')
+
+        expect(component).toMatch(/copy\.clearSelection[\s\S]*?<TextInput[^>]*bind:value=\{search\}/)
+        expect(component).toContain('onDeleteItems?:')
+        expect(component).toContain('copy.deleteSelected')
+        expect(component).toContain('deleteSelectedItems')
+        const managerToolbar = component.match(/\{#if managerLayout\}\s*<span class="text-xs text-textcolor2">([\s\S]*?)\{#if toolbar\}/)?.[1] ?? ''
+        expect(managerToolbar).toContain('bind:value={moveTarget}')
+        expect(managerToolbar).toContain('onclick={bulkMove}')
     })
 
     test('prompt presets render their native actions inside the inline organizer', () => {
@@ -46,13 +73,14 @@ describe('inline collection organizer list', () => {
         expect(page).not.toContain('organizerOpen')
     })
 
-    test('modules render native enable, persona, export, edit, and delete actions inline', () => {
+    test('modules keep export in the editor while rendering enable, persona, edit, and delete actions inline', () => {
         const page = source('src/lib/Setting/Pages/Module/ModuleSettings.svelte')
 
         expect(page).toContain('CollectionOrganizerList')
         expect(page).toContain('{#snippet itemContent(moduleId)}')
         expect(page).toContain('openPersonaAssignments(rmodule.id)')
-        expect(page).toContain('exportModule(rmodule)')
+        expect(page).not.toContain('exportModule(rmodule)')
+        expect(page).toContain('exportModule(tempModule)')
         expect(page).toContain('assignModuleToFolder')
         expect(page).not.toContain('CollectionOrganizerDialog')
         expect(page).not.toContain('organizerOpen')

@@ -10,6 +10,7 @@
     import type { Chat } from "src/ts/storage/database.svelte";
     import { getCharImage } from "src/ts/characters";
     import { getEffectivePersona, resolvePersonaById, type PersonaSelection } from "src/ts/personaScopes";
+    import { changeUserPersona } from "src/ts/persona";
 
     interface Props {
         bindingTarget?: Pick<Chat, 'bindedPersona'>;
@@ -33,12 +34,19 @@
     ))
     let displayPersona = $derived(displaySelection?.persona)
     let isPersonaBound = $derived(!!boundPersona)
+    let pinPersonaOnNewChat = $state(DBState.db.pinPersonaOnNewChat ?? true)
+
+    function toggleNewChatPersonaPin() {
+        pinPersonaOnNewChat = !pinPersonaOnNewChat
+        DBState.db.pinPersonaOnNewChat = pinPersonaOnNewChat
+    }
 
     function bindPersona(selection: PersonaSelection) {
         const chat = target ?? getCurrentChat()
         if (!chat) return
         const persona = selection.persona
         if (!persona.id) persona.id = v4()
+        if (selection.scope === 'global') changeUserPersona(selection.index)
         chat.bindedPersona = persona.id
         onBindingChange()
         notifySuccess(language.personaBindedSuccess)
@@ -106,6 +114,22 @@
         <span class="truncate">{displayPersona?.name ?? 'User'}</span>
         {#if displayPersona?.note}
             <span class="truncate text-xs opacity-60">({displayPersona.note})</span>
+        {/if}
+    </ShButton>
+    <ShButton
+        data-pin-persona-on-new-chat
+        size="icon"
+        variant={pinPersonaOnNewChat ? 'binding' : 'default'}
+        className="shrink-0"
+        onclick={toggleNewChatPersonaPin}
+        title={language.pinPersonaOnNewChat}
+        aria-label={language.pinPersonaOnNewChat}
+        aria-pressed={pinPersonaOnNewChat}
+    >
+        {#if pinPersonaOnNewChat}
+            <PinIcon size={16} />
+        {:else}
+            <PinOffIcon size={16} />
         {/if}
     </ShButton>
 </div>

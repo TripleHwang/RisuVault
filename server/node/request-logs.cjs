@@ -14,7 +14,14 @@ const ROTATE_EVERY_N_ROWS = 20;
 const CATEGORIES = ['llm', 'tts', 'image', 'translate', 'embedding', 'other'];
 const ROUTES = ['direct', 'proxy', 'job'];
 const SOURCES = ['main', 'translate', 'memory', 'emotion', 'sub', 'wiki-admin', 'preview', 'test', 'tts', 'image', 'plugin', 'other'];
-const PURPOSES = ['chat-response', 'bardwiki-analysis', 'bardwiki-canonical-update', 'bardwiki-admin'];
+const PURPOSES = [
+    'chat-response',
+    'bardwiki-analysis',
+    'bardwiki-canonical-update',
+    'bardwiki-admin',
+    'persona-builder',
+    'bard-lore-analysis',
+];
 const INJECTION_KINDS = new Set(['systemPrompt', 'jailbreak', 'globalNote', 'authorNote', 'character', 'persona', 'lorebook', 'wiki', 'memory', 'exampleDialogue', 'chatHistory', 'instruction', 'tool', 'other']);
 
 function truncateBody(value, maxBytes) {

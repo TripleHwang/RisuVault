@@ -3,6 +3,7 @@
     import { ArrowLeft, ArrowRight, HashIcon, MenuIcon, SearchIcon, SparklesIcon } from '@lucide/svelte';
     import { alertInput } from 'src/ts/alert';
     import { language } from 'src/lang';
+    import { loadingActivity } from 'src/ts/gui/loadingActivity';
     import { DBState, RealmInitialOpenChar } from 'src/ts/stores.svelte';
     import { TagList } from 'src/ts/util';
     import ShButton from '../GUI/ShButton.svelte';
@@ -24,7 +25,7 @@
     let isKorean = $derived(DBState.db.language === 'ko');
     let ui = $derived(isKorean ? {
         title: 'RisuRealm 둘러보기',
-        subtitle: '이름, 설명 또는 정확한 태그로 공유 캐릭터를 검색하세요.',
+        subtitle: '이름, 설명, 제작자 또는 정확한 태그로 공유 캐릭터를 검색하세요.',
         searchLabel: 'RisuRealm 검색',
         searchPlaceholder: '캐릭터 검색',
         search: '검색',
@@ -48,7 +49,7 @@
         loading: '불러오는 중…',
     } : {
         title: 'Explore RisuRealm',
-        subtitle: 'Search shared characters by name, description, or an exact tag.',
+        subtitle: 'Search shared characters by name, description, creator, or an exact tag.',
         searchLabel: 'Search RisuRealm',
         searchPlaceholder: 'Search characters',
         search: 'Search',
@@ -76,14 +77,18 @@
      * What the screen is currently asking the hub for.
      *
      * The text inputs are deliberately NOT part of this: typing must not fire a
-     * request per keystroke. `submittedSearch` is the committed query, updated
+     * request per keystroke. `submittedSearches` is the committed query pair, updated
      * only when the user submits. `requestNonce` is what makes pressing Search
      * again -- or re-picking "random" -- a real reload even though every other
      * field is unchanged.
      */
-    let submittedSearch = $state('');
+    // Upstream (0.9.34) also asks the hub for `author:<text>` when the text
+    // box has a plain query, so a creator's name finds their characters. Both
+    // queries are committed together so paging and re-sorting keep asking the
+    // same pair; an empty box stays the single unfiltered request.
+    let submittedSearches = $state<string[]>(['']);
     let requestNonce = $state(0);
-    const realmQuery = $derived({ search: submittedSearch, page, nsfw, sort, nonce: requestNonce });
+    const realmQuery = $derived({ searches: submittedSearches, page, nsfw, sort, nonce: requestNonce });
 
     /**
      * RisuRealm loads only itself, in its own subtree, and says which of the
@@ -98,12 +103,14 @@
         key: () => JSON.stringify(realmQuery),
         load: async (key) => {
             const query = JSON.parse(key) as typeof realmQuery;
-            return fetchRisuHubPage({
-                search: query.search,
+            const searches = query.searches;
+            const results = await loadingActivity.read('RisuRealm', () => Promise.all(searches.map((current) => fetchRisuHubPage({
+                search: current,
                 page: query.page,
                 nsfw: query.nsfw,
                 sort: query.sort,
-            });
+            }))));
+            return [...new Map(results.flat().map((chara) => [chara.id, chara])).values()];
         },
     });
 
@@ -150,11 +157,29 @@
             .join(' ');
     }
 
+    function currentAuthorSearch() {
+        const textQuery = search.trim();
+        if (!textQuery || textQuery.startsWith('author:')) return '';
+        const tags = [...new Set(tagSearch.split(/\s+/).map((tag) => tag.trim()).filter(Boolean))];
+        return [`author:${textQuery}`, ...tags.map((tag) => `tag:${tag}`)]
+            .filter(Boolean)
+            .join(' ');
+    }
+
+    function currentSearches() {
+        const baseSearch = currentSearch();
+        const authorSearch = currentAuthorSearch();
+        const searches = authorSearch && authorSearch !== baseSearch
+            ? [baseSearch, authorSearch]
+            : [baseSearch];
+        return searches;
+    }
+
     function submitSearch(event?: SubmitEvent) {
         event?.preventDefault();
         if (sort === 'random' || sort === 'recommended') sort = '';
         page = 0;
-        submittedSearch = currentSearch();
+        submittedSearches = currentSearches();
         requestNonce += 1;
     }
 
@@ -176,6 +201,12 @@
 
     function chooseTag(tag: string) {
         completeTag(tag);
+        submitSearch();
+    }
+
+    function searchByAuthor(author: string) {
+        search = author;
+        tagSearch = '';
         submitSearch();
     }
 
@@ -368,7 +399,7 @@
 
     <div class="grid w-full grid-cols-1 gap-3 py-4 lg:grid-cols-2">
         {#each charas as chara (chara.id)}
-            <RealmHubIcon onClick={() => openedData = chara} {chara} />
+            <RealmHubIcon onClick={() => openedData = chara} onAuthorClick={searchByAuthor} {chara} />
         {/each}
     </div>
 

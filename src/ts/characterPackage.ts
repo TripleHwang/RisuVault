@@ -18,6 +18,8 @@ import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
 import { withSaverScope } from './performance/saverMode'
 import { resolvePersonaById } from './personaScopes'
+import { getCharacterGalleryForExport, stripGalleryFromChats } from './risubard/gallery'
+import type { RisuBardGallery } from './storage/database.svelte'
 
 // ── Types ──
 
@@ -31,6 +33,10 @@ interface PackageManifest {
         isEmpty?: boolean
     }
     chats?: {
+        count: number
+        file: string
+    }
+    gallery?: {
         count: number
         file: string
     }
@@ -175,6 +181,9 @@ function buildImportSummary(manifest: PackageManifest): string {
     if (manifest.chats) {
         summary += `• ${language.characterPackageChats}: ${manifest.chats.count}${language.characterPackageChatCount}\n`
     }
+    if (manifest.gallery) {
+        summary += `• ${language.characterPackageGallery}: ${manifest.gallery.count}${language.characterPackageGalleryCount}\n`
+    }
     if (manifest.personas && manifest.personas.length > 0) {
         summary += `• ${language.characterPackagePersona}: ${manifest.personas.map(p => p.name).join(', ')}\n`
     }
@@ -318,6 +327,25 @@ function importChatsToCharacter(
     }
 }
 
+function importGalleryToCharacter(
+    manifest: PackageManifest,
+    unzipped: fflate.Unzipped,
+    targetChar: character,
+    progress: ProgressFn,
+): void {
+    if (!manifest.gallery) return
+
+    const galleryBytes = unzipped[manifest.gallery.file]
+    if (!galleryBytes) return
+    const galleryJson = JSON.parse(new TextDecoder().decode(galleryBytes))
+    if (galleryJson.type !== 'risuBardGallery' || galleryJson.ver !== 1) return
+    const gallery = galleryJson.data as RisuBardGallery
+    if (!gallery || !Array.isArray(gallery.categories) || !Array.isArray(gallery.slots)) return
+
+    progress(language.characterPackageProgressImportGallery)
+    targetChar.risuBardGallery = gallery
+}
+
 async function importInlays(
     manifest: PackageManifest,
     unzipped: fflate.Unzipped,
@@ -397,6 +425,7 @@ async function exportCharacterPackageInner(
     options: {
         includeCharacter: boolean
         includeChats: boolean
+        includeGallery: boolean
         includePersona: boolean
         includeInlays: boolean
     }
@@ -410,6 +439,7 @@ async function exportCharacterPackageInner(
         }
 
         const charName = sanitizeFilename(char.name || 'character')
+        const gallery = options.includeGallery ? getCharacterGalleryForExport(char) : undefined
 
         // Hydrate placeholder chats from server before any scan/export
         for (let i = 0; i < char.chats.length; i++) {
@@ -445,6 +475,9 @@ async function exportCharacterPackageInner(
         if (options.includeChats) {
             summary += `• ${language.characterPackageChats}: ${char.chats.length}${language.characterPackageChatCount}\n`
         }
+        if (gallery) {
+            summary += `• ${language.characterPackageGallery}: ${gallery.slots.length}${language.characterPackageGalleryCount}\n`
+        }
         const boundPersonas = options.includePersona ? getCharacterBoundPersonas(char) : []
         if (options.includePersona && boundPersonas.length > 0) {
             summary += `• ${language.characterPackagePersona}: ${boundPersonas.map(p => p.persona.name).join(', ')}\n`
@@ -461,6 +494,7 @@ async function exportCharacterPackageInner(
         const totalSteps =
             (options.includeCharacter ? 1 : 0)
             + (options.includeChats && char.chats.length > 0 ? 1 : 0)
+            + (gallery ? 1 : 0)
             + (options.includePersona && boundPersonas.length > 0 ? 1 : 0)
             + (options.includeInlays && inlayIds.size > 0 ? 1 : 0)
             + 1 /* finalize */
@@ -520,12 +554,23 @@ async function exportCharacterPackageInner(
             const chatsData = JSON.stringify({
                 type: 'risuAllChats',
                 ver: 2,
-                data: char.chats,
+                data: stripGalleryFromChats(char.chats),
                 folders: char.chatFolders ?? []
             }, null, 2)
             const chatsPath = 'chats/chats.json'
             await zipWriter.write(chatsPath, chatsData, 6)
             manifest.chats = { count: char.chats.length, file: chatsPath }
+        }
+
+        if (gallery) {
+            progress(language.characterPackageProgressGallery)
+            const galleryPath = 'gallery/gallery.json'
+            await zipWriter.write(galleryPath, JSON.stringify({
+                type: 'risuBardGallery',
+                ver: 1,
+                data: gallery,
+            }, null, 2), 6)
+            manifest.gallery = { count: gallery.slots.length, file: galleryPath }
         }
 
         // 5. Write personas
@@ -624,9 +669,15 @@ async function exportCharacterPackageInner(
     }
 }
 
+/**
+ * The options are the inner function's own, not a second copy of them: the
+ * inner function is upstream's and grows a field whenever the package format
+ * does (`includeGallery` arrived with the gallery section), and a copy kept
+ * here fell behind it at exactly that point.
+ */
 export async function exportCharacterPackage(
     charIndex: number,
-    options: { includeCharacter: boolean; includeChats: boolean; includePersona: boolean; includeInlays: boolean },
+    options: Parameters<typeof exportCharacterPackageInner>[1],
 ): Promise<void> {
     return withSaverScope('export', () => exportCharacterPackageInner(charIndex, options))
 }
@@ -656,6 +707,7 @@ async function importCharacterPackageInner(): Promise<void> {
             1 /* character */
             + (manifest.personas && manifest.personas.length > 0 ? 1 : 0)
             + (manifest.chats ? 1 : 0)
+            + (manifest.gallery ? 1 : 0)
             + (manifest.inlays && manifest.inlays.files.length > 0 ? 1 : 0)
         let importCurrentStep = 0
         const importProgress: ProgressFn = (msg) => {
@@ -702,6 +754,7 @@ async function importCharacterPackageInner(): Promise<void> {
 
             const personaIdMap = await importPersonas(manifest, unzipped, importProgress)
             importChatsToCharacter(manifest, unzipped, newChar, personaIdMap, importProgress)
+            importGalleryToCharacter(manifest, unzipped, newChar, importProgress)
             await importInlays(manifest, unzipped, newChar.chaId, importCurrentStep, importTotalSteps, progressLabel)
 
             setDatabase(db)
@@ -754,6 +807,7 @@ async function importPackageToCharacterInner(charIndex: number): Promise<void> {
         const importTotalSteps =
             (manifest.personas && manifest.personas.length > 0 ? 1 : 0)
             + (manifest.chats ? 1 : 0)
+            + (manifest.gallery ? 1 : 0)
             + (manifest.inlays && manifest.inlays.files.length > 0 ? 1 : 0)
         if (importTotalSteps === 0) {
             notifySuccess(language.characterPackageImportSuccess)
@@ -771,6 +825,7 @@ async function importPackageToCharacterInner(charIndex: number): Promise<void> {
 
         const personaIdMap = await importPersonas(manifest, unzipped, importProgress)
         importChatsToCharacter(manifest, unzipped, targetChar, personaIdMap, importProgress, 'append')
+        importGalleryToCharacter(manifest, unzipped, targetChar, importProgress)
         await importInlays(manifest, unzipped, targetChar.chaId, importCurrentStep, importTotalSteps, progressLabel)
 
         setDatabase(db)

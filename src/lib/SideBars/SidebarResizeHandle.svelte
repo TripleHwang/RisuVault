@@ -2,35 +2,47 @@
     import { DBState, SizeStore } from 'src/ts/stores.svelte'
     import { requestImmediateSave } from 'src/ts/globalApi.svelte'
     import { resizeHandle } from 'src/ts/gui/resizeHandle'
-    import { normalizeChatListHeight, normalizeCharacterSidebarWidth } from 'src/ts/gui/sidebarLayout'
+    import {
+        normalizeCharacterListSidebarWidth,
+        normalizeChatListHeight,
+        normalizeCharacterSidebarWidth,
+    } from 'src/ts/gui/sidebarLayout'
 
-    let { axis, target, maxWidth = 720 }: {
+    let { axis, target, maxWidth = 720, field }: {
         axis: 'width' | 'height'
         target: HTMLElement | undefined
         maxWidth?: number
+        field?: 'characterSidebarWidth' | 'characterListSidebarWidth'
     } = $props()
-    const field = $derived(axis === 'height' ? 'chatListHeight' : 'characterSidebarWidth')
-    const normalize = (value: unknown) => axis === 'height'
+    const sizeField = $derived(field ?? (axis === 'height' ? 'chatListHeight' : 'characterSidebarWidth'))
+    const normalize = (value: unknown) => sizeField === 'chatListHeight'
         ? normalizeChatListHeight(value, $SizeStore.h)
-        : normalizeCharacterSidebarWidth(value, maxWidth)
-    const currentSize = $derived(normalize(DBState.db[field]))
+        : sizeField === 'characterListSidebarWidth'
+            ? normalizeCharacterListSidebarWidth(value, maxWidth)
+            : normalizeCharacterSidebarWidth(value, maxWidth)
+    const currentSize = $derived(normalize(DBState.db[sizeField]))
+    const sizeLabel = $derived(sizeField === 'chatListHeight'
+        ? '챗 목록 높이 조절'
+        : sizeField === 'characterListSidebarWidth'
+            ? '캐릭터 목록 사이드바 너비 조절'
+            : '캐릭터 사이드바 너비 조절')
 
     function start() {
         if (!target) return
         const initial = target.getBoundingClientRect()[axis]
         return (dx: number, dy: number) => {
             const delta = axis === 'height' ? dy : dx
-            if (delta) DBState.db[field] = normalize(initial + delta)
+            if (delta) DBState.db[sizeField] = normalize(initial + delta)
         }
     }
 </script>
 
 <button type="button"
-    aria-label={`${axis === 'height' ? '챗 목록 높이 조절' : '캐릭터 사이드바 너비 조절'} · ${currentSize}px`}
+    aria-label={`${sizeLabel} · ${currentSize}px`}
     title="드래그 또는 방향키로 조절 · 두 번 클릭하거나 Home 키로 초기화"
     class="sidebar-resize-handle" class:is-width={axis === 'width'} class:is-height={axis === 'height'}
     data-sidebar-resize={axis}
-    use:resizeHandle={{ start, reset: () => { delete DBState.db[field] }, end: () => { void requestImmediateSave() } }}
+    use:resizeHandle={{ start, reset: () => { delete DBState.db[sizeField] }, end: () => { void requestImmediateSave() } }}
 ></button>
 
 <style>
@@ -42,4 +54,5 @@
     .is-width::after { width: 2px; height: 3rem; top: calc(50% - 1.5rem); right: 1px; }
     .sidebar-resize-handle:hover, .sidebar-resize-handle:focus-visible, .sidebar-resize-handle:global([data-resizing]) { background: color-mix(in srgb, var(--color-borderc) 15%, transparent); outline: none; }
     .sidebar-resize-handle:hover::after, .sidebar-resize-handle:focus-visible::after, .sidebar-resize-handle:global([data-resizing])::after { background: var(--color-borderc); }
+    @media (max-width: 640px) { .is-width { display: none; } }
 </style>

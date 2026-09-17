@@ -30,9 +30,6 @@
 />
 
 <style>
-    :global([data-sonner-toaster]) {
-        z-index: 55 !important;
-    }
     :global(.risu-toast) {
         border-radius: 0.375rem;
         font-size: 0.875rem;

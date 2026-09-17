@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { get_encoding } from '@dqbd/tiktoken'
 import {
+    buildBoundedNarrativeInquiryFallback,
     createStoredResponseMemoryAnalysis,
     projectRecentMemoryMessages,
     type MemoryAnalysisModelCall,
@@ -8,6 +9,13 @@ import {
 } from './memoryAnalysisClient'
 
 describe('stored response memory analysis', () => {
+    test('builds the recent inquiry fallback from the end within its character budget', () => {
+        expect(buildBoundedNarrativeInquiryFallback([
+            { messageId: '1', role: 'assistant', content: 'a'.repeat(20) },
+            { messageId: '2', role: 'user', content: '*waits*' },
+        ], 16)).toBe(`${'a'.repeat(8)}\n*waits*`)
+    })
+
     test('selects only the accepted prior turn after the next user message', async () => {
         const module = await import('./memoryAnalysisClient')
         const project = (
@@ -418,7 +426,7 @@ describe('stored response memory analysis', () => {
         { result: '분석 결과를 만들지 못했습니다.' },
         { result: JSON.stringify({ schemaVersion: 1, title: '변화 없음', establishedEvents: [], stateChanges: [], characterKnowledge: [], persistentFacts: [], openContinuity: [], canonicalUpdateCandidates: [] }), finishReason: 'length' },
         { result: '<think>unfinished reasoning', finishReason: 'stop' },
-        { result: 'not JSON', repeat: true, expectedAttempts: 2 },
+        { result: 'not JSON', repeat: true, expectedAttempts: 3 },
         { result: '', finishReason: 'SAFETY', expectedAttempts: 1 },
         { result: 'not JSON', noRetry: true, expectedAttempts: 1 },
         { result: 'not JSON', toolExecuted: true, expectedAttempts: 1 },
@@ -502,6 +510,113 @@ describe('stored response memory analysis', () => {
         }
     })
 
+    test('does not retry after a prompt-schema fallback returns invalid output', async () => {
+        const requestModel = vi.fn(async (request: MemoryAnalysisModelCall) =>
+            request.schema
+                ? { type: 'fail' as const, result: 'HTTP 400' }
+                : { type: 'success' as const, result: 'not JSON' }
+        )
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel,
+            fetchImpl: vi.fn(async (input) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown', wikiPath: 'wiki', documents: [],
+                        health: { danglingLinks: [], unlinkedDocumentIds: [] },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current', graphRevision: 0, indexRevision: 0,
+                        cacheStatus: 'current', sources: [], metrics: {
+                            candidateCount: 0, inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0, selectedNodeCount: 0,
+                            selectedTokens: 0, hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }) as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+
+        await expect(analysis.run({
+            characterId: 'character', chatId: 'chat',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: '아무 변화도 없었다.',
+            }],
+        })).rejects.toThrow('응답 형식')
+        expect(requestModel).toHaveBeenCalledTimes(2)
+        expect(requestModel.mock.calls[0][0].schema).toBeTruthy()
+        expect(requestModel.mock.calls[1][0].schema).toBeUndefined()
+    })
+
+    test('falls back to prompt schema after corrected native output still fails validation', async () => {
+        const validDraft = JSON.stringify({
+            title: '변화 없음',
+            establishedEvents: [],
+            stateChanges: [],
+            characterKnowledge: [],
+            persistentFacts: [],
+            openContinuity: [],
+            canonicalUpdateCandidates: [],
+        })
+        const requestModel = vi.fn(async (request: MemoryAnalysisModelCall) => ({
+            type: 'success' as const,
+            result: request.schema ? '{"title":"incomplete"}' : validDraft,
+        }))
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel,
+            fetchImpl: vi.fn(async (input) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown', wikiPath: 'wiki', documents: [],
+                        health: { danglingLinks: [], unlinkedDocumentIds: [] },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current', graphRevision: 0, indexRevision: 0,
+                        cacheStatus: 'current', sources: [], metrics: {
+                            candidateCount: 0, inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0, selectedNodeCount: 0,
+                            selectedTokens: 0, hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/wiki/save')) {
+                    return new Response(JSON.stringify({
+                        document: null, revision: null,
+                    }))
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }) as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+
+        await expect(analysis.run({
+            characterId: 'character', chatId: 'chat',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: '아무 변화도 없었다.',
+            }],
+        })).resolves.toMatchObject({ facts: [], events: [] })
+        expect(requestModel).toHaveBeenCalledTimes(3)
+        expect(requestModel.mock.calls.map(([request]) => Boolean(request.schema)))
+            .toEqual([true, true, false])
+        expect(requestModel.mock.calls[2][0].formated[0].content)
+            .toContain('canonicalUpdateCandidates')
+    })
+
     test('does not prepare or store a v1 snapshot for native v2 analysis', async () => {
         const fetchImpl = vi.fn()
         const requestModel = vi.fn()
@@ -533,16 +648,16 @@ describe('stored response memory analysis', () => {
         expect(requestModel).not.toHaveBeenCalled()
     })
 
-    test('projects only the latest twelve stable user and assistant messages', () => {
+    test('projects the configured number of assistant turns with their user messages', () => {
         const messages = Array.from({ length: 14 }, (_, index) => ({
             role: index % 2 === 0 ? 'user' : 'char',
             data: `message-${index}`,
             chatId: `id-${index}`,
         }))
 
-        expect(projectRecentMemoryMessages(messages)).toEqual(
-            Array.from({ length: 12 }, (_, index) => {
-                const sourceIndex = index + 2
+        expect(projectRecentMemoryMessages(messages, 2)).toEqual(
+            Array.from({ length: 4 }, (_, index) => {
+                const sourceIndex = index + 10
                 return {
                     messageId: `id-${sourceIndex}`,
                     role: sourceIndex % 2 === 0 ? 'user' : 'assistant',
@@ -574,13 +689,105 @@ describe('stored response memory analysis', () => {
 
         expect(projectRecentMemoryMessages(
             messages,
-            3,
+            1,
             'assistant-1'
         )).toEqual([
-            { messageId: 'assistant-0', role: 'assistant', content: 'old reply' },
             { messageId: 'user-1', role: 'user', content: 'current' },
             { messageId: 'assistant-1', role: 'assistant', content: 'confirmed' },
         ])
+    })
+
+    test('keeps the first message through the configured later turns', () => {
+        const firstMessage = {
+            messageId: 'first-message',
+            role: 'assistant' as const,
+            content: 'The tournament begins in one month.',
+        }
+        const messages = Array.from({ length: 6 }, (_, index) => ({
+            role: index % 2 === 0 ? 'user' : 'char',
+            data: `message-${index}`,
+            chatId: `id-${index}`,
+        }))
+
+        expect(projectRecentMemoryMessages(
+            messages,
+            2,
+            'id-3',
+            firstMessage,
+        )).toEqual([
+            firstMessage,
+            ...Array.from({ length: 4 }, (_, index) => ({
+                messageId: `id-${index}`,
+                role: index % 2 === 0 ? 'user' : 'assistant',
+                content: `message-${index}`,
+            })),
+        ])
+        expect(projectRecentMemoryMessages(
+            messages,
+            2,
+            'id-5',
+            firstMessage,
+        )).toEqual(Array.from({ length: 4 }, (_, index) => {
+            const sourceIndex = index + 2
+            return {
+                messageId: `id-${sourceIndex}`,
+                role: sourceIndex % 2 === 0 ? 'user' : 'assistant',
+                content: `message-${sourceIndex}`,
+            }
+        }))
+    })
+
+    test('counts assistant turns before removing analysis user messages', () => {
+        const messages = Array.from({ length: 4 }, (_, index) => [
+            { role: 'user', data: `user-${index}`, chatId: `u-${index}` },
+            { role: 'char', data: `assistant-${index}`, chatId: `a-${index}` },
+        ]).flat()
+
+        expect(projectRecentMemoryMessages(
+            messages, 2, undefined, undefined, false
+        ).map((message) => message.messageId)).toEqual(['a-2', 'a-3'])
+    })
+
+    test('uses the first message as analysis evidence only while it remains in the recent window', async () => {
+        const module = await import('./memoryAnalysisClient')
+        const project = (
+            module as unknown as {
+                projectMemoryAnalysisEvidence?: (
+                    confirmed: Array<{
+                        messageId: string
+                        role: 'user' | 'assistant'
+                        content: string
+                    }>,
+                    recent: Array<{
+                        messageId: string
+                        role: 'user' | 'assistant'
+                        content: string
+                    }>,
+                    firstMessage: {
+                        messageId: string
+                        role: 'assistant'
+                        content: string
+                    },
+                ) => Array<{
+                    messageId: string
+                    role: 'user' | 'assistant'
+                    content: string
+                }>
+            }
+        ).projectMemoryAnalysisEvidence
+        const firstMessage = {
+            messageId: 'first-message',
+            role: 'assistant' as const,
+            content: 'The tournament begins in one month.',
+        }
+        const confirmed = [
+            { messageId: 'user-1', role: 'user' as const, content: 'When?' },
+            { messageId: 'assistant-1', role: 'assistant' as const, content: 'Soon.' },
+        ]
+
+        expect(project?.(confirmed, [firstMessage, ...confirmed], firstMessage))
+            .toEqual([firstMessage, ...confirmed])
+        expect(project?.(confirmed, confirmed, firstMessage)).toEqual(confirmed)
     })
 
     test('uses the existing memory model slot and authenticated server storage', async () => {
@@ -1225,9 +1432,346 @@ describe('stored response memory analysis', () => {
             }],
         }, controller.signal)
         expect((requestModel.mock.calls[0] as unknown[])[2])
-            .toBe(controller.signal)
+            .toBeInstanceOf(AbortSignal)
         expect(updates).toHaveBeenCalledOnce()
         window.removeEventListener('risubard-memory-updated', updates)
+    })
+
+    test('releases an explicit confirmation when a pending wiki read is cancelled', async () => {
+        let viewStarted!: () => void
+        let viewSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            viewStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(),
+            fetchImpl: vi.fn(async (input, init) => {
+                if (String(input).endsWith('/view')) {
+                    viewSignal = init?.signal ?? undefined
+                    viewStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${String(input)}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).then(
+            () => 'resolved',
+            (error: unknown) => error instanceof Error ? error.name : String(error)
+        )
+
+        await started
+        controller.abort()
+
+        await expect(Promise.race([
+            confirmation,
+            new Promise((resolve) => setTimeout(() => resolve('still-pending'), 50)),
+        ])).resolves.toBe('AbortError')
+        expect(viewSignal?.aborted).toBe(true)
+    })
+
+    test('does not start a confirmation with an already cancelled signal', async () => {
+        const requestModel = vi.fn()
+        const fetchImpl = vi.fn()
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel,
+            fetchImpl: fetchImpl as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        controller.abort()
+
+        await expect(analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+        await Promise.resolve()
+
+        expect(fetchImpl).not.toHaveBeenCalled()
+        expect(requestModel).not.toHaveBeenCalled()
+    })
+
+    test('times out a wiki confirmation when an internal request never settles', async () => {
+        vi.useFakeTimers()
+        try {
+            let viewStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                viewStarted = resolve
+            })
+            const analysis = createStoredResponseMemoryAnalysis({
+                requestModel: vi.fn(),
+                fetchImpl: vi.fn(async (input) => {
+                    if (String(input).endsWith('/view')) {
+                        viewStarted()
+                        return new Promise<Response>(() => {})
+                    }
+                    throw new Error(`Unexpected request: ${String(input)}`)
+                }),
+                createAuth: async () => 'test-jwt',
+                onError: vi.fn(),
+                nativeV2Analysis: true,
+            })
+            const confirmation = analysis.confirm({
+                characterId: 'character',
+                chatId: 'chat',
+                messages: [{
+                    messageId: 'message-1',
+                    role: 'assistant',
+                    content: 'The accepted turn.',
+                }],
+            }).then(
+                () => 'resolved',
+                (error: unknown) => error instanceof Error
+                    ? error.name
+                    : String(error)
+            )
+
+            await started
+            await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+            await expect(Promise.race([
+                confirmation,
+                Promise.resolve('still-pending'),
+            ])).resolves.toBe('TimeoutError')
+        }
+        finally {
+            vi.useRealTimers()
+        }
+    })
+
+    test('cancels a pending wiki inquiry transport', async () => {
+        let inquiryStarted!: () => void
+        let inquirySignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            inquiryStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown',
+                        wikiPath: 'wiki',
+                        documents: [],
+                        health: {
+                            danglingLinks: [],
+                            unlinkedDocumentIds: [],
+                        },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    inquirySignal = init?.signal ?? undefined
+                    inquiryStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            getInquiryTimeoutMs: () => 50,
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(inquirySignal?.aborted).toBe(true)
+    })
+
+    test('cancels a pending wiki event write transport', async () => {
+        let saveStarted!: () => void
+        let saveSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(async () => ({
+                type: 'success' as const,
+                result: JSON.stringify({
+                    schemaVersion: 1,
+                    title: '확정된 턴',
+                    establishedEvents: ['턴이 확정되었다.'],
+                    stateChanges: [],
+                    characterKnowledge: [],
+                    persistentFacts: [],
+                    openContinuity: [],
+                    canonicalUpdateCandidates: [],
+                }),
+            })),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown',
+                        wikiPath: 'wiki',
+                        documents: [],
+                        health: {
+                            danglingLinks: [],
+                            unlinkedDocumentIds: [],
+                        },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current',
+                        graphRevision: 0,
+                        indexRevision: 0,
+                        cacheStatus: 'current',
+                        sources: [],
+                        entityCandidates: [],
+                        metrics: {
+                            candidateCount: 0,
+                            inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0,
+                            selectedNodeCount: 0,
+                            selectedTokens: 0,
+                            hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/wiki/save')) {
+                    saveSignal = init?.signal ?? undefined
+                    saveStarted()
+                    return new Promise<Response>(() => {})
+                }
+                throw new Error(`Unexpected request: ${url}`)
+            }),
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character',
+            chatId: 'chat',
+            messages: [{
+                messageId: 'message-1',
+                role: 'assistant',
+                content: 'The accepted turn.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(saveSignal?.aborted).toBe(true)
+    })
+
+    test('cancels a pending canonical wiki write transport', async () => {
+        let saveStarted!: () => void
+        let saveSignal: AbortSignal | undefined
+        const started = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel: vi.fn(async (request: MemoryAnalysisModelCall) => ({
+                type: 'success' as const,
+                result: request.schema?.includes('establishedEvents')
+                    ? JSON.stringify({
+                        schemaVersion: 1,
+                        title: '인물 등록',
+                        establishedEvents: ['사만다가 생물학자로 확인되었다.'],
+                        stateChanges: [],
+                        characterKnowledge: [],
+                        persistentFacts: [],
+                        openContinuity: [],
+                        canonicalUpdateCandidates: [{
+                            type: 'character',
+                            title: '사만다',
+                            reason: '지속되는 역할',
+                            action: 'create',
+                            targetDocumentId: null,
+                            confidence: 0.9,
+                        }],
+                    })
+                    : JSON.stringify({
+                        schemaVersion: 1,
+                        documents: [{
+                            candidateIndex: 0,
+                            sections: [{
+                                heading: '현재 상태',
+                                operation: 'upsert',
+                                content: '- 생물학자.',
+                            }],
+                        }],
+                    }),
+            })),
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown', wikiPath: 'wiki', documents: [],
+                        health: { danglingLinks: [], unlinkedDocumentIds: [] },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current', graphRevision: 0, indexRevision: 0,
+                        cacheStatus: 'current', sources: [], metrics: {
+                            candidateCount: 0, inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0, selectedNodeCount: 0,
+                            selectedTokens: 0, hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/document/save')) {
+                    saveSignal = init?.signal ?? undefined
+                    saveStarted()
+                    return new Promise<Response>(() => {})
+                }
+                return new Response(JSON.stringify({ id: 'event-1' }))
+            }) as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+        const controller = new AbortController()
+        const confirmation = analysis.confirm({
+            characterId: 'character', chatId: 'chat',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: '사만다는 생물학자다.',
+            }],
+        }, controller.signal).catch(() => undefined)
+
+        await started
+        controller.abort()
+        await confirmation
+
+        expect(saveSignal?.aborted).toBe(true)
     })
 
     test('reports the configured analysis token limit in user-readable terms', async () => {
@@ -1430,6 +1974,122 @@ describe('stored response memory analysis', () => {
         finally { tokenizer.free() }
         expect(modelCalls[1].formated[1].content).toContain('confirmedMessages')
         expect(savedTitles).toEqual(['사만다', '아만다'])
+    })
+
+    test('retries a canonical native-schema HTTP 400 with a prompt schema', async () => {
+        const modelCalls: MemoryAnalysisModelCall[] = []
+        const requestModel = vi.fn(async (request: MemoryAnalysisModelCall) => {
+            modelCalls.push(request)
+            if (request.logPurpose === 'bardwiki-analysis') {
+                return {
+                    type: 'success' as const,
+                    result: JSON.stringify({
+                        schemaVersion: 1,
+                        turns: [{
+                            title: '인물 등록',
+                            establishedEvents: ['사만다가 생물학자로 확인되었다.'],
+                        }],
+                        stateChanges: [],
+                        characterKnowledge: [],
+                        persistentFacts: [],
+                        openContinuity: [],
+                        canonicalUpdateCandidates: [{
+                            type: 'character',
+                            title: '사만다',
+                            reason: '지속되는 역할',
+                            action: 'create',
+                            targetDocumentId: null,
+                            confidence: 0.9,
+                        }],
+                    }),
+                }
+            }
+            if (request.schema) {
+                return { type: 'fail' as const, result: 'HTTP 400' }
+            }
+            return {
+                type: 'success' as const,
+                result: JSON.stringify({
+                    schemaVersion: 1,
+                    documents: [{
+                        candidateIndex: 0,
+                        sections: [{
+                            heading: '현재 상태',
+                            operation: 'upsert',
+                            content: '- 생물학자.',
+                        }],
+                    }],
+                }),
+            }
+        })
+        const analysis = createStoredResponseMemoryAnalysis({
+            requestModel,
+            fetchImpl: vi.fn(async (input, init) => {
+                const url = String(input)
+                if (url.endsWith('/view')) {
+                    return new Response(JSON.stringify({
+                        mode: 'markdown', wikiPath: 'wiki', documents: [],
+                        health: { danglingLinks: [], unlinkedDocumentIds: [] },
+                    }))
+                }
+                if (url.endsWith('/inquiry')) {
+                    return new Response(JSON.stringify({
+                        mode: 'v2-current', graphRevision: 0, indexRevision: 0,
+                        cacheStatus: 'current', sources: [], metrics: {
+                            candidateCount: 0, inspectedNodeCount: 0,
+                            inspectedEdgeCount: 0, selectedNodeCount: 0,
+                            selectedTokens: 0, hopCount: 0,
+                            auxiliaryModelCalls: 0,
+                        },
+                    }))
+                }
+                if (url.endsWith('/wiki/reboot/begin')) {
+                    return new Response(JSON.stringify({ canonicalCount: 0 }))
+                }
+                if (url.endsWith('/wiki/reboot/record')) {
+                    return new Response(JSON.stringify(
+                        JSON.parse(String(init?.body)).receipt
+                    ))
+                }
+                if (url.endsWith('/document/save')) {
+                    const body = JSON.parse(String(init?.body))
+                    return new Response(JSON.stringify({
+                        id: 'character.samantha', type: 'character',
+                        status: 'active', title: body.title,
+                        relativePath: 'characters/samantha.md',
+                        sourceMessageIds: ['assistant-1'],
+                        updated: '2026-09-02T00:00:00.000Z',
+                        content: body.markdown, links: [], contextMode: 'auto',
+                        contentHash: 'hash-samantha', reviewStatus: 'reviewed',
+                    }))
+                }
+                return new Response(JSON.stringify({ id: 'event-1' }))
+            }) as unknown as typeof fetch,
+            createAuth: async () => 'test-jwt',
+            onError: vi.fn(),
+            nativeV2Analysis: true,
+        })
+
+        await expect(analysis.confirm({
+            characterId: 'character', chatId: 'chat',
+            messages: [{
+                messageId: 'assistant-1', role: 'assistant',
+                content: '사만다는 생물학자다.',
+            }],
+            rebootTurns: [{
+                assistantMessageId: 'assistant-1',
+                sourceMessageIds: ['assistant-1'],
+            }],
+        })).resolves.toMatchObject({
+            changes: [{ documentId: 'character.samantha', action: 'create' }],
+        })
+
+        expect(modelCalls).toHaveLength(3)
+        expect(modelCalls[1].schema).toContain('candidateIndex')
+        expect(modelCalls[2].schema).toBeUndefined()
+        expect(modelCalls[2].formated[0].content)
+            .toContain('Return exactly one JSON value matching this JSON Schema.')
+        expect(modelCalls[2].formated[0].content).toContain('"documents"')
     })
 
     test('allows background wiki inquiry to outlive the synchronous chat deadline', async () => {

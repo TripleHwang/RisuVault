@@ -138,6 +138,33 @@ function bodyToString(body: unknown): string | undefined {
     }
 }
 
+async function requestBodyToString(request: Request | undefined, reqInit?: RequestInit): Promise<string | undefined> {
+    if (reqInit && 'body' in reqInit) return bodyToString(reqInit.body)
+    if (!request || request.method === 'GET' || request.method === 'HEAD') return undefined
+    try {
+        return stripInlineMedia(await request.clone().text())
+    } catch {
+        return undefined
+    }
+}
+
+function providerErrorSummary(body: string): string | undefined {
+    try {
+        const parsed = JSON.parse(body) as unknown
+        if (!parsed || typeof parsed !== 'object') return undefined
+        const error = (parsed as { error?: unknown }).error
+        if (!error || typeof error !== 'object') return undefined
+        const record = error as { status?: unknown, message?: unknown }
+        const status = typeof record.status === 'string' ? record.status : ''
+        const message = typeof record.message === 'string' ? record.message : ''
+        if (!status && !message) return undefined
+        return status && message ? `${status}: ${message}` : status || message
+    }
+    catch {
+        return undefined
+    }
+}
+
 function headersToString(headers: unknown): string | undefined {
     if (!headers) return undefined
     try {
@@ -392,7 +419,10 @@ export function createRequestLogScope(init: RequestLogScopeInit): RequestLogScop
 
     const wrap = (base: typeof fetch): typeof fetch => {
         return (async (input: RequestInfo | URL, reqInit?: RequestInit): Promise<Response> => {
-            const url = typeof input === 'string' ? input : input.toString()
+            const inputRequest = typeof Request !== 'undefined' && input instanceof Request
+                ? input
+                : undefined
+            const url = inputRequest?.url ?? (typeof input === 'string' ? input : input.toString())
             const started = Date.now()
             const entry: PendingEntry = {
                 timestamp: started,
@@ -405,13 +435,13 @@ export function createRequestLogScope(init: RequestLogScopeInit): RequestLogScop
                 model: init.model,
                 provider: init.provider,
                 url,
-                method: reqInit?.method ?? 'POST',
+                method: reqInit?.method ?? inputRequest?.method ?? 'POST',
                 success: false,
                 route: init.route,
                 streaming: init.streaming,
                 injectionManifest: entries.length === 0 ? injectionManifest : undefined,
-                requestHeaders: headersToString(reqInit?.headers),
-                requestBody: bodyToString(reqInit?.body),
+                requestHeaders: headersToString(reqInit?.headers ?? inputRequest?.headers),
+                requestBody: await requestBodyToString(inputRequest, reqInit),
                 clientId: getClientId(),
             }
             entries.push(entry)
@@ -459,7 +489,7 @@ export function createRequestLogScope(init: RequestLogScopeInit): RequestLogScop
             // drained continuously — an unread branch applies backpressure and
             // would stall the caller's branch.
             const [forCaller, forLog] = response.body.tee()
-            settling.push(assemble(forLog, entry, started, reqInit?.signal ?? undefined))
+            settling.push(assemble(forLog, entry, started, reqInit?.signal ?? inputRequest?.signal))
             return new Response(forCaller, {
                 status: response.status,
                 statusText: response.statusText,
@@ -520,6 +550,7 @@ export function createRequestLogScope(init: RequestLogScopeInit): RequestLogScop
             // generated image would occupy megabytes of the byte budget.
             const stripped = stripInlineMedia(text)
             entry.responseBody = overflowed ? stripped + '\n...[truncated by client]' : stripped
+            if (!entry.success) entry.errorMessage ??= providerErrorSummary(stripped)
             entry.durationMs = Date.now() - started
         }
     }

@@ -359,7 +359,7 @@
       <SettingTabs tabs={[
         { label: language.playground.inlayImageList, value: 0 },
         { label: language.settings, value: 1 },
-      ]} bind:selected={$InlayGallerySubmenuIndex} />
+      ]} bind:selected={$InlayGallerySubmenuIndex} variant="prominent" />
     </SettingPage>
   </div>
 

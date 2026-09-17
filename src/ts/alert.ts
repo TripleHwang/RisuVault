@@ -7,6 +7,7 @@ import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stor
 import { addLog } from "./log"
 import { nativeConsoleError } from "./log-capture"
 import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
+import type { ShDialogTier } from "../lib/UI/GUI/ShDialog.svelte"
 
 /**
  * Action descriptor for dialog buttons. Reusable across any alert type
@@ -15,6 +16,10 @@ import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
 export interface AlertAction {
     label: string
     variant?: ShButtonVariant
+}
+
+export interface AlertConfirmOptions {
+    tier?: ShDialogTier
 }
 
 export interface alertData{
@@ -29,6 +34,7 @@ export interface alertData{
     stackTrace?: string;
     defaultValue?: string
     actions?: AlertAction[]
+    tier?: ShDialogTier
 }
 
 export interface NotifyOptions {
@@ -284,11 +290,15 @@ export async function alertSelectChar(){
     return get(alertStoreImported).msg
 }
 
-export async function alertConfirm(msg:string){
+export async function alertConfirm(
+    msg: string,
+    options: AlertConfirmOptions = {}
+){
 
     alertStoreImported.set({
         'type': 'ask',
-        'msg': msg
+        'msg': msg,
+        'tier': options.tier
     })
 
     await waitAlert()
@@ -377,13 +387,19 @@ export async function alertTOS(){
     return false
 }
 
-export async function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
+export async function alertInput(
+    msg:string,
+    datalist?:[string, string][],
+    defaultValue?:string,
+    options: AlertConfirmOptions = {},
+) {
 
     alertStoreImported.set({
         'type': 'input',
         'msg': msg,
         'datalist': datalist ?? [],
-        'defaultValue': defaultValue ?? ''
+        'defaultValue': defaultValue ?? '',
+        'tier': options.tier,
     })
 
     await waitAlert()

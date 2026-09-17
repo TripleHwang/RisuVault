@@ -55,8 +55,8 @@
     size="lg"
     closeOnEscape={true}
     closeOnOutsideClick={true}
-    contentClass="gap-0 rounded-2xl p-0 overflow-hidden"
-    bodyClass="min-w-0"
+    contentClass="max-h-[calc(100dvh-1rem)] gap-0 rounded-2xl p-0 overflow-hidden"
+    bodyClass="min-h-0 min-w-0 flex-1 overflow-y-auto"
     closeClass="right-5 top-5 z-10 rounded-full border border-darkborderc bg-darkbg/90 p-1.5"
 >
     {#snippet title()}
@@ -93,7 +93,7 @@
                 {/if}
             </div>
 
-            <div class="mt-5 max-h-64 min-w-0 overflow-y-auto rounded-xl border border-darkborderc bg-bgcolor/30 p-3 text-sm leading-relaxed selection:bg-primary/35">
+            <div class="mt-5 max-h-none min-w-0 overflow-visible rounded-xl border border-darkborderc bg-bgcolor/30 p-3 text-sm leading-relaxed selection:bg-primary/35 md:max-h-64 md:overflow-y-auto">
                 <MultiLangDisplay value={openedData.desc} markdown={true} linkify={true} />
             </div>
 

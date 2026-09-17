@@ -30,5 +30,5 @@ Build OK. Start the server with:
   node server/node/server.cjs
 
 Then open this address in the phone's own browser:
-  http://localhost:6001
+  http://localhost:7777
 EOF

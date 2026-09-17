@@ -35,7 +35,11 @@ export function matchesLorebookKey(
         return normalizedText.replace(/ /g, '').includes(normalizedKey.replace(/ /g, ''))
     }
     if(mode === 'whitespace'){
-        return normalizedText.split(' ').includes(normalizedKey)
+        const textTerms = normalizedText.split(/\s+/u).filter(Boolean)
+        const keyTerms = normalizedKey.split(/\s+/u).filter(Boolean)
+        return textTerms.some((_, start) => keyTerms.every((term, offset) =>
+            textTerms[start + offset] === term
+        ))
     }
 
     const segments = Array.from(new Intl.Segmenter(locale, {

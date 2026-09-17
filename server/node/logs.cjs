@@ -114,7 +114,7 @@ let logState = { schemaVersion: 1, nextId: 1 };
 function reloadFromDisk() {
     rowsCache = readRowsFromDisk();
     logState = fs.existsSync(stateFile)
-        ? readVerifiedJson(logRoot, 'state.json')
+        ? readVerifiedJson(logRoot, 'state.json', { acceptExternalChanges: true })
         : { schemaVersion: 1, nextId: 1 };
 }
 

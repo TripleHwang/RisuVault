@@ -8,9 +8,42 @@ import {
     retractWikiEvent,
     retractWikiEventsBySourceMessages,
     reviewCanonicalWikiDocument,
+    beginBardChatUndo,
+    finalizeBardChatUndo,
+    getBardChatUndoStatus,
+    restoreBardChatUndo,
 } from './memoryWiki'
 
 describe('loadNarrativeMemoryWiki', () => {
+    it('uses authenticated BARDCHAT undo lifecycle routes', async () => {
+        const replies = [
+            { started: true }, { available: true },
+            { available: true }, { restored: true },
+        ]
+        const fetchMock = vi.fn(async (
+            _input: RequestInfo | URL,
+            _init?: RequestInit
+        ) => new Response(
+            JSON.stringify(replies.shift())
+        ))
+        const fetchImpl = fetchMock as unknown as typeof fetch
+        const input = {
+            characterId: 'character', chatId: 'chat', fetchImpl,
+            createAuth: async () => 'token',
+        }
+
+        await expect(beginBardChatUndo(input)).resolves.toEqual({ started: true })
+        await expect(finalizeBardChatUndo(input)).resolves.toEqual({ available: true })
+        await expect(getBardChatUndoStatus(input)).resolves.toEqual({ available: true })
+        await expect(restoreBardChatUndo(input)).resolves.toEqual({ restored: true })
+        expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+            '/api/risubard/memory/wiki/bardchat-undo/begin',
+            '/api/risubard/memory/wiki/bardchat-undo/finalize',
+            '/api/risubard/memory/wiki/bardchat-undo/status',
+            '/api/risubard/memory/wiki/bardchat-undo/restore',
+        ])
+    })
+
     it('saves an AI-free Markdown page through the authenticated manual route', async () => {
         const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
             id: 'concept.oath',
@@ -248,6 +281,9 @@ describe('loadNarrativeMemoryWiki', () => {
                 health: {
                     danglingLinks: [{ sourceId: 'event.one', target: '리나' }],
                     unlinkedDocumentIds: ['character.lavian'],
+                    duplicatePassages: [{
+                        documentIds: ['character.lavian', 'event.one'],
+                    }],
                 },
                 documents: [{
                     id: 'event.one',
@@ -284,6 +320,9 @@ describe('loadNarrativeMemoryWiki', () => {
             health: {
                 danglingLinks: [{ sourceId: 'event.one', target: '리나' }],
                 unlinkedDocumentIds: ['character.lavian'],
+                duplicatePassages: [{
+                    documentIds: ['character.lavian', 'event.one'],
+                }],
             },
             documents: [
                 expect.objectContaining({

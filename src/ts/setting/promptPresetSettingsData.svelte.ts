@@ -11,6 +11,19 @@
 
 import type { SettingItem } from './types';
 import { allBasicParameterItems } from './botSettingsParamsData';
+
+const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'，。！？、]+/giu;
+
+export function findHttpUrlAtOffset(text: string, offset: number): string | null {
+    for (const match of text.matchAll(HTTP_URL_PATTERN)) {
+        const start = match.index;
+        const url = match[0].replace(/[.,!?;:)\]}]+$/u, '');
+        const end = start + url.length;
+        if (offset >= start && offset <= end) return url;
+    }
+    return null;
+}
+
 export const promptPresetBasicInfoItems: SettingItem[] = [
     {
         id: 'promptPreset.basicInfo',

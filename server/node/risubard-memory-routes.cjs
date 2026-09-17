@@ -1,3 +1,5 @@
+const wikiWritingLocales = require('../../src/ts/risubard/wikiWritingLocales.json')
+
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -32,8 +34,21 @@ function validEvidence(value, chatId) {
 }
 
 function validInquiryTokenBudget(value) {
-    return hasExactKeys(value, ['target', 'maximum'])
+    if (!isRecord(value)) return false
+    const keys = Object.keys(value)
+    if (!keys.includes('target') || !keys.includes('maximum')
+        || keys.some((key) => ![
+            'target', 'events', 'perSource', 'maximum',
+        ].includes(key))) return false
+    return keys.length >= 2 && keys.length <= 4
         && Number.isSafeInteger(value.target)
+        && (value.events === undefined || (Number.isSafeInteger(value.events)
+            && value.events >= 256
+            && value.events <= value.maximum))
+        && (value.perSource === undefined
+            || (Number.isSafeInteger(value.perSource)
+                && value.perSource >= 256
+                && value.perSource <= value.maximum))
         && Number.isSafeInteger(value.maximum)
         && value.target >= 256
         && value.target <= value.maximum
@@ -51,9 +66,29 @@ function validSemanticMatches(value) {
         )
 }
 
+function validWikiWritingLanguage(value) {
+    return typeof value === 'string'
+        && Object.prototype.hasOwnProperty.call(wikiWritingLocales, value)
+}
+
+function validEntityHints(value) {
+    return Array.isArray(value)
+        && value.length <= 12
+        && value.every((hint) =>
+            hasExactKeys(hint, ['kind', 'names'])
+            && hint.kind === 'character'
+            && Array.isArray(hint.names)
+            && hint.names.length >= 1
+            && hint.names.length <= 16
+            && hint.names.every((name) => typeof name === 'string'
+                && name.trim().length > 0
+                && name.length <= 128)
+        )
+}
+
 function validSourceMatches(value) {
     return Array.isArray(value)
-        && value.length <= 8
+        && value.length <= 32
         && value.every((match) =>
             hasExactKeys(match, [
                 'messageId', 'role', 'content', 'score', 'occurredAt',
@@ -104,8 +139,8 @@ function validCanonicalReceipt(value) {
             'documentId', 'type', 'title', 'relativePath', 'action', 'afterHash',
         ])
             && hasBoundedId(change.documentId)
-            && ['character', 'location', 'scene', 'faction', 'item',
-                'concept', 'other'].includes(change.type)
+            && ['character', 'location', 'scene', 'faction', 'creature',
+                'item', 'concept', 'other'].includes(change.type)
             && typeof change.title === 'string'
             && typeof change.relativePath === 'string'
             && (change.action === 'create' || change.action === 'update')
@@ -453,12 +488,21 @@ function registerRisuBardMemoryRoutes(app, options) {
                 ...(req.body.tokenBudget === undefined
                     ? []
                     : ['tokenBudget']),
+                ...(req.body.fallbackInput === undefined
+                    ? []
+                    : ['fallbackInput']),
                 ...(req.body.semanticMatches === undefined
                     ? []
                     : ['semanticMatches']),
+                ...(req.body.entityHints === undefined
+                    ? []
+                    : ['entityHints']),
                 ...(req.body.sourceMatches === undefined
                     ? []
                     : ['sourceMatches']),
+                ...(req.body.sourceLimit === undefined
+                    ? []
+                    : ['sourceLimit']),
             ])
             if (!validShape
                 || !hasBoundedId(req.body.characterId)
@@ -466,14 +510,24 @@ function registerRisuBardMemoryRoutes(app, options) {
                 || typeof req.body.currentInput !== 'string'
                 || req.body.currentInput.trim().length === 0
                 || req.body.currentInput.length > 4_096
+                || (req.body.fallbackInput !== undefined
+                    && (typeof req.body.fallbackInput !== 'string'
+                        || req.body.fallbackInput.trim().length === 0
+                        || req.body.fallbackInput.length > 4_096))
                 || (req.body.tokenBudget !== undefined
                     && !validInquiryTokenBudget(req.body.tokenBudget))
                 || (req.body.semanticMatches !== undefined
                     && !validSemanticMatches(req.body.semanticMatches))
+                || (req.body.entityHints !== undefined
+                    && !validEntityHints(req.body.entityHints))
                 || (req.body.sourceMatches !== undefined
                     && !validSourceMatches(req.body.sourceMatches))
+                || (req.body.sourceLimit !== undefined
+                    && (!Number.isSafeInteger(req.body.sourceLimit)
+                        || req.body.sourceLimit < 0
+                        || req.body.sourceLimit > 32))
                 || Buffer.byteLength(JSON.stringify(req.body), 'utf8')
-                    > 32 * 1_024) {
+                    > 256 * 1_024) {
                 res.status(400).send({
                     error: 'Invalid narrative inquiry request',
                 })
@@ -579,7 +633,8 @@ function registerRisuBardMemoryRoutes(app, options) {
             const optionalKeys = ['append', 'writingLanguage']
                 .filter((key) => req.body?.[key] !== undefined)
             if (!hasExactKeys(req.body, [...keys, ...optionalKeys])
-                || (req.body.writingLanguage !== undefined && !['ko', 'en'].includes(req.body.writingLanguage))
+                || (req.body.writingLanguage !== undefined
+                    && !validWikiWritingLanguage(req.body.writingLanguage))
                 || !hasBoundedId(req.body.characterId)
                 || !hasBoundedId(req.body.chatId)
                 || !Array.isArray(req.body.sourceMessageIds)
@@ -621,7 +676,8 @@ function registerRisuBardMemoryRoutes(app, options) {
                     ...keys, ...optionalKeys,
                 ])
                 if (!validShape
-                    || (req.body.writingLanguage !== undefined && !['ko', 'en'].includes(req.body.writingLanguage))
+                    || (req.body.writingLanguage !== undefined
+                        && !validWikiWritingLanguage(req.body.writingLanguage))
                     || !hasBoundedId(req.body.characterId)
                     || !hasBoundedId(req.body.chatId)
                     || (req.body.documentId !== undefined
@@ -633,8 +689,8 @@ function registerRisuBardMemoryRoutes(app, options) {
                             req.body.reviewStatus
                         ))
                     || ![
-                        'character', 'location', 'scene', 'faction', 'item',
-                        'concept', 'other',
+                        'character', 'location', 'scene', 'faction', 'creature',
+                        'item', 'concept', 'other',
                     ].includes(req.body.type)
                     || typeof req.body.title !== 'string'
                     || req.body.title.trim().length === 0
@@ -689,8 +745,8 @@ function registerRisuBardMemoryRoutes(app, options) {
                     || (req.body.expectedContentHash !== undefined
                         && !hasBoundedId(req.body.expectedContentHash))
                     || ![
-                        'character', 'location', 'scene', 'faction', 'item',
-                        'concept', 'other', 'event',
+                        'character', 'location', 'scene', 'faction', 'creature',
+                        'item', 'concept', 'other', 'event',
                     ].includes(req.body.type)
                     || (req.body.type === 'event'
                         && req.body.documentId === undefined)
@@ -721,6 +777,34 @@ function registerRisuBardMemoryRoutes(app, options) {
             }
         }
     )
+
+    for (const [action, method] of [
+        ['begin', 'beginBardChatUndo'],
+        ['finalize', 'finalizeBardChatUndo'],
+        ['status', 'getBardChatUndoStatus'],
+        ['restore', 'restoreBardChatUndo'],
+    ]) {
+        app.post(
+            `/api/risubard/memory/wiki/bardchat-undo/${action}`,
+            async (req, res, next) => {
+                try {
+                    if (!await options.auth(req, res)) return
+                    if (!hasExactKeys(req.body, ['characterId', 'chatId'])
+                        || !hasBoundedId(req.body.characterId)
+                        || !hasBoundedId(req.body.chatId)) {
+                        res.status(400).send({
+                            error: 'Invalid BARDCHAT undo request',
+                        })
+                        return
+                    }
+                    res.send(await options.service[method](req.body))
+                }
+                catch (error) {
+                    next(error)
+                }
+            }
+        )
+    }
 
     app.post(
         '/api/risubard/memory/wiki/document/review',

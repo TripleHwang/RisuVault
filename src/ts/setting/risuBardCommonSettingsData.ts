@@ -1,5 +1,6 @@
 import type { SettingItem } from './types'
 import { normalizeRisuBardCanonicalCustomStyle } from '../risubard/risuBardSettings'
+import { wikiWritingLanguageOptions } from '../risubard/wikiWritingLanguage'
 import { normalizeArcaChatTitleImageStyle } from '../arcaChatSaverSettings'
 import {
     ARC_PLOTTER_CUSTOM_SELECTION_ID,
@@ -39,7 +40,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         helpKey: 'risuBardResponseRecentMessages',
         bindKey: 'risuBardResponseMessageCount',
         options: { min: 1, step: 1 },
-        keywords: ['recent messages', 'chat history', '최근 채팅', '대화 내역'],
+        keywords: ['response turns', 'chat history', '응답용 턴', '대화 내역'],
     },
     {
         id: 'risubard.chat.excludeUserMessages',
@@ -47,7 +48,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         labelKey: 'risuBardResponseExcludeUsers',
         helpKey: 'risuBardResponseExcludeUsers',
         bindKey: 'risuBardResponseExcludeUserMessages',
-        keywords: ['exclude user messages', '사용자 메시지 제외'],
+        keywords: ['response user messages', '응답 사용자 메시지'],
     },
     {
         id: 'risubard.common.wikiAnalysis',
@@ -63,7 +64,37 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         helpKey: 'risuBardRecentMessages',
         bindKey: 'risuBardRecentMessageCount',
         options: { min: 1, step: 1 },
-        keywords: ['analysis', 'wiki', 'recent messages', '분석', '위키', '최근 대화'],
+        keywords: ['analysis turns', 'wiki', '분석할 턴', '위키'],
+    },
+    {
+        id: 'risubard.chat.analysisExcludeUserMessages',
+        type: 'check',
+        labelKey: 'risuBardAnalysisExcludeUsers',
+        helpKey: 'risuBardAnalysisExcludeUsers',
+        bindKey: 'risuBardAnalysisExcludeUserMessages',
+        keywords: ['analysis', 'analysis user messages', '분석 사용자 메시지'],
+    },
+    {
+        id: 'risubard.chat.bardChan',
+        type: 'check',
+        labelKey: 'risuBardBardChanEnabled',
+        helpKey: 'risuBardBardChanEnabled',
+        bindKey: 'risuBardBardChanEnabled',
+        keywords: ['Bard-chan', 'reranker', 'auxiliary model', '바드쨩', '재순위', '보조 모델'],
+    },
+    {
+        id: 'risubard.chat.bardChanModel',
+        type: 'select',
+        labelKey: 'risuBardBardChanModelMode',
+        helpKey: 'risuBardBardChanModelMode',
+        bindKey: 'risuBardBardChanModelMode',
+        options: {
+            selectOptions: [
+                { value: 'memory', labelKey: 'risuBardBardChanModelAuxiliary' },
+                { value: 'model', labelKey: 'risuBardBardChanModelMain' },
+            ],
+        },
+        keywords: ['Bard-chan', 'reranker', 'main model', 'auxiliary model', '바드쨩', '메인 모델', '보조 모델'],
     },
     {
         id: 'risubard.chat.inquiryTargetTokenBudget',
@@ -75,6 +106,24 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         keywords: ['inquiry', 'target', 'token', '검색', '목표', '토큰'],
     },
     {
+        id: 'risubard.chat.inquiryEventTokenBudget',
+        type: 'number',
+        labelKey: 'risuBardInquiryEventTokenBudget',
+        helpKey: 'risuBardInquiryEventTokenBudget',
+        bindKey: 'risuBardInquiryEventTokenBudget',
+        options: { min: 256, step: 256 },
+        keywords: ['inquiry', 'event', 'token', '검색', '사건', '토큰'],
+    },
+    {
+        id: 'risubard.chat.inquiryTimeoutMs',
+        type: 'number',
+        labelKey: 'risuBardInquiryTimeoutMs',
+        helpKey: 'risuBardInquiryTimeoutMs',
+        bindKey: 'risuBardInquiryTimeoutMs',
+        options: { min: 1, max: 10_000, step: 500 },
+        keywords: ['inquiry', 'timeout', 'wiki', '조회', '시간', '제한'],
+    },
+    {
         id: 'risubard.chat.inquiryMaximumTokenBudget',
         type: 'number',
         labelKey: 'risuBardInquiryMaximumTokenBudget',
@@ -82,6 +131,24 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         bindKey: 'risuBardInquiryMaximumTokenBudget',
         options: { min: 256, step: 256 },
         keywords: ['inquiry', 'maximum', 'token', '검색', '상한', '토큰'],
+    },
+    {
+        id: 'risubard.chat.inquirySourceTokenBudget',
+        type: 'number',
+        labelKey: 'risuBardInquirySourceTokenBudget',
+        helpKey: 'risuBardInquirySourceTokenBudget',
+        bindKey: 'risuBardInquirySourceTokenBudget',
+        options: { min: 256, step: 256 },
+        keywords: ['inquiry', 'source', 'token', '검색', '자료', '토큰'],
+    },
+    {
+        id: 'risubard.chat.historicalSourceMatchLimit',
+        type: 'number',
+        labelKey: 'risuBardHistoricalSourceMatchLimit',
+        helpKey: 'risuBardHistoricalSourceMatchLimit',
+        bindKey: 'risuBardHistoricalSourceMatchLimit',
+        options: { min: 0, max: 32, step: 1 },
+        keywords: ['historical', 'source', 'candidate', '과거', '원문', '후보'],
     },
     {
         id: 'risubard.chat.analysisTokenLimit',
@@ -225,10 +292,7 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         labelKey: 'risuBardWikiWritingLanguage',
         helpKey: 'risuBardWikiWritingLanguage',
         bindKey: 'risuBardWikiWritingLanguage',
-        options: { selectOptions: [
-            { value: 'ko', label: '한국어' },
-            { value: 'en', label: 'English' },
-        ] },
+        options: { selectOptions: wikiWritingLanguageOptions },
         keywords: ['wiki', 'language', 'English', '위키', '언어', '영어'],
     },
     {
@@ -258,6 +322,20 @@ export const risuBardCommonSettingsItems: SettingItem[] = [
         },
         condition: ({ db }) => db.risuBardCanonicalWritingStyle === 'custom',
         keywords: ['canonical', 'custom instruction', '정본', '사용자 지정', '지시문'],
+    },
+    {
+        id: 'risubard.common.grimoire',
+        type: 'header',
+        labelKey: 'risuBardGrimoireSettings',
+        options: { level: 'h2' },
+        keywords: ['Grimoire', 'lorebook', 'metadata', 'language', '그리모어', '로어북', '메타데이터', '언어'],
+    },
+    {
+        id: 'risubard.common.grimoireLanguage',
+        type: 'custom',
+        componentId: 'RisuBardGrimoireLanguageSettings',
+        fallbackLabel: 'Grimoire language',
+        keywords: ['Grimoire', 'analysis', 'instruction', 'English', 'Korean', '그리모어', '분석', '지시문', '영어', '한국어'],
     },
     {
         id: 'risubard.common.saveAndLoad',

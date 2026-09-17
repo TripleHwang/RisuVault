@@ -23,8 +23,7 @@ describe('Character Vault sidebar integration', () => {
         const persona = sidebar.slice(personaStart, vaultStart)
         const vault = sidebar.slice(vaultStart, inventoryStart)
         expect(persona).not.toContain('data-sidebar-persona-label')
-        expect(persona).toContain('border-b border-b-selected')
-        expect(persona).toContain('mb-2')
+        expect(sidebar).toMatch(/\.character-sidebar-primary-actions\s*\{[^}]*border-bottom:\s*1px solid var\(--color-selected\)/s)
         expect(persona).toContain('h-[54px] w-[54px]')
         expect(persona).toContain('outline outline-4')
         expect(persona).toContain('outline-offset-0')
@@ -59,14 +58,35 @@ describe('Character Vault sidebar integration', () => {
         const sidebar = source('src/lib/SideBars/Sidebar.svelte')
         expect(sidebar).toContain('data-sidebar-options')
         expect(sidebar).toContain('data-sidebar-options-divider')
-        expect(sidebar).toMatch(/data-sidebar-options[\s\S]*mt-3[\s\S]*h-10[\s\S]*w-\[52px\][\s\S]*bg-primary[\s\S]*data-sidebar-options-divider/)
-        expect(sidebar).toMatch(/data-sidebar-persona[\s\S]*px-2 py-3/)
+        expect(sidebar).toMatch(/data-sidebar-options[\s\S]*h-10[\s\S]*w-\[52px\][\s\S]*bg-primary[\s\S]*data-sidebar-options-divider/)
+        expect(sidebar).toMatch(/data-character-sidebar-primary-actions[\s\S]*data-sidebar-options[\s\S]*data-sidebar-persona/)
         expect(sidebar).toMatch(/data-sidebar-options-divider class="w-full relative text-textcolor"/)
         expect(sidebar).not.toContain('data-sidebar-options-divider class="w-full border-b border-b-selected')
         expect(sidebar).toMatch(/data-character-sidebar\s+class="[^"]*bg-darkbg text-textcolor/)
         expect(sidebar).toMatch(/data-character-sidebar-scroll class="[^"]*pt-2 pb-6"/)
         expect(sidebar).toMatch(/data-character-workspace-header class="flex min-h-10/)
         expect(sidebar).not.toMatch(/data-character-workspace-header class="[^"]*mt-1\.5/)
+    })
+
+    test('keeps the expanded options menu above character thumbnails', () => {
+        const sidebar = source('src/lib/SideBars/Sidebar.svelte')
+        expect(sidebar).toMatch(
+            /\.character-sidebar-menu-action\s*\{[^}]*position:\s*relative[^}]*z-index:\s*30/s
+        )
+    })
+
+    test('resizes the character-list rail into a centered three-column grid with a visible scrollbar', () => {
+        const sidebar = source('src/lib/SideBars/Sidebar.svelte')
+        expect(sidebar).toContain('data-character-list-sidebar')
+        expect(sidebar).toContain('bind:this={characterListSidebarElement}')
+        expect(sidebar).toContain('style:width={characterListSidebarWidth}')
+        expect(sidebar).toContain('field="characterListSidebarWidth"')
+        expect(sidebar).toContain('data-character-sidebar-primary-actions')
+        expect(sidebar).toContain('data-quick-inventory-grid')
+        expect(sidebar).toMatch(/\.character-sidebar-primary-actions\s*\{[^}]*gap:\s*var\(--character-card-gap\)/s)
+        expect(sidebar).toMatch(/\.character-list\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit, 56px\)[^}]*justify-content:\s*center[^}]*gap:\s*var\(--character-card-gap\)[^}]*overflow-y:\s*auto[^}]*scrollbar-gutter:\s*stable/s)
+        expect(sidebar).toMatch(/\.folder-character-grid\s*\{[^}]*grid-column:\s*1 \/ -1[^}]*grid-template-columns:\s*repeat\(auto-fit, 56px\)/s)
+        expect(sidebar).not.toContain('.character-list::-webkit-scrollbar {\n    display: none;')
     })
 
     test('renders the new-character action as a thumbnail-sized square with a tooltip', () => {
@@ -104,6 +124,23 @@ describe('Character Vault sidebar integration', () => {
         expect(sidebar).toContain('void requestImmediateSave()')
         expect(sidebar).not.toContain('const inserter =')
         expect(sidebar).not.toContain('const createFolder =')
+    })
+
+    test('shows a gap insertion indicator instead of outlining character cards', () => {
+        const sidebar = source('src/lib/SideBars/Sidebar.svelte')
+        const dragOverStart = sidebar.indexOf('const avatarDragOver =')
+        const dragOver = sidebar.slice(dragOverStart, sidebar.indexOf('const avatarDrop =', dragOverStart))
+
+        expect(dragOver).toContain('quick-inventory-drop-before')
+        expect(dragOver).toContain('quick-inventory-drop-after')
+        expect(sidebar).toContain('resolveQuickInventoryCardDrop')
+        expect(sidebar).toContain('const avatarCardDrop =')
+        expect(sidebar).toContain('getComputedStyle(target.parentElement).gridTemplateColumns')
+        expect(sidebar).not.toContain("classList.add('ring-2', 'ring-success')")
+        expect(sidebar).toMatch(/:global\(\.quick-inventory-drop-before\)::before[\s\S]*background:\s*var\(--color-success\)/)
+        expect(sidebar).toMatch(/:global\(\.quick-inventory-drop-after\)::after[\s\S]*background:\s*var\(--color-success\)/)
+        expect(sidebar).toContain('const clearAvatarDragFeedback =')
+        expect(sidebar).toContain('ondragleave={!isTouchDevice ? clearAvatarDragFeedback : undefined}')
     })
 
     test('pins successful CharX imports at the bottom of quick access', () => {
@@ -215,14 +252,16 @@ describe('Character Vault sidebar integration', () => {
         expect(dialog).toContain('max-width: 100vw !important')
     })
 
-    test('grows the mobile folder rail with viewport height and keeps it vertically scrollable', () => {
+    test('turns the mobile folder rail into a scrollable off-canvas sidebar', () => {
         const dialog = source('src/lib/SideBars/CharacterVaultDialog.svelte')
         expect(dialog).toMatch(
             /\.folder-list\s*\{[^}]*flex:\s*1 1 auto;[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;/s
         )
-        expect(dialog).toContain(
-            'grid-template-rows: clamp(10rem, 34dvh, 22rem) minmax(0, 1fr)'
-        )
+        expect(dialog).toContain('class:open={folderSidebarOpen}')
+        expect(dialog).toContain('aria-controls="character-vault-folders"')
+        expect(dialog).toMatch(/\.vault-rail\.open\s*\{[^}]*transform:\s*translateX\(0\)/s)
+        expect(dialog).toContain('.folder-sidebar-scrim')
+        expect(dialog).not.toContain('grid-template-rows: clamp(10rem, 34dvh, 22rem)')
         expect(dialog).not.toContain('.folder-list { display: flex;')
     })
 

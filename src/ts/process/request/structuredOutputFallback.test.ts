@@ -56,10 +56,36 @@ describe('structured output compatibility fallback', () => {
             .toContain('"value"')
     })
 
+    test('retries an ambiguous 400 invalid argument when native schema was active', async () => {
+        const module = await loadFallbackModule()
+        expect(module).not.toBeNull()
+        if (!module) return
+        const send = vi.fn()
+            .mockRejectedValueOnce(new ModelPresetAdapterError(
+                'invalid-request',
+                'Request contains an invalid argument.',
+                { status: 400 }
+            ))
+            .mockResolvedValueOnce('ok')
+
+        await expect(module.sendWithStructuredOutputFallback(
+            baseOptions(),
+            send
+        )).resolves.toBe('ok')
+
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(send.mock.calls[1][0].responseSchema).toBeUndefined()
+    })
+
     test.each([
         new ModelPresetAdapterError('auth', 'missing key'),
         new ModelPresetAdapterError('rate-limit', 'slow down'),
         new ModelPresetAdapterError('invalid-request', 'blocked prompt'),
+        new ModelPresetAdapterError(
+            'invalid-request',
+            'Invalid argument: contents[0].role is unsupported',
+            { status: 400 }
+        ),
     ])('does not downgrade unrelated errors: %s', async (error) => {
         const module = await loadFallbackModule()
         expect(module).not.toBeNull()

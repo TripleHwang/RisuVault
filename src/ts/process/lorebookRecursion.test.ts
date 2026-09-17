@@ -43,13 +43,14 @@ vi.mock('./modules', () => ({
 import { convertImportedLorebook, exportLoreBook, importLoreBook, loadLoreBookV3Prompt } from './lorebook.svelte'
 import { buildPersonaBuilderMessages, matchPersonaBuilderCharacterLorebook } from '../personaBuilder'
 import { buildInjectionManifest } from '../status/requestStatus'
+import { fingerprintLegacyLore, upgradeLegacyLorebook, createBardLoreSettings } from '../lorebook/bardLore'
 
 function lore(comment: string, key: string, content: string) {
     return {
         comment,
         key,
         content,
-        mode: 'normal',
+        mode: 'normal' as const,
         insertorder: 100,
         alwaysActive: false,
         secondkey: '',
@@ -57,6 +58,71 @@ function lore(comment: string, key: string, content: string) {
         useRegex: false,
     }
 }
+
+describe('Grimoire live prompt retrieval', () => {
+    it.each([0, 1, 3, 20])('injects a named character with a %s-message window and ignores disabled history', async (contextMessages) => {
+        mockModuleSources.length = 0
+        const sources = [
+            { ...lore('카이넬 레오', '카이넬 레오', 'LEO PROFILE'), id: 'leo' },
+            { ...lore('비활성 인물', '비활성 인물', 'DISABLED PROFILE'), id: 'disabled' },
+        ]
+        const bardLore = upgradeLegacyLorebook(sources, () => 'unused', createBardLoreSettings({ contextMessages }))
+        bardLore.mode = 'bard'
+        bardLore.metadata.forEach((metadata) => { metadata.kind = 'character' })
+        const character = {
+            chaId: 'test', name: 'test', chatPage: 0, globalLore: sources, bardLore,
+            chats: [{ id: 'chat', localLore: [], message: [
+                { role: 'user', data: '비활성 인물' },
+                { role: 'char', data: '경계', disabled: 'allBefore' },
+                { role: 'char', data: '장소 설명: 여성 전용 지역' },
+                { role: 'user', data: '카이넬 레오를 만난다.' },
+                { role: 'char', data: '여자 캐릭터 3명', isComment: true },
+                { role: 'user', data: '비활성 인물', disabled: true },
+                { role: 'char', data: '그는 지도를 펼친다.' },
+            ] }],
+        }
+        mockDBState.db = { username: 'user', loreBookDepth: 3, loreBookToken: 8000, characters: [character] }
+        const result = await loadLoreBookV3Prompt()
+        expect(result.actives).toContainEqual(expect.objectContaining({
+            prompt: 'LEO PROFILE', requestStatusKind: 'grimoire',
+        }))
+        expect(result.actives.some((active) => active.prompt === 'DISABLED PROFILE')).toBe(false)
+        expect(result.matchLog.find((log) => log.source === 'Grimoire query plan')?.prompt).toBe('카이넬 레오를 만난다.')
+    })
+
+    it('uses the active first message to bootstrap ambient scene retrieval in a new chat', async () => {
+        mockModuleSources.length = 0
+        const sources = [
+            { ...lore('학교', '학교', 'SCHOOL FACT'), id: 'school' },
+            { ...lore('신입생', '', 'STUDENT PROFILE'), id: 'student' },
+        ]
+        const bardLore = upgradeLegacyLorebook(sources, () => 'unused', createBardLoreSettings({ contextMessages: 3 }))
+        bardLore.mode = 'bard'
+        bardLore.metadata[0].kind = 'location'
+        bardLore.metadata[1].kind = 'character'
+        bardLore.metadata[1].links = [{ targetId: 'school', relation: 'attends', retrieval: 'ambient' }]
+        const character = {
+            chaId: 'test',
+            name: 'test',
+            firstMessage: '학교 복도에서 새로운 하루가 시작된다.',
+            alternateGreetings: [],
+            chatPage: 0,
+            globalLore: sources,
+            bardLore,
+            chats: [{ id: 'chat', fmIndex: -1, localLore: [], message: [
+                { role: 'user', data: '주위를 둘러본다.' },
+            ] }],
+        }
+        mockDBState.db = { username: 'user', loreBookDepth: 3, loreBookToken: 8000, characters: [character] }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.actives.map((entry) => entry.prompt)).toEqual(expect.arrayContaining([
+            'SCHOOL FACT',
+            'STUDENT PROFILE',
+        ]))
+    })
+})
 
 function deferred<T>() {
     let resolve!: (value: T) => void
@@ -184,6 +250,318 @@ describe('persona builder character lorebook search', () => {
 })
 
 describe('lorebook recursion steps', () => {
+    it('uses bounded Bard Lore entries instead of legacy always-active character lore', async () => {
+        mockModuleSources.length = 0
+        const bardEntry = (id: string, content: string, activation: string, aliases: string[] = [], tags: string[] = []) => ({
+            ...lore(id, aliases.join(', '), content),
+            id,
+            bard: {
+                sourceLegacyId: id,
+                sourceHash: id,
+                kind: activation === 'required' ? 'system' : 'location',
+                activation,
+                aliases,
+                tags,
+                summary: '',
+                facets: [],
+                injection: 'full',
+                links: [],
+            },
+        })
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 1,
+            characters: [{
+                chaId: 'bard-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: [
+                    { ...lore('format', '', 'STATUS FORMAT'), id: 'format' },
+                    { ...lore('mall', '', 'MALL DATE FACT'), id: 'mall' },
+                    { ...lore('dorm', '', 'DORM FACT'), id: 'dorm' },
+                    { ...lore('Legacy dump', '', 'LEGACY WORLD DUMP'), alwaysActive: true },
+                ],
+                bardLore: {
+                    schemaVersion: 2,
+                    mode: 'bard',
+                    settings: { targetTokens: 20, maximumTokens: 30, maxEntries: 3, contextMessages: 2 },
+                    metadata: [
+                        bardEntry('format', 'STATUS FORMAT', 'required').bard,
+                        bardEntry('mall', 'MALL DATE FACT', 'retrieve', [], ['시내']).bard,
+                        bardEntry('dorm', 'DORM FACT', 'retrieve', [], ['기숙사']).bard,
+                    ],
+                    derivedEntries: [],
+                },
+                chats: [{
+                    localLore: [],
+                    message: [
+                        { role: 'user', data: '시내로 가자' },
+                        { role: 'user', data: '좋아' },
+                    ],
+                }],
+                loreSettings: {
+                    tokenBudget: 1,
+                    scanDepth: 3,
+                    recursiveScanning: true,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'partial',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+        const prompts = result.actives.map((entry) => entry.prompt)
+
+        expect(prompts).toEqual(expect.arrayContaining(['STATUS FORMAT', 'MALL DATE FACT']))
+        expect(result.actives.map((entry) => [entry.source, entry.requestStatusKind])).toEqual(expect.arrayContaining([
+            ['format', 'grimoireRequired'],
+            ['mall', 'grimoire'],
+        ]))
+        expect(result.matchLog.some((entry) => entry.source === 'Grimoire query plan')).toBe(true)
+        expect(prompts).not.toContain('DORM FACT')
+        expect(prompts.join('\n')).not.toContain('LEGACY')
+    })
+
+    it('gives the latest user input priority when selecting bounded Grimoire entries', async () => {
+        mockModuleSources.length = 0
+        const sources = [
+            { ...lore('Haania', 'Haania, Hanya', 'HAANIA FACT'), id: 'haania' },
+            { ...lore('Lilia', 'Lilia', 'LILIA FACT'), id: 'lilia' },
+            { ...lore('Game Over', 'game over, gameover', 'GAME OVER INSTRUCTIONS'), id: 'game-over' },
+        ]
+        const metadata = sources.map((source) => ({
+            sourceLegacyId: source.id,
+            sourceHash: source.id,
+            kind: 'other',
+            activation: 'retrieve',
+            aliases: [],
+            tags: [],
+            summary: '',
+            facets: [],
+            injection: 'full',
+            links: [],
+        }))
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 8_000,
+            characters: [{
+                chaId: 'bard-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: sources,
+                bardLore: {
+                    schemaVersion: 2,
+                    mode: 'bard',
+                    settings: { targetTokens: 2, maximumTokens: 3, maxEntries: 3, contextMessages: 3 },
+                    metadata,
+                    derivedEntries: [],
+                },
+                chats: [{
+                    localLore: [],
+                    message: [
+                        { role: 'user', data: 'Haania가 보였다.' },
+                        { role: 'char', data: 'Lilia가 쓰러졌다.' },
+                        { role: 'user', data: 'game over' },
+                    ],
+                }],
+                loreSettings: {
+                    tokenBudget: 8_000,
+                    scanDepth: 3,
+                    recursiveScanning: false,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'partial',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.actives).toContainEqual(expect.objectContaining({
+            prompt: 'GAME OVER INSTRUCTIONS',
+            source: 'Game Over',
+            requestStatusKind: 'grimoire',
+        }))
+    })
+
+    it('returns BardWiki character hints for model-visible Grimoire lore', async () => {
+        mockModuleSources.length = 0
+        const source = { ...lore('Haania', '', 'Name: Haania (Hanya)'), id: 'haania' }
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 8_000,
+            characters: [{
+                chaId: 'bard-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: [source],
+                bardLore: {
+                    schemaVersion: 2,
+                    mode: 'bard',
+                    settings: {
+                        targetTokens: 4_000,
+                        maximumTokens: 8_000,
+                        maxEntries: 12,
+                        contextMessages: 3,
+                    },
+                    metadata: [{
+                        sourceLegacyId: 'haania',
+                        sourceHash: fingerprintLegacyLore(
+                            source as Parameters<typeof fingerprintLegacyLore>[0]
+                        ),
+                        kind: 'character',
+                        activation: 'required',
+                        aliases: ['Haania', 'Hania', '하니아', 'Hanya', '수녀'],
+                        tags: [],
+                        summary: '리리아를 헌신적으로 돌보는 보조 수녀',
+                        facets: [],
+                        injection: 'full',
+                        links: [],
+                    }],
+                    derivedEntries: [],
+                },
+                chats: [{
+                    localLore: [],
+                    message: [
+                        { role: 'char', data: '리리아가 숨을 몰아쉰다.' },
+                        { role: 'user', data: '손을 뻗는다.' },
+                    ],
+                }],
+                loreSettings: {
+                    tokenBudget: 8_000,
+                    scanDepth: 3,
+                    recursiveScanning: false,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'partial',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.actives.map((entry) => entry.source)).toContain('Haania')
+        expect(result.bardWikiEntityHints).toEqual([{
+            kind: 'character',
+            names: ['Haania', 'Hania', '하니아', 'Hanya', '수녀'],
+        }])
+    })
+
+    it('returns BardWiki character hints for model-visible legacy character lore', async () => {
+        mockModuleSources.length = 0
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 8_000,
+            characters: [{
+                chaId: 'legacy-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: [{
+                    ...lore('Haania', 'Hania,하니아,Hanya,수녀', 'Name: Haania (Hanya)'),
+                    alwaysActive: true,
+                }],
+                chats: [{
+                    localLore: [],
+                    message: [{ role: 'user', data: '손을 뻗는다.' }],
+                }],
+                loreSettings: {
+                    tokenBudget: 8_000,
+                    scanDepth: 3,
+                    recursiveScanning: false,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'partial',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.bardWikiEntityHints).toEqual([{
+            kind: 'character',
+            names: ['Haania', 'Hania', '하니아', 'Hanya', '수녀'],
+        }])
+    })
+
+    it('tolerates a missing secondary key in model-visible legacy character lore', async () => {
+        mockModuleSources.length = 0
+        const legacyEntry = {
+            ...lore('Official Proper Noun Glossary', 'proper noun,transliteration', 'Glossary body'),
+            alwaysActive: true,
+        }
+        delete (legacyEntry as Partial<typeof legacyEntry>).secondkey
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 8_000,
+            characters: [{
+                chaId: 'legacy-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: [legacyEntry],
+                chats: [{
+                    localLore: [],
+                    message: [{ role: 'user', data: 'continue' }],
+                }],
+                loreSettings: {
+                    tokenBudget: 8_000,
+                    scanDepth: 3,
+                    recursiveScanning: false,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'partial',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.bardWikiEntityHints).toEqual([{
+            kind: 'character',
+            names: ['Official Proper Noun Glossary', 'proper noun', 'transliteration'],
+        }])
+    })
+
+    it('injects a legacy lore body for a multi-word whitespace key', async () => {
+        mockModuleSources.length = 0
+        mockDBState.db = {
+            username: 'user',
+            loreBookDepth: 5,
+            loreBookToken: 8_000,
+            characters: [{
+                chaId: 'game-over-character',
+                name: 'storywriter',
+                chatPage: 0,
+                globalLore: [lore(
+                    '게임 오버',
+                    'game over, gameover',
+                    'GAME OVER INSTRUCTIONS'
+                )],
+                chats: [{
+                    localLore: [],
+                    message: [{ role: 'user', data: 'game over' }],
+                }],
+                loreSettings: {
+                    tokenBudget: 8_000,
+                    scanDepth: 3,
+                    recursiveScanning: false,
+                    maxRecursionSteps: 1,
+                    matchingMode: 'whitespace',
+                },
+            }],
+        }
+
+        const result = await loadLoreBookV3Prompt()
+
+        expect(result.actives).toEqual([
+            expect.objectContaining({
+                source: '게임 오버',
+                prompt: 'GAME OVER INSTRUCTIONS',
+                requestStatusKind: 'lorebook',
+            }),
+        ])
+    })
+
     it('does not activate newly discovered keys during the same sweep', async () => {
         mockModuleSources.length = 0
         mockDBState.db = {

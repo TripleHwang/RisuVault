@@ -21,6 +21,8 @@ describe('request status injection manifest', () => {
         expect(toast).toContain('injectionLabel(item)')
         expect(toast).toContain('item.tokens')
         expect(toast).toContain('injectionManifest.totalTokens')
+        expect(toast).toContain('grimoireRequired:')
+        expect(chatPipeline).toContain('lorebook.requestStatusKind')
     })
 
     test('renders the explicit request purpose instead of only the broad kind', () => {
@@ -63,6 +65,7 @@ describe('request status injection manifest', () => {
 
     test('preserves selected BardWiki and narrative-memory source identities', () => {
         expect(chatPipeline).toContain("kind: source.id.includes(':wiki:') ? 'wiki' : 'memory'")
-        expect(chatPipeline).toContain('name: narrativeSourceDisplayName(source.id)')
+        expect(chatPipeline).toContain('name: narrativeSourceDisplayName(')
+        expect(chatPipeline).toContain('source.displayName')
     })
 })

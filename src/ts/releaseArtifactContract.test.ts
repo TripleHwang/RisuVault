@@ -30,6 +30,26 @@ describe('release artifact contract', () => {
         expect(workflow).toContain('node server/node/server.cjs')
     })
 
+    it('runs every release verification gate before building artifacts', () => {
+        const packageJson = JSON.parse(readFileSync(
+            resolve('package.json'),
+            'utf8',
+        )) as { scripts?: Record<string, string> }
+        const workflow = readFileSync(
+            resolve('.github/workflows/release.yml'),
+            'utf8',
+        )
+
+        expect(packageJson.scripts?.['verify:release']).toBe(
+            'npm run check && npm test && npm run test:compat && npm run build',
+        )
+        expect(workflow).toContain('name: Verify release')
+        expect(workflow).toContain('run: pnpm verify:release')
+        expect(workflow.indexOf('run: pnpm verify:release')).toBeLessThan(
+            workflow.indexOf('name: Upload build artifact'),
+        )
+    })
+
     it('ships runtime source trees in the Docker image', () => {
         const dockerfile = readFileSync(resolve('Dockerfile'), 'utf8')
 

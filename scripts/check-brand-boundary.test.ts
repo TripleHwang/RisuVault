@@ -24,6 +24,11 @@ const legacyTokens = [
             // the exception set is matched by path, not by what exists today.
             'patchnote/0.8.14-arca.txt',
             'patchnote/0.9.3-arca.txt',
+            // 0.9.31 and 0.9.32 describe upstream's backup compatibility with the
+            // project it forked from; the notes are upstream's text, carried in
+            // verbatim like the announcements above.
+            'patchnote/0.9.31.md',
+            'patchnote/0.9.32-arca.txt',
             // Ported GPLv3 source. Its header must name the project it came
             // from and that project's licence; NOTICE.md carries the same
             // attribution.
@@ -52,6 +57,27 @@ function ownedFiles(): string[] {
 }
 
 describe('brand boundary', () => {
+    // Upstream pins its backup-choice guidance to the sibling product a full
+    // backup is meant for. Here the sibling is another RisuVault installation,
+    // so the guidance must name this product and never the legacy ones.
+    test('names this product in backup compatibility guidance', () => {
+        const compatibilityGuides = [
+            'src/lang/en.ts',
+            'src/lang/ko.ts',
+            'src/lang/zh-Hant.ts',
+        ]
+
+        for (const path of compatibilityGuides) {
+            const source = readFileSync(path, 'utf8')
+            const guidance = source.match(/saveBackupForUpstreamConfirm"?:\s*\r?\n?\s*"((?:[^"\\]|\\.)*)"/)
+            expect(guidance, `${path} has no saveBackupForUpstreamConfirm string`).not.toBeNull()
+            expect(guidance![1]).toContain('RisuVault')
+            for (const { value } of legacyTokens) {
+                expect(guidance![1].toLowerCase()).not.toContain(value)
+            }
+        }
+    })
+
     test('owned paths and UTF-8 text contain no legacy brand tokens', () => {
         const violations: string[] = []
 

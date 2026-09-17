@@ -23,15 +23,16 @@ import { isLorebookEntryEnabled } from "./lorebookActivation";
  *
  *     process/index.svelte.ts
  *       ms = makeMs(currentChat)                       // enabled messages
- *       ms = selectNarrativeWorkingMessages(ms, limit) // <- narrativeContext.ts:401
+ *       ms = selectNarrativeWorkingMessages(ms, limit) // <- narrativeContext.ts:619
  *       for (const msg of ms) { ...build `chats`... }  // the only reader of ms
  *
  * `chats` is what `while (currentTokens > maxContextTokens) chats.splice(0,1)`
- * trims and what `hypaMemoryV3` summarises, and it can never hold more than
- * `limit` history messages -- twelve by default. Every message the walk loaded
- * past that was tokenised on every subsequent send and then discarded. A
- * measured 1200-message chat sat at 740 resident, 2.3x `MAX_RESIDENT_MESSAGES`,
- * to build a prompt that used twelve of them.
+ * trims and what `hypaMemoryV3` summarises, and it holds `limit` ASSISTANT
+ * TURNS of history -- twelve by default -- each with the user messages that
+ * led to it, plus the one being sent: 25 messages. Every message the walk
+ * loaded past that was tokenised on every subsequent send and then discarded.
+ * A measured 1200-message chat sat at 740 resident, 2.3x
+ * `MAX_RESIDENT_MESSAGES`, to build a prompt that used 25 of them.
  *
  * So the target is derived from the consumers instead, and the token budget is
  * demoted to a CEILING: the walk still stops if the resident history is worth
@@ -51,12 +52,18 @@ import { isLorebookEntryEnabled } from "./lorebookActivation";
  * WHAT IS IN THE TARGET, AND WHY EACH TERM
  *
  *  - the narrative working set (`risuBardResponseMessageCount`, default 12).
- *    This is the prompt's history. With `risuBardResponseExcludeUserMessages`
- *    the filter drops user messages BEFORE the slice, so `limit` surviving
- *    messages can need up to `2 x limit` raw ones in an alternating history --
- *    hence the doubling.
+ *    This is the prompt's history, and the setting counts ASSISTANT TURNS,
+ *    not messages: `selectNarrativeWorkingMessages` locates the `limit`-th
+ *    newest char message and takes everything from the user messages that
+ *    precede it to the end. In an alternating history that is `2 x limit`
+ *    messages plus the user message the send is about -- see `turnReach` for
+ *    why that is the figure used and what it does not cover.
+ *    `risuBardResponseExcludeUserMessages` no longer
+ *    changes the reach: the user filter runs AFTER the turn selection, so it
+ *    shrinks the working set without moving where it starts.
  *  - the recent-memory projection (`risuBardRecentMessageCount`, default 12),
- *    `memoryAnalysisClient.ts:466`, a `.slice(-limit)` over `chat.message`.
+ *    `memoryAnalysisClient.ts:587`, which routes through the same
+ *    `selectNarrativeWorkingMessages` and so counts turns the same way.
  *  - the lorebook scan (`lorebook.svelte.ts:132`), which slices `scanDepth`
  *    messages off the newest end of the RAW resident array. The effective depth
  *    is the MAXIMUM over every entry that can activate, not one setting: an
@@ -117,12 +124,12 @@ export interface PromptHistoryBound {
    * Messages the prompt can actually SEE that must be resident -- `disabled`
    * ones do not count towards it.
    *
-   * `targetMessages` guesses how many resident slots that takes by doubling and
-   * adding eight, because nothing here may read the messages. The preload can
+   * `targetMessages` guesses how many resident slots that takes by adding a
+   * fixed eight, because nothing here may read the messages. The preload can
    * read them, so it checks this figure against the real thing and keeps paging
-   * if the guess was short. Without it, a chat whose recent history is more
-   * than half disabled builds its prompt from fewer messages than the reader
-   * configured, and nothing downstream says so.
+   * if the guess was short. Without it, a chat whose recent history has any
+   * more than eight of its newest messages disabled builds its prompt from
+   * fewer messages than the reader configured, and nothing downstream says so.
    *
    * `undefined` alongside an `undefined` `targetMessages`: nothing is bounded.
    */
@@ -140,27 +147,90 @@ export interface PromptHistoryBound {
 }
 
 /**
- * First guess at how many resident slots an `enabled` term takes.
+ * Slack added to an `enabled` term to guess how many resident slots it takes.
  *
  * `makeMs` skips `disabled === true` outright, so N messages the prompt can see
  * may sit behind any number of disabled ones, and nothing here may read the
- * messages to find out -- this runs before the first page request. So it
- * guesses: double the requirement and add a fixed eight.
+ * messages to find out -- this runs before the first page request. So the raw
+ * target adds a fixed eight on top of the visible requirement and stops there.
  *
- * A guess is all it is, and a guess alone would be a silent loss. A chat with
- * two of every three recent messages disabled needs THREE resident slots per
- * visible message, and at a raised working set this figure lands short of that
- * -- measured, before `targetEnabledMessages` existed, at 43 visible messages
- * where the reader had asked for 60. So the guess is only the opening bid: the
- * preload counts the visible messages it actually has and keeps paging (to
- * `PROMPT_HISTORY_CEILING_MESSAGES`) if this was optimistic. The doubling is
- * what makes that check cost nothing in the normal case, not what bounds it.
+ * WHY THERE IS NO MULTIPLIER
  *
- * Cheap, too: at defaults the doubled figure is still far under the floor, so
- * the headroom costs nothing at all until the configuration is already heavy.
+ * The raw target used to be `enabled x 2 + 8`. The doubling dates from when
+ * `risuBardResponseMessageCount` was a MESSAGE count: twelve messages of
+ * working set were doubled to 24 on the theory that the user messages around
+ * them had to be resident too, and the eight covered a handful of disabled
+ * ones. The setting now counts ASSISTANT TURNS and `turnReach` already prices
+ * in the user message of every turn plus the one being sent -- 25 messages at
+ * the default twelve -- so a multiplier on top of it was guessing at a cost
+ * the reach already carries. Kept, it turned the default target into 58: one
+ * 18-message page past the 40 a chat opens on, on EVERY chat's first send.
+ * That reversed the measured property this preload was built for and
+ * published on -- a 1200-message chat going from 740 resident in 7 requests to
+ * 40 in 0 -- for the sake of a page the prompt did not read.
+ *
+ * Correctness in a disabled-heavy chat does not rest on this figure. It rests
+ * on `targetEnabledMessages`: the preload's stop rule
+ * (`promptHistoryPreload.ts`, `stillMissing`) requires the visible count to
+ * reach that figure INDEPENDENTLY of the raw target, and keeps paging -- to
+ * `PROMPT_HISTORY_CEILING_MESSAGES` and no further -- until it does. A chat
+ * with two of every three recent messages disabled needs three slots per
+ * visible message; no settings-only multiplier covers that (the old doubling
+ * was measured short at 43 visible where 60 were asked for), and the
+ * enabled-count leg is what closes it whichever raw figure the walk opens on.
+ * The slack, then, is a page-saver and nothing more: at a small visible
+ * shortfall it lets the first page land the walk instead of a second one.
+ *
+ * Measured against the ten equivalence fixtures in `promptHistoryBound.test.ts`
+ * -- bounded and fully resident builds must select the same working set and
+ * activate the same lorebook entries, including the one-in-three and
+ * one-in-five disabled chats -- the `+ 8` figure yields identical prompts to
+ * the `x 2 + 8` one. At defaults it is `25 + 8 = 33`, under the 40 floor: a
+ * default send makes no storage request.
  */
-const DISABLED_HEADROOM_FACTOR = 2;
 const DISABLED_HEADROOM_SLACK = 8;
+
+/**
+ * Messages an assistant turn occupies in the history a turn-limited consumer
+ * reads.
+ *
+ * `selectNarrativeWorkingMessages` (`narrativeContext.ts:619`) walks back to
+ * the `limit`-th newest char message and then keeps walking over the
+ * non-assistant messages before it, so the slice always opens on the user
+ * side of a turn. A chat that alternates user and char -- the shape every
+ * ordinary conversation has -- therefore yields exactly two messages per turn,
+ * and that is the figure the settings-only arithmetic here can stand on.
+ *
+ * It is a shape assumption, stated as one. A turn where the user sent several
+ * messages before the reply came takes more than two slots; a run of
+ * consecutive char messages (continue, regenerate-and-keep) takes fewer. The
+ * raw target carries `DISABLED_HEADROOM_SLACK` on top of this, which in
+ * practice absorbs a few multi-message turns, but the preload's own stop rule
+ * counts ENABLED MESSAGES, not turns, so a recent history dense with
+ * back-to-back user messages is the one shape that can still come up short of
+ * the configured turn count. Before the turn-based limit the same setting was a message
+ * count and this factor did not exist; without it the preload prepared half
+ * the history the prompt went on to read, measured at a working set of 60
+ * turns in a two-thirds-disabled chat as a prompt opening at m1029 where the
+ * fully resident build opened at m0846.
+ */
+const MESSAGES_PER_TURN = 2;
+
+/**
+ * The message a send is about closes no turn. At send time the newest enabled
+ * message is the user's, appended before the prompt is built, and the turn
+ * walk keeps it as well as the `limit` turns behind it: `limit` char messages,
+ * the `limit` user messages that led to them, and this one. Without it the
+ * bound came out exactly one message short of the working set on every send
+ * from a heavily disabled chat -- the oldest turn's user message -- because the
+ * preload's stop rule counts enabled messages and had no slack to give.
+ */
+const PENDING_USER_MESSAGES = 1;
+
+/** Enabled messages a consumer that selects `turns` assistant turns reads. */
+function turnReach(turns: number): number {
+  return turns * MESSAGES_PER_TURN + PENDING_USER_MESSAGES;
+}
 
 /**
  * `projectConfirmedMemoryTurn` walks from the newest active message back to the
@@ -294,15 +364,17 @@ export function resolvePromptHistoryBound(
 ): PromptHistoryBound {
   const settings = resolveRisuBardChatSettings(db, chat?.risuBardSettings);
 
-  const narrativeLimit = normalizeNarrativeWorkingMessageLimit(
+  // Both settings count assistant turns and both consumers select their
+  // history with `selectNarrativeWorkingMessages`, so both reach `turnReach`
+  // messages. The exclude-user settings are deliberately not read: the user
+  // filter is applied to the selected slice, after the turn walk has fixed
+  // where the slice begins.
+  const narrativeReach = turnReach(normalizeNarrativeWorkingMessageLimit(
     settings.risuBardResponseMessageCount,
-  );
-  const narrativeReach = settings.risuBardResponseExcludeUserMessages
-    ? narrativeLimit * 2
-    : narrativeLimit;
-  const recentMemoryReach = normalizeNarrativeWorkingMessageLimit(
+  ));
+  const recentMemoryReach = turnReach(normalizeNarrativeWorkingMessageLimit(
     settings.risuBardRecentMessageCount,
-  );
+  ));
   const lore = deepestLorebookScan(char, chat, db, moduleLorebooks);
 
   const terms: PromptHistoryBoundTerm[] = ([
@@ -323,8 +395,11 @@ export function resolvePromptHistoryBound(
   }
 
   const enabledReach = Math.max(narrativeReach, recentMemoryReach, CONFIRMED_MEMORY_TURN_MESSAGES);
+  // No multiplier: the turn reach already counts each turn's user message, and
+  // the enabled-count stop in the preload is what makes a disabled-heavy chat
+  // whole. See `DISABLED_HEADROOM_SLACK`.
   const rawReach = Math.max(
-    enabledReach * DISABLED_HEADROOM_FACTOR + DISABLED_HEADROOM_SLACK,
+    enabledReach + DISABLED_HEADROOM_SLACK,
     lore.depth,
   );
 

@@ -7,11 +7,10 @@
     import RealmPopUp from './lib/UI/Realm/RealmPopUp.svelte';
     import GridChars from './lib/Others/GridCatalog.svelte';
     import BookmarkList from './lib/Others/BookmarkList.svelte';
-    import Settings from './lib/Setting/Settings.svelte';
     import { showRealmInfoStore, importCharacterProcess } from './ts/characterCards';
-    import { importPreset, getDatabase, setDatabase } from './ts/storage/database.svelte';
+    import { importPreset, getDatabase, setDatabase, nodeOnlyVer } from './ts/storage/database.svelte';
     import { readModule } from './ts/process/modules';
-    import { notifySuccess } from './ts/alert';
+    import { alertClear, alertError, alertWait, notifySuccess } from './ts/alert';
     import { language } from './lang';
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
@@ -37,6 +36,7 @@
     import BootBackupPrompt from './lib/Others/BootBackupPrompt.svelte';
     import PopupList from './lib/UI/PopupList.svelte';
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
+    import LoadingActivity from './lib/Others/LoadingActivity.svelte';
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/GUI/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
@@ -46,6 +46,12 @@
     let aprilFools = $state(new Date().getMonth() === 3 && new Date().getDate() === 1)
     let aprilFoolsPage = $state(0)
     let keepingSessionAlive = $state(false)
+    let settingsComponentPromise: Promise<typeof import('./lib/Setting/Settings.svelte')> | undefined
+
+    function loadSettings() {
+        settingsComponentPromise ??= import('./lib/Setting/Settings.svelte')
+        return settingsComponentPromise
+    }
 
     const getMainDropEffect = (e:DragEvent): DataTransfer['dropEffect'] => {
         const types = Array.from(e.dataTransfer?.types ?? [])
@@ -84,22 +90,43 @@
     e.preventDefault()
     const name = file.name.toLowerCase()
 
-    if (name.endsWith('.risup')) {
-        const data = new Uint8Array(await file.arrayBuffer())
-        await importPreset({ name: file.name, data })
-        notifySuccess(language.successImport)
-    } else if (name.endsWith('.risum')) {
-        const data = new Uint8Array(await file.arrayBuffer())
-        const module = await readModule(Buffer.from(data))
-        const db = getDatabase()
-        db.modules.push(module)
-        notifySuccess(language.successImport)
-    } else {
-        await importCharacterProcess({
-            name: file.name,
-            data: file
-        })
-        checkCharOrder()
+    try {
+        if (name.endsWith('.risup')) {
+            alertWait(language.fileDropImport.presetLoading(file.name))
+            const data = new Uint8Array(await file.arrayBuffer())
+            await importPreset({ name: file.name, data })
+            notifySuccess(language.fileDropImport.presetSuccess, { description: file.name })
+        } else if (name.endsWith('.risum')) {
+            alertWait(language.fileDropImport.moduleLoading(file.name))
+            const data = new Uint8Array(await file.arrayBuffer())
+            const module = await readModule(Buffer.from(data))
+            if (!module) return
+            const db = getDatabase()
+            db.modules.push(module)
+            notifySuccess(language.fileDropImport.moduleSuccess, { description: file.name })
+        } else if (name.endsWith('.js')) {
+            alertWait(language.fileDropImport.pluginLoading(file.name))
+            const source = Buffer.from(await file.arrayBuffer())
+                .toString('utf-8').replace(/^\uFEFF/gm, '')
+            const { importPlugin } = await import('./ts/plugins/plugins.svelte')
+            const imported = await importPlugin(source)
+            // importPlugin reports a refusal as `{ ok: false, reason }`, which is
+            // a truthy object, so only the `ok` flag says whether the plugin was
+            // installed. The refusal has already been shown to the user by the
+            // importer; the success toast must not follow it.
+            if (!imported?.ok) {
+                if ($alertStore.type === 'wait') alertClear()
+                return
+            }
+            notifySuccess(language.fileDropImport.pluginSuccess, { description: file.name })
+        } else {
+            await importCharacterProcess({ name: file.name, data: file })
+            checkCharOrder()
+        }
+    } catch (cause) {
+        console.error(cause)
+        const reason = cause instanceof Error ? cause.message : String(cause)
+        alertError(language.fileDropImport.failed(file.name, reason))
     }
 }} onclick={() => {
     if(keepingSessionAlive){
@@ -195,18 +222,37 @@
         </div>
     {:else if !$loadedStore}
         <div class="w-full h-full flex justify-center items-center text-textcolor text-xl bg-darkbg flex-col">
+            <img
+                data-startup-logo="app"
+                class="mb-2 w-[min(80vw,25rem)] rounded-xl border border-darkborderc object-cover shadow-lg"
+                src="/assets/risubard-startup.webp" fetchpriority="high" decoding="sync"
+                alt="RisuVault"
+                width="500"
+                height="300"
+            />
+            <span
+                data-startup-version
+                class="mb-5 text-sm font-semibold tracking-[0.18em] text-textcolor2"
+            >v{nodeOnlyVer}</span>
             <div class="flex flex-row items-center">
                 <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-textcolor" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>
-                <span>Loading...</span>
+                <span>{language.startupLoading.title}</span>
             </div>
 
-            <span class="text-sm mt-2 text-textcolor2">{LoadingStatusState.text}</span>
+            <span class="text-sm mt-2 text-textcolor2">{LoadingStatusState.text || language.startupLoading.starting}</span>
         </div>
     {:else if $settingsOpen}
-        <Settings />
+        {#await loadSettings()}
+            <div class="w-full h-full flex justify-center items-center text-textcolor bg-darkbg">
+                <span>Loading...</span>
+            </div>
+        {:then settingsModule}
+            {@const Settings = settingsModule.default}
+            <Settings />
+        {/await}
     {:else if $MobileGUI}
         <div class="w-full h-full flex flex-col">
             <MobileHeader />
@@ -217,17 +263,16 @@
         {#if gridOpen}
             <GridChars endGrid={() => {gridOpen = false}} />
         {:else}
-            {#if (!$DynamicGUI)}
-                <Sidebar openGrid={() => {gridOpen = true}} hidden={!$sideBarStore} />
-            {:else}
-                <div class="top-0 w-full h-full left-0 z-30 flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <Sidebar openGrid={() => {gridOpen = true}}  hidden={false} />
-
-
-
-                </div>
-            {/if}
+            <div
+                data-responsive-sidebar-host
+                class="top-0 w-full h-full left-0 z-30 flex flex-row items-center"
+                class:fixed={$DynamicGUI && $sideBarStore}
+                class:hidden={$DynamicGUI && !$sideBarStore}
+                style:display={!$DynamicGUI ? 'contents' : undefined}
+            >
+                <!-- Keep one Sidebar instance mounted across the responsive breakpoint so portal dialogs retain state. -->
+                <Sidebar openGrid={() => {gridOpen = true}} hidden={!$DynamicGUI && !$sideBarStore} />
+            </div>
             <div class="flex h-full min-h-0 min-w-0 grow flex-col overflow-hidden">
                 <ChatScreen />
             </div>
@@ -270,6 +315,7 @@
     {/if}
     <PluginAlertModal />
     <LoadingOverlay />
+    <LoadingActivity />
     <UpdatePopup />
     <BootBackupPrompt />
     {#if popupStore.children}

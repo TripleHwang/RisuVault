@@ -335,7 +335,7 @@ async function prepareGeminiBody(
         }
         if (options.responseSchema) {
             generationConfig.responseMimeType = 'application/json'
-            if (/^gemini-3[.-]7(?:[.-]|$)/i.test(modelId)) {
+            if (/^gemini-3[.-](?:[7-9]|\d{2,})(?:[.-]|$)/i.test(modelId)) {
                 delete generationConfig.responseSchema
                 generationConfig.responseJsonSchema = toGeminiResponseSchema(
                     options.responseSchema,

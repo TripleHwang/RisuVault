@@ -41,6 +41,7 @@
             selected={activeRoute}
             onSelect={onNavigate}
             ariaLabel={language.settingsWorkspace.experienceWorkspace.sectionNavigation}
+            variant="prominent"
         />
 
         <section class="section-detail" aria-labelledby="active-experience-section-title">

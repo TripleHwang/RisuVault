@@ -539,9 +539,12 @@ describe('sendGoogleChatRequest (non-stream)', () => {
         })
     })
 
-    test('uses strict JSON Schema output for Gemini 3.7', async () => {
+    test.each([
+        'gemini-3.7-flash',
+        'gemini-3.8-flash',
+    ])('uses strict JSON Schema output for %s', async (modelId) => {
         const preset = makePreset({
-            userValues: { modelId: 'gemini-3.7-flash' },
+            userValues: { modelId },
         })
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({

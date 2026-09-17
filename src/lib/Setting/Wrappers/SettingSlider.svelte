@@ -72,7 +72,12 @@
     let blockMin = $derived(roundReal((item.options?.min ?? 0) * blockMult));
     let blockMax = $derived(roundReal((item.options?.max ?? 100) * blockMult));
     let blockStep = $derived(roundReal((item.options?.step ?? 1) * blockMult));
-    let blockEnabled = $derived(typeof localValue === 'number' && localValue !== -1000);
+    let blockEnabled = $derived(
+        typeof localValue === 'number'
+        && Number.isFinite(localValue)
+        && localValue >= (item.options?.min ?? 0)
+        && localValue <= (item.options?.max ?? 100)
+    );
 
     function readBlockValue(): number {
         if (!blockEnabled) return blockMin;
@@ -91,16 +96,33 @@
 {#if ctx.layout === 'row'}
     <SettingRowLayout {item}>
         {#snippet control()}
-            <div class="w-48">
-                <ShSlider
-                    min={item.options?.min ?? 0}
-                    max={item.options?.max ?? 100}
-                    step={item.options?.step ?? 1}
-                    format={rowFormat}
-                    inputWidth="w-16"
-                    bind:value={localValue}
-                />
-            </div>
+            {#if item.options?.disableable}
+                <div class="flex items-center gap-2">
+                    <ShSwitch checked={blockEnabled} onCheckedChange={setBlockEnabled} />
+                    {#if blockEnabled}
+                        <div class="w-48">
+                            <ShSlider
+                                min={blockMin}
+                                max={blockMax}
+                                step={blockStep}
+                                inputWidth="w-16"
+                                bind:value={readBlockValue, writeBlockValue}
+                            />
+                        </div>
+                    {/if}
+                </div>
+            {:else}
+                <div class="w-48">
+                    <ShSlider
+                        min={item.options?.min ?? 0}
+                        max={item.options?.max ?? 100}
+                        step={item.options?.step ?? 1}
+                        format={rowFormat}
+                        inputWidth="w-16"
+                        bind:value={localValue}
+                    />
+                </div>
+            {/if}
         {/snippet}
     </SettingRowLayout>
 {:else if ctx.layout === 'block'}

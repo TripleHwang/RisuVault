@@ -134,7 +134,7 @@
                                                 <ShButton {...props} variant="ghost" size="icon-xs"><EllipsisVerticalIcon size={14} /></ShButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
-                                        <ShDropdownMenuContent class="z-[45] min-w-40" align="end">
+                                        <ShDropdownMenuContent class="min-w-40" align="end">
                                             <ShDropdownMenuItem onSelect={async () => {
                                                 const name = DBState.db.togglePresets![index].name
                                                 if (!await alertConfirm((language.togglePresetOverwriteConfirm as any)(name))) return

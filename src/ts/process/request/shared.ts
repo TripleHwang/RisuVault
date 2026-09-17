@@ -16,6 +16,16 @@ export type LLMParameter =
     | 'thinking_tokens'
     | 'verbosity'
 
+export type StoredSamplingParameter =
+    | 'temperature'
+    | 'top_k'
+    | 'repetition_penalty'
+    | 'min_p'
+    | 'top_a'
+    | 'top_p'
+    | 'frequency_penalty'
+    | 'presence_penalty'
+
 export type ModelModeExtended = 'model' | 'submodel' | 'memory' | 'emotion' | 'otherAx' | 'translate'
 
 export function isReasoningCapabilityParameter(parameter: LLMParameter): boolean {
@@ -37,6 +47,47 @@ export function resolveReasoningEffort(effort: number, parameters: readonly LLMP
         case 2: return 'high'
         default: return 'medium'
     }
+}
+
+export function resolveStoredSamplingParameter(
+    parameter: StoredSamplingParameter,
+    value: number | undefined,
+): number | undefined {
+    if (value === undefined || value === -1000 || !Number.isFinite(value)) return undefined
+
+    switch (parameter) {
+        case 'temperature':
+        case 'frequency_penalty':
+        case 'presence_penalty':
+            return resolveApiSamplingParameter(parameter, value / 100)
+        default:
+            return resolveApiSamplingParameter(parameter, value)
+    }
+}
+
+export function resolveApiSamplingParameter(
+    parameter: StoredSamplingParameter,
+    value: number | undefined,
+): number | undefined {
+    if (value === undefined || !Number.isFinite(value)) return undefined
+
+    switch (parameter) {
+        case 'temperature':
+        case 'frequency_penalty':
+        case 'presence_penalty':
+        case 'repetition_penalty':
+            return value >= 0 && value <= 2 ? value : undefined
+        case 'top_k':
+            return Number.isInteger(value) && value >= 0 && value <= 100 ? value : undefined
+        case 'min_p':
+        case 'top_a':
+        case 'top_p':
+            return value >= 0 && value <= 1 ? value : undefined
+    }
+}
+
+export function resolveStoredTemperature(value: number | undefined): number | undefined {
+    return resolveStoredSamplingParameter('temperature', value)
 }
 
 export function setObjectValue<T>(obj: T, key: string, value: any): T {
@@ -180,9 +231,26 @@ export function applyParameters(
     arg: {
         ignoreTopKIfZero?: boolean
         modelId:string
+        temperatureOverride?: number
     },
 ): Record<string, any> {
     const db = getDatabase()
+
+    function applyRequestOverrides() {
+        if (
+            parameters.includes('temperature')
+            && arg.temperatureOverride !== undefined
+            && Number.isFinite(arg.temperatureOverride)
+            && arg.temperatureOverride >= 0
+        ) {
+            data = setObjectValue(
+                data,
+                rename.temperature ?? 'temperature',
+                arg.temperatureOverride,
+            )
+        }
+        return data
+    }
 
     function getVerbosity(verbosity: number) {
         switch (verbosity) {
@@ -215,7 +283,7 @@ export function applyParameters(
         }
 
         for (const parameter of parameters) {
-            let value: number | string = 0
+            let value: number | string | undefined = 0
             if (parameter !== 'reasoning_effort' && isReasoningCapabilityParameter(parameter)) continue
             if (parameter === 'top_k' && arg.ignoreTopKIfZero && sepParams[parameter] === 0) {
                 continue
@@ -223,30 +291,27 @@ export function applyParameters(
 
             switch (parameter) {
                 case 'temperature': {
-                    value =
-                        sepParams.temperature === -1000
-                            ? -1000
-                            : sepParams.temperature / 100
+                    value = resolveStoredTemperature(sepParams.temperature)
                     break
                 }
                 case 'top_k': {
-                    value = sepParams.top_k
+                    value = resolveStoredSamplingParameter('top_k', sepParams.top_k)
                     break
                 }
                 case 'repetition_penalty': {
-                    value = sepParams.repetition_penalty
+                    value = resolveStoredSamplingParameter('repetition_penalty', sepParams.repetition_penalty)
                     break
                 }
                 case 'min_p': {
-                    value = sepParams.min_p
+                    value = resolveStoredSamplingParameter('min_p', sepParams.min_p)
                     break
                 }
                 case 'top_a': {
-                    value = sepParams.top_a
+                    value = resolveStoredSamplingParameter('top_a', sepParams.top_a)
                     break
                 }
                 case 'top_p': {
-                    value = sepParams.top_p
+                    value = resolveStoredSamplingParameter('top_p', sepParams.top_p)
                     break
                 }
                 case 'thinking_tokens': {
@@ -254,17 +319,11 @@ export function applyParameters(
                     break
                 }
                 case 'frequency_penalty': {
-                    value =
-                        sepParams.frequency_penalty === -1000
-                            ? -1000
-                            : sepParams.frequency_penalty / 100
+                    value = resolveStoredSamplingParameter('frequency_penalty', sepParams.frequency_penalty)
                     break
                 }
                 case 'presence_penalty': {
-                    value =
-                        sepParams.presence_penalty === -1000
-                            ? -1000
-                            : sepParams.presence_penalty / 100
+                    value = resolveStoredSamplingParameter('presence_penalty', sepParams.presence_penalty)
                     break
                 }
                 case 'reasoning_effort': {
@@ -288,38 +347,38 @@ export function applyParameters(
 
             data = setObjectValue(data, rename[parameter] ?? parameter, value)
         }
-        return data
+        return applyRequestOverrides()
     }
 
     for (const parameter of parameters) {
-        let value: number | string = 0
+        let value: number | string | undefined = 0
         if (parameter !== 'reasoning_effort' && isReasoningCapabilityParameter(parameter)) continue
         if (parameter === 'top_k' && arg.ignoreTopKIfZero && db.top_k === 0) {
             continue
         }
         switch (parameter) {
             case 'temperature': {
-                value = db.temperature === -1000 ? -1000 : db.temperature / 100
+                value = resolveStoredTemperature(db.temperature)
                 break
             }
             case 'top_k': {
-                value = db.top_k
+                value = resolveStoredSamplingParameter('top_k', db.top_k)
                 break
             }
             case 'repetition_penalty': {
-                value = db.repetition_penalty
+                value = resolveStoredSamplingParameter('repetition_penalty', db.repetition_penalty)
                 break
             }
             case 'min_p': {
-                value = db.min_p
+                value = resolveStoredSamplingParameter('min_p', db.min_p)
                 break
             }
             case 'top_a': {
-                value = db.top_a
+                value = resolveStoredSamplingParameter('top_a', db.top_a)
                 break
             }
             case 'top_p': {
-                value = db.top_p
+                value = resolveStoredSamplingParameter('top_p', db.top_p)
                 break
             }
             case 'reasoning_effort': {
@@ -331,11 +390,11 @@ export function applyParameters(
                 break
             }
             case 'frequency_penalty': {
-                value = db.frequencyPenalty === -1000 ? -1000 : db.frequencyPenalty / 100
+                value = resolveStoredSamplingParameter('frequency_penalty', db.frequencyPenalty)
                 break
             }
             case 'presence_penalty': {
-                value = db.PresensePenalty === -1000 ? -1000 : db.PresensePenalty / 100
+                value = resolveStoredSamplingParameter('presence_penalty', db.PresensePenalty)
                 break
             }
             case 'thinking_tokens': {
@@ -344,11 +403,16 @@ export function applyParameters(
             }
         }
 
-        if (value === -1000) {
+        if (
+            value === -1000 ||
+            value === undefined ||
+            value === null ||
+            (typeof value === 'number' && isNaN(value))
+        ) {
             continue
         }
 
         data = setObjectValue(data, rename[parameter] ?? parameter, value)
     }
-    return data
+    return applyRequestOverrides()
 }

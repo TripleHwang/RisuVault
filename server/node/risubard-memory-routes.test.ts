@@ -41,6 +41,31 @@ function createHarness() {
 }
 
 describe('RisuBard memory routes', () => {
+    test('routes BARDCHAT undo lifecycle calls through the authenticated service', async () => {
+        const service = {
+            beginBardChatUndo: vi.fn(async () => ({ started: true })),
+            finalizeBardChatUndo: vi.fn(async () => ({ available: true })),
+            getBardChatUndoStatus: vi.fn(async () => ({ available: true })),
+            restoreBardChatUndo: vi.fn(async () => ({ restored: true })),
+        }
+        const { registerRisuBardMemoryRoutes } = require('./risubard-memory-routes.cjs')
+        const harness = createHarness()
+        registerRisuBardMemoryRoutes(harness.app, { auth: async () => true, service })
+        const body = { characterId: 'character', chatId: 'chat' }
+
+        for (const [path, method] of [
+            ['begin', 'beginBardChatUndo'],
+            ['finalize', 'finalizeBardChatUndo'],
+            ['status', 'getBardChatUndoStatus'],
+            ['restore', 'restoreBardChatUndo'],
+        ] as const) {
+            await harness.routes.get(`/api/risubard/memory/wiki/bardchat-undo/${path}`)!(
+                { body }, harness.response, vi.fn()
+            )
+            expect(service[method]).toHaveBeenCalledWith(body)
+        }
+    })
+
     test.each([
         { route: 'inquiry', method: 'inquireNarrative', extra: {
             currentInput: '현재 사건', tokenBudget: { target: 50_000, maximum: 99_999 },
@@ -50,10 +75,10 @@ describe('RisuBard memory routes', () => {
             markdown: '# 사건\n\n새 사건.',
         } },
         { route: 'wiki/save', method: 'saveMarkdownWikiTurn', extra: {
-            sourceMessageIds: ['turn-en'], markdown: '## Arrival\n\n### Story Summary\n\n- Alice arrived.', writingLanguage: 'en',
+            sourceMessageIds: ['turn-ja'], markdown: '## 到着\n\n### 物語の要約\n\n- アリスが到着した。', writingLanguage: 'ja',
         } },
         { route: 'wiki/document/save', method: 'saveCanonicalWikiDocument', extra: {
-            sourceMessageIds: ['turn-en'], type: 'character', title: 'Alice', markdown: '## Alice\n\nA traveler.', writingLanguage: 'en',
+            sourceMessageIds: ['turn-zh'], type: 'character', title: '爱丽丝', markdown: '## 爱丽丝\n\n旅行者。', writingLanguage: 'zh-Hans',
         } },
         { route: 'wiki/document/save', method: 'saveCanonicalWikiDocument', extra: {
             sourceMessageIds: Array.from({ length: 13 }, (_, index) => `message-${index}`),
@@ -525,10 +550,14 @@ describe('RisuBard memory routes', () => {
                     characterId: 'character',
                     chatId: 'chat',
                     currentInput: 'bridge',
-                    tokenBudget: { target: 1_500, maximum: 4_500 },
+                    tokenBudget: { target: 1_500, events: 2_000, perSource: 700, maximum: 4_500 },
                     semanticMatches: [{
                         documentId: 'event-bridge',
                         score: 0.91,
+                    }],
+                    entityHints: [{
+                        kind: 'character',
+                        names: ['Haania', 'Hania', '하니아', 'Hanya'],
                     }],
                     sourceMatches: [{
                         messageId: 'message-5',
@@ -547,10 +576,14 @@ describe('RisuBard memory routes', () => {
             characterId: 'character',
             chatId: 'chat',
             currentInput: 'bridge',
-            tokenBudget: { target: 1_500, maximum: 4_500 },
+            tokenBudget: { target: 1_500, events: 2_000, perSource: 700, maximum: 4_500 },
             semanticMatches: [{
                 documentId: 'event-bridge',
                 score: 0.91,
+            }],
+            entityHints: [{
+                kind: 'character',
+                names: ['Haania', 'Hania', '하니아', 'Hanya'],
             }],
             sourceMatches: [{
                 messageId: 'message-5',
@@ -568,6 +601,37 @@ describe('RisuBard memory routes', () => {
                     characterId: 'character',
                     chatId: 'chat',
                     currentInput: 'bridge',
+                    fallbackInput: 'recent bridge context',
+                    sourceLimit: 8,
+                    sourceMatches: Array.from({ length: 32 }, (_, index) => ({
+                        messageId: `bounded-${index}`,
+                        role: 'assistant',
+                        content: '가'.repeat(1_200),
+                        score: 1,
+                        occurredAt: index,
+                    })),
+                },
+            },
+            harness.response,
+            vi.fn()
+        )
+        expect(harness.response.statusCode).toBe(200)
+        expect(service.inquireNarrative).toHaveBeenCalledTimes(2)
+        expect(service.inquireNarrative).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                fallbackInput: 'recent bridge context',
+            })
+        )
+
+        await harness.routes.get('/api/risubard/memory/inquiry')!(
+            {
+                body: {
+                    characterId: 'character',
+                    chatId: 'chat',
+                    currentInput: 'bridge',
+                    fallbackInput: 'recent bridge context',
+                    sourceLimit: 8,
                     semanticMatches: Array.from({ length: 33 }, (_, index) => ({
                         documentId: `event-${index}`,
                         score: 0.9,
@@ -578,7 +642,7 @@ describe('RisuBard memory routes', () => {
             vi.fn()
         )
         expect(harness.response.statusCode).toBe(400)
-        expect(service.inquireNarrative).toHaveBeenCalledTimes(1)
+        expect(service.inquireNarrative).toHaveBeenCalledTimes(2)
 
         await harness.routes.get('/api/risubard/memory/inquiry')!(
             {
@@ -586,7 +650,7 @@ describe('RisuBard memory routes', () => {
                     characterId: 'character',
                     chatId: 'chat',
                     currentInput: 'bridge',
-                    sourceMatches: Array.from({ length: 9 }, (_, index) => ({
+                    sourceMatches: Array.from({ length: 33 }, (_, index) => ({
                         messageId: `message-${index}`,
                         role: 'assistant',
                         content: 'bounded source',
@@ -599,7 +663,25 @@ describe('RisuBard memory routes', () => {
             vi.fn()
         )
         expect(harness.response.statusCode).toBe(400)
-        expect(service.inquireNarrative).toHaveBeenCalledTimes(1)
+        expect(service.inquireNarrative).toHaveBeenCalledTimes(2)
+
+        await harness.routes.get('/api/risubard/memory/inquiry')!(
+            {
+                body: {
+                    characterId: 'character',
+                    chatId: 'chat',
+                    currentInput: 'bridge',
+                    entityHints: Array.from({ length: 13 }, () => ({
+                        kind: 'character',
+                        names: ['Haania'],
+                    })),
+                },
+            },
+            harness.response,
+            vi.fn()
+        )
+        expect(harness.response.statusCode).toBe(400)
+        expect(service.inquireNarrative).toHaveBeenCalledTimes(2)
 
         await harness.routes.get('/api/risubard/memory/inquiry')!(
             {
@@ -608,6 +690,19 @@ describe('RisuBard memory routes', () => {
                     chatId: 'chat',
                     currentInput: 'bridge',
                     consumer: 'editor',
+                },
+            },
+            harness.response,
+            vi.fn()
+        )
+        expect(harness.response.statusCode).toBe(400)
+
+        await harness.routes.get('/api/risubard/memory/inquiry')!(
+            {
+                body: {
+                    characterId: 'character', chatId: 'chat',
+                    currentInput: 'bridge',
+                    tokenBudget: { target: 1_000, events: 3_000, maximum: 2_000 },
                 },
             },
             harness.response,

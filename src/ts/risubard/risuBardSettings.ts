@@ -1,4 +1,9 @@
-import { buildWikiWritingLanguageGuard, normalizeWikiWritingLanguage, type WikiWritingLanguage } from './wikiWritingLanguage'
+import {
+    buildWikiWritingLanguageGuard,
+    normalizeWikiWritingLanguage,
+    wikiWritingHeadings,
+    type WikiWritingLanguage,
+} from './wikiWritingLanguage'
 
 export const RISUBARD_ANALYSIS_TOKEN_LIMIT_DEFAULT = 8_192
 export const RISUBARD_ADDITIONAL_SEARCH_LIMIT_DEFAULT = 1
@@ -13,7 +18,11 @@ export const RISUBARD_CANONICAL_TARGET_LIMIT_DEFAULT = 8
 export const RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT = 3
 export const RISUBARD_CANONICAL_CONCURRENCY_LIMIT_MAXIMUM = 8
 export const RISUBARD_INQUIRY_TARGET_TOKEN_BUDGET_DEFAULT = 2_000
+export const RISUBARD_INQUIRY_EVENT_TOKEN_BUDGET_DEFAULT = 2_000
+export const RISUBARD_INQUIRY_SOURCE_TOKEN_BUDGET_DEFAULT = 2_000
 export const RISUBARD_INQUIRY_MAXIMUM_TOKEN_BUDGET_DEFAULT = 6_000
+export const RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT = 10_000
+export const RISUBARD_HISTORICAL_SOURCE_MATCH_LIMIT_DEFAULT = 8
 export const RISUBARD_CANONICAL_WRITING_STYLE_DEFAULT = 'concise' as const
 export const RISUBARD_CANONICAL_CUSTOM_STYLE_MAX_LENGTH = 1_000
 
@@ -25,9 +34,15 @@ export type RisuBardCanonicalWritingStyle =
 
 export interface RisuBardChatSettings {
     risuBardModelMode?: 'memory' | 'model'
+    risuBardBardChanEnabled?: boolean
+    risuBardBardChanModelMode?: 'memory' | 'model'
     showRequestStatus?: boolean
     risuBardInquiryTargetTokenBudget?: number
+    risuBardInquiryEventTokenBudget?: number
+    risuBardInquirySourceTokenBudget?: number
     risuBardInquiryMaximumTokenBudget?: number
+    risuBardInquiryTimeoutMs?: number
+    risuBardHistoricalSourceMatchLimit?: number
     risuBardAnalysisTokenLimit?: number
     risuBardAdditionalSearchLimit?: number
     risuBardCanonicalTargetLimit?: number
@@ -35,6 +50,7 @@ export interface RisuBardChatSettings {
     risuBardRecentMessageCount?: number
     risuBardResponseMessageCount?: number
     risuBardResponseExcludeUserMessages?: boolean
+    risuBardAnalysisExcludeUserMessages?: boolean
     risuBardCanonicalWritingStyle?: RisuBardCanonicalWritingStyle
     risuBardCanonicalCustomStyle?: string
     risuBardWikiWritingLanguage?: WikiWritingLanguage
@@ -49,9 +65,15 @@ export interface RisuBardChatSettings {
 
 export interface ResolvedRisuBardChatSettings {
     risuBardModelMode: 'memory' | 'model'
+    risuBardBardChanEnabled: boolean
+    risuBardBardChanModelMode: 'memory' | 'model'
     showRequestStatus: boolean
     risuBardInquiryTargetTokenBudget: number
+    risuBardInquiryEventTokenBudget: number
+    risuBardInquirySourceTokenBudget: number
     risuBardInquiryMaximumTokenBudget: number
+    risuBardInquiryTimeoutMs: number
+    risuBardHistoricalSourceMatchLimit: number
     risuBardAnalysisTokenLimit: number
     risuBardAdditionalSearchLimit: number
     risuBardCanonicalTargetLimit: number
@@ -59,6 +81,7 @@ export interface ResolvedRisuBardChatSettings {
     risuBardRecentMessageCount: number
     risuBardResponseMessageCount: number
     risuBardResponseExcludeUserMessages: boolean
+    risuBardAnalysisExcludeUserMessages: boolean
     risuBardCanonicalWritingStyle: RisuBardCanonicalWritingStyle
     risuBardCanonicalCustomStyle: string
     risuBardWikiWritingLanguage: WikiWritingLanguage
@@ -92,12 +115,26 @@ export function resolveRisuBardChatSettings(
     const inquiry = normalizeRisuBardInquiryTokenBudget(
         value('risuBardInquiryTargetTokenBudget'),
         value('risuBardInquiryMaximumTokenBudget'),
+        value('risuBardInquiryEventTokenBudget'),
+        value('risuBardInquirySourceTokenBudget'),
     )
     return {
         risuBardModelMode: value('risuBardModelMode') === 'model' ? 'model' : 'memory',
+        risuBardBardChanEnabled: value('risuBardBardChanEnabled') === true,
+        risuBardBardChanModelMode:
+            value('risuBardBardChanModelMode') === 'model' ? 'model' : 'memory',
         showRequestStatus: value('showRequestStatus') !== false,
         risuBardInquiryTargetTokenBudget: inquiry.target,
+        risuBardInquiryEventTokenBudget: inquiry.events,
+        risuBardInquirySourceTokenBudget: inquiry.perSource,
         risuBardInquiryMaximumTokenBudget: inquiry.maximum,
+        risuBardInquiryTimeoutMs: normalizeRisuBardInquiryTimeoutMs(
+            value('risuBardInquiryTimeoutMs')
+        ),
+        risuBardHistoricalSourceMatchLimit:
+            normalizeRisuBardHistoricalSourceMatchLimit(
+                value('risuBardHistoricalSourceMatchLimit')
+            ),
         risuBardAnalysisTokenLimit: normalizeRisuBardAnalysisTokenLimit(
             value('risuBardAnalysisTokenLimit')
         ),
@@ -119,6 +156,8 @@ export function resolveRisuBardChatSettings(
         ),
         risuBardResponseExcludeUserMessages:
             value('risuBardResponseExcludeUserMessages') === true,
+        risuBardAnalysisExcludeUserMessages:
+            value('risuBardAnalysisExcludeUserMessages') === true,
         risuBardCanonicalWritingStyle: normalizeRisuBardCanonicalWritingStyle(
             value('risuBardCanonicalWritingStyle')
         ),
@@ -175,10 +214,23 @@ export function normalizeRisuBardCanonicalConcurrencyLimit(
     )
 }
 
+export function normalizeRisuBardHistoricalSourceMatchLimit(
+    value: unknown
+): number {
+    return boundedInteger(
+        value,
+        RISUBARD_HISTORICAL_SOURCE_MATCH_LIMIT_DEFAULT,
+        0,
+        32
+    )
+}
+
 export function normalizeRisuBardInquiryTokenBudget(
     target: unknown,
-    maximum: unknown
-): { target: number; maximum: number } {
+    maximum: unknown,
+    events?: unknown,
+    perSource?: unknown,
+): { target: number; events: number; perSource: number; maximum: number } {
     const normalizedMaximum = boundedInteger(
         maximum,
         RISUBARD_INQUIRY_MAXIMUM_TOKEN_BUDGET_DEFAULT,
@@ -190,6 +242,18 @@ export function normalizeRisuBardInquiryTokenBudget(
             RISUBARD_INQUIRY_TARGET_TOKEN_BUDGET_DEFAULT,
             256,
             normalizedMaximum
+        ),
+        events: boundedInteger(
+            events,
+            RISUBARD_INQUIRY_EVENT_TOKEN_BUDGET_DEFAULT,
+            256,
+            normalizedMaximum,
+        ),
+        perSource: boundedInteger(
+            perSource,
+            RISUBARD_INQUIRY_SOURCE_TOKEN_BUDGET_DEFAULT,
+            256,
+            normalizedMaximum,
         ),
         maximum: normalizedMaximum,
     }
@@ -212,34 +276,28 @@ export function normalizeRisuBardCanonicalCustomStyle(value: unknown): string {
         : ''
 }
 
-const CONCISE_CANONICAL_STYLE = [
-    '장식적 설명과 기존 사실의 반복을 제거한다.',
-    '사실 하나당 한 문장을 사용한다.',
-    '주체, 대상, 부정, 시간과 인물별 지식 경계는 생략하지 않는다.',
-    '임의의 약어를 만들지 않는다.',
-].join(' ')
-
 function resolveRisuBardWritingStyleInstruction(
     style: unknown,
     customStyle: unknown,
-    language: WikiWritingLanguage = 'ko'
 ): string {
     const normalizedStyle = normalizeRisuBardCanonicalWritingStyle(style)
     const normalizedCustom = normalizeRisuBardCanonicalCustomStyle(customStyle)
-    if (language === 'en') {
-        if (normalizedStyle === 'custom' && normalizedCustom) return `User style preference: ${normalizedCustom}`
-        if (normalizedStyle === 'standard') return 'Use natural, complete short sentences without unnecessary embellishment or repetition.'
-        if (normalizedStyle === 'ultra-concise') return 'Use telegraphic sentences and stable field labels, one atomic fact per line. Explicitly preserve subjects, objects, negation, time and character knowledge boundaries. Do not invent abbreviations.'
-        return 'Remove decorative prose and repeated facts. Use one sentence per fact. Preserve subjects, objects, negation, time and character knowledge boundaries. Do not invent abbreviations.'
-    }
-    const styleInstruction = normalizedStyle === 'standard'
-        ? '자연스럽고 완결된 짧은 문장을 사용하되 불필요한 수식과 반복을 피한다.'
+    return normalizedStyle === 'standard'
+        ? 'Use natural, complete short sentences without unnecessary embellishment or repetition.'
         : normalizedStyle === 'ultra-concise'
-            ? '전보체에 가까운 짧은 문장과 안정된 필드 표현을 사용한다. 원자적 사실 하나당 한 줄을 사용하고 주체, 대상, 부정, 시간과 인물별 지식 경계는 반드시 명시한다. 임의의 약어를 만들지 않는다.'
+            ? 'Use telegraphic sentences and stable field labels, one atomic fact per line. Explicitly preserve subjects, objects, negation, time and character knowledge boundaries. Do not invent abbreviations.'
             : normalizedStyle === 'custom' && normalizedCustom.length > 0
-                ? `사용자 문체 선호: ${normalizedCustom}`
-                : CONCISE_CANONICAL_STYLE
-    return styleInstruction
+                ? `User style preference: ${normalizedCustom}`
+                : 'Remove decorative prose and repeated facts. Use one sentence per fact. Preserve subjects, objects, negation, time and character knowledge boundaries. Do not invent abbreviations.'
+}
+
+export function normalizeRisuBardInquiryTimeoutMs(value: unknown): number {
+    return boundedInteger(
+        value,
+        RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT,
+        1,
+        10_000,
+    )
 }
 
 export function buildRisuBardEventWritingPolicy(
@@ -247,21 +305,12 @@ export function buildRisuBardEventWritingPolicy(
     customStyle: unknown,
     language: WikiWritingLanguage = 'ko'
 ): string {
-    if (language === 'en') return [
+    return [
         '## Canonical writing policy',
-        resolveRisuBardWritingStyleInstruction(style, customStyle, language),
+        resolveRisuBardWritingStyleInstruction(style, customStyle),
         'When compressing, do not invent action targets or locations, turn temporal order into causation, or cross character knowledge boundaries at the time of an event.',
         'Preserve observed puzzle elements, order, spatial layout, pairings, blanks, mechanism positions and attempt outcomes. Separate observations from inferred rules or solutions; retain unresolved clues as open continuity.',
         'Style affects expression only; it cannot change fact selection, evidence, structure or safety rules.',
-        buildWikiWritingLanguageGuard(language),
-    ].join('\n')
-    return [
-        '## 정본 집필 정책',
-        '사건 이야기 요약과 정본 Markdown 본문은 한국어로 작성한다.',
-        resolveRisuBardWritingStyleInstruction(style, customStyle),
-        '압축할 때도 원문에 없는 행동 대상이나 장소를 보충하지 않는다. 시간적 선후를 인과로 바꾸지 않는다. 사건 당시 인물별 지식 경계를 유지한다.',
-        '퍼즐, 암호, 의식, 조합 장치나 규칙 기반 단서는 관찰된 요소, 순서, 공간 배치, 짝, 빈칸, 장치 위치와 시도 결과를 보존한다. 확정 관찰과 추론한 규칙·정답을 분리하고 미해결 부분은 연속성으로 남긴다.',
-        '이 문체 정책은 표현 형식에만 적용하며 사실 선택, 근거, 구조 및 안전 규칙을 변경하지 않는다.',
         buildWikiWritingLanguageGuard(language),
     ].join('\n')
 }
@@ -271,21 +320,20 @@ export function buildRisuBardCanonicalWritingPolicy(
     customStyle: unknown,
     language: WikiWritingLanguage = 'ko'
 ): string {
-    if (language === 'en') return [
-        buildRisuBardEventWritingPolicy(style, customStyle, language),
-        'Every character document must summarize verified current facts in a self-contained `### Current State` section near the top.',
-        'Every character document must include a `### Story History` section with at most 16 chronological bullets for causally necessary turning points.',
-        'Merge older consecutive turning points into larger causal units when necessary; do not accumulate a turn-by-turn action log.',
-        'Link corresponding event documents with exact [[event document titles]]. Preserve unrelated established facts.',
-        'When new facts replace old ones, do not present both states as current. Keep detailed history in event documents instead of duplicating it in character canon.',
-    ].join('\n')
+    const normalizedLanguage = normalizeWikiWritingLanguage(language)
+    const headings = wikiWritingHeadings[normalizedLanguage]
     return [
         buildRisuBardEventWritingPolicy(style, customStyle, language),
-        '모든 캐릭터 정본은 문서 상단의 `### 현재 상태` 절에 확인된 현재 사실을 자족적으로 요약한다.',
-        '모든 캐릭터 정본에는 `### 작중 행적` 절을 두고, 인과에 필요한 전환점만 시간순으로 최대 16개 글머리표에 압축한다.',
-        '새 전환점으로 16개를 넘으면 오래된 연속 전환점을 더 큰 인과 단위로 합치며 턴별 행동 기록을 누적하지 않는다.',
-        '대응하는 사건 문서가 있으면 행적 글머리표에 `[[사건 문서 제목]]` 링크를 사용한다.',
-        '새 사실이 기존 사실을 대체하면 이전 상태를 현재 사실처럼 병기하지 않는다.',
-        '상세 과거 행적은 사건 문서에 근거로 남기고 캐릭터 정본에 중복 복사하지 않는다.',
+        'Treat each character document as a dynamic lorebook entry: keep durable identity, role, traits, capabilities and rules, relationships, knowledge boundaries, goals, possessions, constraints, and open continuity that help the character operate in the next scene.',
+        `A compact self-contained \`### ${headings.currentState}\` snapshot near the top is recommended when useful, but no exact heading is required and its absence is valid.`,
+        `An optional \`### ${headings.history}\` or turning-point map should contain about 3-6 major irreversible or causally useful transitions, not a turn-by-turn action log.`,
+        'Link exact [[event document titles]] from turning points. For every event link, copy its complete title character-for-character from confirmedEvent, storyArcEvents, or another supplied event document; never paraphrase, shorten, translate, inflect, reconstruct, or invent the target text inside [[...]].',
+        'If surrounding prose needs different wording, preserve the exact target with [[exact title|display text]]. Retrieve exact chronology, actions, targets, locations, and evidence from event documents rather than copying those details into character canon.',
+        'Do not update a character document merely because the character participated in an event. Update it only for a durable lorebook fact or a major transition.',
+        'Events own exact historical observations and actions. Other canon owns durable current state and rules; do not copy event sentences or paragraphs into it.',
+        'Register recurring species, creatures, and monster kinds as creature canon. Split a variant only for durable distinct rules, not an individual encounter or cosmetic difference.',
+        'Give a named sublocation its own location canon when it has independent persistent state, structure, people, secrets, or repeated scene use; keep only a short link summary in its parent.',
+        'Do not create canon for every clue. Keep one compact investigation thread in other canon only when clues cross events or remain unresolved and affect future decisions.',
+        'When new facts replace old ones, do not present both states as current. Preserve unrelated established facts.',
     ].join('\n')
 }

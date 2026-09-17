@@ -15,13 +15,13 @@ export interface CanonicalAuditDocument {
 export interface UnresolvedCanonicalCandidate {
     eventId: string
     type: 'character' | 'location' | 'scene' | 'faction' | 'item'
-        | 'concept' | 'other'
+        | 'creature' | 'concept' | 'other'
     title: string
     reason: string
     conflict: boolean
 }
 
-const candidatePattern = /^- (character|location|scene|faction|item|concept|other) \[\[([^\]]+)\]\]: (.+)$/gm
+const candidatePattern = /^- (character|location|scene|faction|creature|item|concept|other) \[\[([^\]]+)\]\]: (.+)$/gm
 
 function eventCandidates(document: CanonicalAuditDocument) {
     const heading = document.content.indexOf('## 정본 갱신 후보')

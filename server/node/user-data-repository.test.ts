@@ -47,7 +47,14 @@ describe('canonical entity tree', () => {
     it('imports the legacy projection into stable-ID JSON and chat JSONL files', () => {
         const dataRoot = root()
         const repository = createUserDataRepository({ dataRoot })
-        repository.importLegacyDatabase(legacyDatabase(), { mode: 'merge' })
+        const result = repository.importLegacyDatabase(legacyDatabase(), { mode: 'merge' })
+
+        expect(result.transaction).toMatchObject({
+            committed: result.files,
+            published: result.files,
+            skipped: 0,
+        })
+        expect(result.transaction.stagedBytes).toBeGreaterThan(0)
 
         expect(JSON.parse(fs.readFileSync(path.join(dataRoot, 'settings', 'app.json'), 'utf8')).openAIKey).toBeUndefined()
         expect(JSON.parse(fs.readFileSync(path.join(dataRoot, 'secrets', 'credentials.json'), 'utf8')).openAIKey).toBe('secret-key')
@@ -112,6 +119,48 @@ describe('canonical entity tree', () => {
         expect(exported.openAIKey).toBe('secret-key')
         expect(exported.characters[0].description).toBe('loaded only on demand')
         expect(exported.characters[0].chats[0].message[1].data).toBe('world')
+    })
+
+    it('round-trips empty objects, an empty chat id, and an absent message field', () => {
+        const dataRoot = root()
+        const repository = createUserDataRepository({ dataRoot })
+        const database: any = legacyDatabase()
+        database.collectionOrganizers = {
+            promptPresets: { folderByItemId: {} },
+            plugins: { folderByItemId: {} },
+        }
+        database.personaEnabledModules = {}
+        database.seperateParameters = {
+            first: {}, second: {}, third: {}, fourth: {}, fifth: {},
+        }
+        database.moduleModelBindings = {}
+        database.characters[0].chats[0].id = ''
+        delete database.characters[0].chats[0].message
+
+        repository.importLegacyDatabase(database, { mode: 'sync' })
+
+        expect(repository.loadSidebarIndex().characters[0].chats[0].id).toMatch(/^chat-/)
+        expect(repository.exportLegacyDatabase()).toStrictEqual(database)
+    })
+
+    it('syncs one legacy collection without rewriting unrelated canonical data', () => {
+        const dataRoot = root()
+        const repository = createUserDataRepository({ dataRoot })
+        const database: any = legacyDatabase()
+        repository.importLegacyDatabase(database, { mode: 'sync' })
+
+        const result = repository.syncLegacyCollection('botPresets', [
+            { id: 'preset-2', name: 'Second preset', temperature: 0.4 },
+        ])
+        const exported = repository.exportLegacyDatabase()
+
+        expect(result.files).toBe(2)
+        expect(exported.botPresets).toEqual([{ id: 'preset-2', name: 'Second preset', temperature: 0.4 }])
+        expect(exported.modules).toEqual(database.modules)
+        expect(exported.personas).toEqual(database.personas)
+        expect(exported.characters).toEqual(database.characters)
+        expect(fs.existsSync(path.join(dataRoot, 'presets', 'preset-1.json'))).toBe(false)
+        expect(fs.readdirSync(path.join(dataRoot, 'trash')).length).toBeGreaterThan(0)
     })
 
     it('fsyncs a user message before request state and recovers an assistant draft', () => {

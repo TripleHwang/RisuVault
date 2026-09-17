@@ -7,12 +7,74 @@ import {
     normalizeFetchError,
     normalizeHttpStatus,
 } from './error'
+import { isStructuredOutputSchemaRejection } from 'src/ts/process/request/structuredOutputFallback'
 
 describe('extractErrorMessage', () => {
     test('returns error.message for OpenAI/Anthropic/Google AI Studio shape', () => {
         expect(
             extractErrorMessage(JSON.stringify({ error: { message: 'rate limited' } })),
         ).toBe('rate limited')
+    })
+
+    test('unwraps the provider message from a gateway metadata.raw wrapper', () => {
+        expect(
+            extractErrorMessage(JSON.stringify({
+                error: {
+                    message: 'Provider returned error',
+                    code: 400,
+                    metadata: {
+                        provider_name: 'Google',
+                        raw: JSON.stringify({
+                            error: {
+                                code: 400,
+                                message: 'Request contains an invalid argument.',
+                                status: 'INVALID_ARGUMENT',
+                            },
+                        }),
+                    },
+                },
+            })),
+        ).toBe('Request contains an invalid argument.')
+    })
+
+    test('unwrapped message alone satisfies the structured-output rejection test', () => {
+        const message = extractErrorMessage(JSON.stringify({
+            error: {
+                message: 'Provider returned error',
+                metadata: {
+                    raw: JSON.stringify({
+                        error: { message: 'Request contains an invalid argument.' },
+                    }),
+                },
+            },
+        }))
+        const error = new ModelPresetAdapterError(
+            'invalid-request',
+            message ?? '',
+            { status: 400 },
+        )
+        expect(isStructuredOutputSchemaRejection(error)).toBe(true)
+    })
+
+    test('keeps the wrapper message when metadata.raw is absent or unusable', () => {
+        expect(
+            extractErrorMessage(JSON.stringify({
+                error: { message: 'Provider returned error', metadata: {} },
+            })),
+        ).toBe('Provider returned error')
+        expect(
+            extractErrorMessage(JSON.stringify({
+                error: { message: 'Provider returned error', metadata: { raw: 'not json' } },
+            })),
+        ).toBe('Provider returned error')
+        expect(
+            extractErrorMessage(JSON.stringify({
+                error: {
+                    message: 'Provider returned error',
+                    metadata: { raw: JSON.stringify({ error: { message: '   ' } }) },
+                },
+            })),
+        ).toBe('Provider returned error')
     })
 
     test('returns bare message field', () => {

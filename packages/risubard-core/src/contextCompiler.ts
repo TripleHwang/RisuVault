@@ -22,6 +22,7 @@ export interface ContextSource {
     required?: boolean
     priority?: number
     occurredAt?: number
+    displayName?: string
 }
 
 export interface ContextInput {

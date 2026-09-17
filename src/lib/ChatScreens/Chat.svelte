@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, BookOpenCheck, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, UserIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, BookOpenCheck, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SearchIcon, SplitIcon, TrashIcon, UserIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
     import ClipboardCopyIcon from '@lucide/svelte/icons/clipboard-copy'
     import { buildArcaClipboardHtml, exportArcaHtml, resolveArcaImageSource } from 'src/ts/arcaExport'
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createChatCopyName, forageStorage, requestImmediateSave } from "src/ts/globalApi.svelte"
@@ -42,6 +42,7 @@
         type FirstMessageStudioRuntime as FirstMessageStudioRuntimeState,
     } from 'src/ts/firstMessageStudio'
     import type { character as Character } from 'src/ts/storage/database.svelte'
+    import { createRisuTriggerActivation } from './risuTriggerActivation'
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -63,12 +64,14 @@
         messageGenerationInfo?: MessageGenerationInfo|null;
         rerollIcon?: boolean|'dynamic'|'force';
         role?: string;
+        turnNumber?: number;
         totalLength?: number;
         onReroll?: () => void;
         onNextSwipe?: () => void;
         unReroll?: () => void;
         onDeleteSwipe?: () => void;
         onConfirmMemory?: (messageId: string) => Promise<boolean>;
+        onReanalyzeMemory?: (messageId: string) => Promise<boolean>;
         memoryConfirmed?: boolean;
         canonicalReceipt?: CanonicalTurnReceipt;
         character?: simpleCharacterArgument|string|null;
@@ -81,6 +84,7 @@
         isOptimizedStreamingMessage?: boolean;
         streamingOptimizationMode?: StreamingDisplayOptimizationMode;
         rawStreamingText?: string;
+        readOnly?: boolean;
     }
 
     let {
@@ -94,12 +98,14 @@
         rerollIcon = false,
         messageGenerationInfo = null,
         role = null,
+        turnNumber,
         totalLength = 0,
         onReroll = () => {},
         onNextSwipe = () => {},
         unReroll = () => {},
         onDeleteSwipe = () => {},
         onConfirmMemory = async () => false,
+        onReanalyzeMemory = async () => false,
         memoryConfirmed = false,
         canonicalReceipt,
         character = null,
@@ -112,6 +118,7 @@
         isOptimizedStreamingMessage = false,
         streamingOptimizationMode = 'off',
         rawStreamingText = message,
+        readOnly = false,
     }: Props = $props();
 
     // A mounted row must never keep acting on the numeric position it had before
@@ -341,15 +348,10 @@
         }
     }
 
-    async function handleButtonTriggerWithin(event: UIEvent) {
+    async function activateButtonTrigger(origin: Element) {
+        if(readOnly) return
         const currentChar = getCurrentCharacter()
         if(!currentChar){
-            return
-        }
-
-        const target = event.target as HTMLElement
-        const origin = target.closest('[risu-trigger], [risu-btn]')
-        if (!origin) {
             return
         }
 
@@ -379,6 +381,10 @@
             }, 100) // Small delay to allow display mode to complete
         }
     }
+
+    const buttonTriggerActivation = createRisuTriggerActivation(activateButtonTrigger, {
+        pointerDownFallback: navigator.userAgent.includes('Firefox/'),
+    })
 
     let isBookmarked = $derived(
         DBState.db.characters[selIdState.selId]
@@ -440,6 +446,25 @@
         markSqlChatDirty(currentCharacter.chaId, chat.id!)
     }
 </script>
+
+{#snippet turnHeader()}
+    {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+        <span
+            data-chat-turn-reference="header"
+            class="shrink-0 rounded-full border border-darkborderc bg-darkbg/60 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-textcolor2"
+            title={`${language.chatTurnLabel} ${turnNumber}`}
+        >{language.chatTurnLabel} {turnNumber}</span>
+    {/if}
+{/snippet}
+
+{#snippet turnFooter()}
+    {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+        <span
+            data-chat-turn-reference="footer"
+            class="shrink-0 text-[11px] font-medium tabular-nums text-textcolor2"
+        >{language.chatTurnLabel} {turnNumber}</span>
+    {/if}
+{/snippet}
 
 
 {#snippet genInfo()}
@@ -507,7 +532,7 @@
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <AutoresizeArea bind:value={message} onkeydown={finishMessageEdit} handleLongPress={() => {
+        <AutoresizeArea bind:value={message} onkeydown={finishMessageEdit} focusOnMount handleLongPress={() => {
             editMode = false
         }} />
     {:else if isComment}
@@ -555,7 +580,7 @@
             class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={() => {
-            if(DBState.db.clickToEdit && idx > -1 && !isOptimizedStreamingMessage){
+            if(!readOnly && DBState.db.clickToEdit && idx > -1 && !isOptimizedStreamingMessage){
                 editMode = true
             }
         }}
@@ -580,7 +605,7 @@
                     {renderRawStreaming}
                     {rawStreamingText} />
             {/key}
-            {#if idx >= 0 && !editMode && !isOptimizedStreamingMessage && partialEditEnabled && (DBState.db.enableBlockPartialEdit || DBState.db.enableDragPartialEdit)}
+            {#if idx >= 0 && !readOnly && !editMode && !isOptimizedStreamingMessage && partialEditEnabled && (DBState.db.enableBlockPartialEdit || DBState.db.enableDragPartialEdit)}
                 <PartialEditController
                     messageData={message}
                     chatIndex={idx}
@@ -595,6 +620,7 @@
 {/snippet}
 
 {#snippet iconButtons(options:{applyTextColors?:boolean} = {})}
+    {#if !readOnly}
     <div class="grow flex items-center justify-end" class:text-textcolor2={options?.applyTextColors !== false}>
         {#if isComment}
             <button
@@ -648,6 +674,7 @@
             </div>
         {/if}
     </div>
+    {/if}
 {/snippet}
 
 
@@ -1064,7 +1091,7 @@
             }}>
                 <ArrowRight size={22}/>
             </button>
-            <button class="flex items-center shrink-0 hover:text-primary transition-colors button-icon-reroll" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'} onclick={async () => {
+            <button data-hotkey-action="reroll" class="flex items-center shrink-0 hover:text-primary transition-colors button-icon-reroll" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'} onclick={async () => {
                 if (!DBState.db.confirmReroll || await alertConfirm(language.rerollConfirm)) onReroll()
             }}>
                 <RefreshCcwIcon size={20}/>
@@ -1114,6 +1141,35 @@
                         : language.risubardConfirmCurrentMessage}
                 </span>
             {/if}
+        </button>
+        <button
+            data-risubard-reanalyze-memory
+            class="flex items-center hover:text-primary transition-colors"
+            disabled={memoryConfirming}
+            title={language.risubardReanalyzeTurn}
+            onclick={async () => {
+                const current = DBState.db.characters[selIdState.selId]
+                    ?.chats[DBState.db.characters[selIdState.selId].chatPage]
+                    ?.message[idx]
+                if (!current?.chatId || memoryConfirming) return
+                memoryConfirming = true
+                statusMessage = language.risubardReanalyzingTurn
+                try {
+                    const analyzed = await onReanalyzeMemory(current.chatId)
+                    statusMessage = analyzed
+                        ? language.risubardReanalyzedTurn
+                        : language.risubardMemoryAlreadyConfirmed
+                }
+                catch {
+                    statusMessage = language.risubardReanalyzeFailed
+                }
+                finally {
+                    memoryConfirming = false
+                }
+            }}
+        >
+            <SearchIcon size={20} />
+            {#if showNames}<span class="ml-1">{language.risubardReanalyzeTurn}</span>{/if}
         </button>
     {/if}
     {#if DBState.db.enableBookmark}
@@ -1504,7 +1560,8 @@
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid color-mix(in srgb, var(--color-borderc) 70%, transparent);` : ''}
-     onclickcapture={handleButtonTriggerWithin}>
+     onpointerdowncapture={buttonTriggerActivation.pointerdown}
+     onclickcapture={buttonTriggerActivation.click}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
             {@const nodeOnlyWidthClass =
@@ -1515,6 +1572,7 @@
                 <!-- Header: icon + name -->
                 <div class="flex items-center gap-3 mb-4">
                     {@render senderIcon({rounded: DBState.db.roundIcons})}
+                    {@render turnHeader()}
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="text-lg sm:text-xl text-textcolor flex items-center">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
@@ -1533,7 +1591,8 @@
                 </div>
                 <!-- Footer: geninfo + buttons -->
                 <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
-                    <div class="min-w-0">
+                    <div class="flex min-w-0 items-center gap-2">
+                        {@render turnFooter()}
                         {@render genInfo()}
                     </div>
                     <div class="w-full sm:w-auto ml-auto">
@@ -1550,7 +1609,8 @@
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid color-mix(in srgb, var(--color-borderc) 70%, transparent);` : ''}
-     onclickcapture={handleButtonTriggerWithin}>
+     onpointerdowncapture={buttonTriggerActivation.pointerdown}
+     onclickcapture={buttonTriggerActivation.click}>
     <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-darkborderc border-opacity/30 border-transparent flexium items-start max-w-full" >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
@@ -1562,6 +1622,9 @@
                     class:rounded-tl-none={role !== 'user'}
                     class:rounded-tr-none={role === 'user'}
                 >
+                    {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+                        <div class="mb-1">{@render turnHeader()}</div>
+                    {/if}
                     <p class="text-textcolor">{@render textBox()}</p>
                     {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
                         <span class="text-xs text-textcolor2 mt-1 block">
@@ -1574,6 +1637,9 @@
                                 hour12: false
                             }).format(DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].time)}
                         </span>
+                    {/if}
+                    {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+                        <div class="mt-1">{@render turnFooter()}</div>
                     {/if}
                 </div>
                 {#if role === 'user'}
@@ -1588,7 +1654,10 @@
                             <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
                                 {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
                             </div>
-                            <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
+                            <div class="mt-2 flex max-w-full items-center justify-center gap-2">
+                                {@render turnHeader()}
+                                <h2 class="text-base font-bold text-textcolor2 text-center max-w-full text-ellipsis">{name}</h2>
+                            </div>
 
                         </div>
                         {#if editMode}
@@ -1603,13 +1672,21 @@
                 <div class="absolute bottom-0 right-0 bg-linear-to-b from-selected to-darkbutton p-2 rounded-md border border-borderc text-textcolor2">
                     {@render iconButtons({applyTextColors: false})}
                 </div>
+                <div class="absolute bottom-1 left-2">{@render turnFooter()}</div>
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage}
+            {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+                <div class="chat-width mb-1">{@render turnHeader()}</div>
+            {/if}
             {@render renderGuiHtmlPart(RenderGUIHtml(DBState.db.guiHTML))}
+            {#if role === 'char' && turnNumber && turnNumber > 0 && !isComment}
+                <div class="chat-width mt-1">{@render turnFooter()}</div>
+            {/if}
         {:else if DBState.db.theme === 'standardRisu' && !blankMessage}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-textcolor">
                 <div class="flexium items-center chat-width">
+                    {@render turnHeader()}
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
@@ -1627,11 +1704,13 @@
                 </div>
                 {@render genInfo()}
                 {@render textBox()}
+                <div class="chat-width mt-1">{@render turnFooter()}</div>
             </span>
         {:else}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-textcolor">
                 <div class="flexium items-center chat-width">
+                    {@render turnHeader()}
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
@@ -1649,6 +1728,7 @@
                 </div>
                 {@render genInfo()}
                 {@render textBox()}
+                <div class="chat-width mt-1">{@render turnFooter()}</div>
             </span>
         {/if}
     </div>

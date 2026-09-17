@@ -31,6 +31,39 @@ interface PluginRequestEvidenceDependencies {
     record(entry: Parameters<typeof recordRequestLog>[0]): void
 }
 
+export async function runPluginProviderWithTimeout<T>(
+    invoke: (signal: AbortSignal) => Promise<T>,
+    timeoutMs: number,
+    abortSignal?: AbortSignal | null,
+): Promise<T> {
+    const boundedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.max(1, Math.floor(timeoutMs))
+        : 600_000
+    const controller = new AbortController()
+    const signal = abortSignal
+        ? AbortSignal.any([abortSignal, controller.signal])
+        : controller.signal
+
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+            const error = new Error(
+                `Plugin provider request timed out after ${boundedTimeoutMs}ms`
+            )
+            controller.abort(error)
+            reject(error)
+        }, boundedTimeoutMs)
+    })
+    try {
+        return await Promise.race([
+            Promise.resolve().then(() => invoke(signal)),
+            timeoutPromise,
+        ])
+    } finally {
+        if (timeout !== undefined) clearTimeout(timeout)
+    }
+}
+
 export function formatPluginProviderFailure(
     provider: string,
     error: unknown,

@@ -1,4 +1,8 @@
-import type { WikiWritingLanguage } from '../../src/ts/risubard/wikiWritingLanguage'
+import {
+    isStoryArcTitle,
+    wikiWritingLocales,
+    type WikiWritingLanguage,
+} from '../../src/ts/risubard/wikiWritingLanguage'
 import {
     ARC_PLOTTER_DEFAULT_SETTINGS,
     normalizeArcPlotterSettings,
@@ -11,14 +15,8 @@ export const STORY_ARC_MAX_MARKDOWN_CHARACTERS =
     ARC_PLOTTER_DEFAULT_SETTINGS.maxCharacters
 export const STORY_ARC_EVENT_EXCERPT_CHARACTERS = 800
 
-const STORY_ARC_TITLES = {
-    ko: '스토리 아크 플롯',
-    en: 'Story Arc Plot',
-} as const
-
-const LEGACY_STORY_ARC_TITLES = ['스토리 아크 지도', 'Story Arc Map'] as const
-
 const checkpointPattern = /<!--\s*risubard-story-arc-checkpoint:\s*([A-Za-z0-9._:-]{1,200})\s*-->/gu
+const wikiLinkPattern = /\[\[([^\]\r\n]{1,240})\]\]/gu
 
 export interface StoryArcWriterDocument {
     id: string
@@ -44,16 +42,7 @@ export interface StoryArcUpdatePlan {
     checkpointEventId: string
 }
 
-function normalizedTitle(value: string): string {
-    return value.normalize('NFKC').toLocaleLowerCase().trim()
-}
-
-export function isStoryArcTitle(value: string): boolean {
-    const normalized = normalizedTitle(value)
-    return [...Object.values(STORY_ARC_TITLES), ...LEGACY_STORY_ARC_TITLES]
-        .some((title) =>
-        normalizedTitle(title) === normalized)
-}
+export { isStoryArcTitle }
 
 export function isStoryArcCandidate(candidate: {
     type: string
@@ -76,6 +65,31 @@ export function stampStoryArcCheckpoint(
     }
     const body = markdown.replace(checkpointPattern, '').trimEnd()
     return `${body}\n\n<!-- risubard-story-arc-checkpoint: ${eventId} -->`
+}
+
+function hasStoryArcEventLink(
+    markdown: string,
+    events: readonly StoryArcWriterDocument[]
+): boolean {
+    const eventTitles = new Set(events.map((event) =>
+        event.title.normalize('NFKC').toLocaleLowerCase().trim()
+    ))
+    return [...markdown.matchAll(wikiLinkPattern)].some((match) =>
+        eventTitles.has(
+            match[1].split('|')[0]?.split('#')[0]
+                ?.normalize('NFKC').toLocaleLowerCase().trim() ?? ''
+        ))
+}
+
+export function validateStoryArcCheckpointEventLink(
+    markdown: string,
+    events: readonly StoryArcWriterDocument[]
+): void {
+    if (!hasStoryArcEventLink(markdown, events)) {
+        throw new Error(
+            'Story arc plot must link at least one event from the current checkpoint'
+        )
+    }
 }
 
 export function buildStoryArcUpdatePlan(input: {
@@ -112,14 +126,23 @@ export function buildStoryArcUpdatePlan(input: {
         : -1
     if (checkpoint && checkpointIndex < 0) return undefined
     const pending = ordered.slice(checkpointIndex + 1)
-    if (pending.length < settings.checkpointSize) return undefined
+    const repairEvents = existing && checkpoint
+        && !hasStoryArcEventLink(existing.content, ordered)
+        ? ordered.slice(
+            Math.max(0, checkpointIndex - settings.checkpointSize + 1),
+            checkpointIndex + 1
+        )
+        : undefined
+    if (!repairEvents && pending.length < settings.checkpointSize) {
+        return undefined
+    }
 
-    const events = pending.slice(0, settings.checkpointSize)
-    const title = existing?.title ?? STORY_ARC_TITLES[input.writingLanguage]
+    const events = repairEvents ?? pending.slice(0, settings.checkpointSize)
+    const title = existing?.title ?? wikiWritingLocales[input.writingLanguage].storyArc.title
     const eventTitles = events.map((event) => `[[${event.title}]]`).join(', ')
-    const reason = input.writingLanguage === 'en'
-        ? `Compact the next confirmed event checkpoint into the routing plot: ${eventTitles}`
-        : `다음 확정 사건 체크포인트를 탐색용 아크 플롯에 압축한다: ${eventTitles}`
+    const reason = repairEvents
+        ? `Repair missing event routes in the current story arc checkpoint: ${eventTitles}`
+        : `Compact the next confirmed event checkpoint into the routing plot: ${eventTitles}`
     return {
         candidate: {
             type: 'other',
@@ -131,7 +154,7 @@ export function buildStoryArcUpdatePlan(input: {
             confidence: 1,
         },
         events,
-        checkpointEventId: events.at(-1)!.id,
+        checkpointEventId: repairEvents ? checkpoint! : events.at(-1)!.id,
     }
 }
 
@@ -141,20 +164,13 @@ export function storyArcRewriteInstruction(
 ): string {
     const settings = normalizeArcPlotterSettings(value)
     const maxCharacters = settings.maxCharacters.toLocaleString('en-US')
-    if (writingLanguage === 'en') {
-        return [
-            'For the reserved other document titled Story Arc Plot, use storyArcEvents as the evidence batch.',
-            'It is a compact routing plot, not primary evidence. Keep exactly the useful H3 sections Arc Overview, Major Turning Points, and Open Threads.',
-            `Keep at most ${settings.maxArcs} chronological arc bullets, ${settings.maxTurningPoints} turning-point bullets, and ${settings.maxOpenThreads} open-thread bullets. Link representative events as [[event title]].`,
-            'Merge older adjacent arcs when over the cap while preserving distinctive names, objects, places, causal transitions, and representative event links.',
-            `Keep the complete document within ${maxCharacters} characters. Never reproduce full event summaries or character state histories.`,
-        ].join('\n')
-    }
+    const arc = wikiWritingLocales[writingLanguage].storyArc
     return [
-        '예약된 other 문서인 스토리 아크 플롯은 storyArcEvents를 근거 묶음으로 사용한다.',
-        '이 문서는 1차 사실 근거가 아니라 압축 탐색 플롯이다. 유용한 H3 절인 아크 개요, 주요 전환점, 미해결 줄기만 유지한다.',
-        `시간순 아크 글머리표 최대 ${settings.maxArcs}개, 전환점 최대 ${settings.maxTurningPoints}개, 미해결 줄기 최대 ${settings.maxOpenThreads}개를 유지하고 대표 사건을 [[사건 제목]]으로 연결한다.`,
-        '상한을 넘으면 오래된 인접 아크를 합치되 고유 이름·물건·장소·인과 전환과 대표 사건 링크는 보존한다.',
-        `문서 전체를 ${maxCharacters}자 안에 유지하고 사건 요약 전문이나 인물 상태 이력을 복제하지 않는다.`,
+        `For the reserved other document titled ${arc.title}, use storyArcEvents as the evidence batch.`,
+        `It is a compact routing plot, not primary evidence. Keep exactly the useful H3 sections ${arc.overview}, ${arc.turningPoints}, and ${arc.openThreads}.`,
+        `Keep at most ${settings.maxArcs} chronological arc bullets, ${settings.maxTurningPoints} turning-point bullets, and ${settings.maxOpenThreads} open-thread bullets. Link representative events as [[event title]].`,
+        'Every rewrite must link at least one event from the current storyArcEvents checkpoint.',
+        'Merge older adjacent arcs when over the cap while preserving distinctive names, objects, places, causal transitions, and representative event links.',
+        `Keep the complete document within ${maxCharacters} characters. Never reproduce full event summaries or character state histories.`,
     ].join('\n')
 }

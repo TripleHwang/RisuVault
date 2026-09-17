@@ -37,7 +37,7 @@ describe('RisuBardWikiCommandTerminal', () => {
         )
 
         expect(source).toContain('class:mobile-layout={mobileLayout}')
-        expect(source).toMatch(/\.command-terminal\.mobile-layout[\s\S]*?\.mobile-layout \.context-toolbar\s*\{[^}]*flex-wrap:\s*wrap/s)
+        expect(source).toContain('.mobile-layout .context-menu label')
         expect(source).not.toContain('ShieldAlertIcon')
         expect(source).not.toContain('DIRECT')
     })
@@ -64,7 +64,7 @@ describe('RisuBardWikiCommandTerminal', () => {
         expect(source).toContain('@media (max-width: 30rem)')
     })
 
-    test('uses a two-row header and keeps execute beside the input', async () => {
+    test('uses one toolbar row with execute at the far right', async () => {
         mounted = mount(RisuBardWikiCommandTerminal, {
             target: document.body,
             props: { onExecute: vi.fn() },
@@ -75,7 +75,7 @@ describe('RisuBardWikiCommandTerminal', () => {
             '[data-wiki-command-terminal]'
         )!
         const title = terminal.querySelector<HTMLElement>('.terminal-title')
-        const toolbar = terminal.querySelector<HTMLElement>('.terminal-toolbar')
+        const toolbar = terminal.querySelector<HTMLElement>('.terminal-toolbar')!
         const body = terminal.querySelector<HTMLElement>('.terminal-body')!
         const input = terminal.querySelector<HTMLTextAreaElement>(
             '[data-wiki-command-input]'
@@ -85,11 +85,52 @@ describe('RisuBardWikiCommandTerminal', () => {
         )!
 
         expect(title?.textContent?.trim()).toBe('BARDCHAT')
-        expect(toolbar?.querySelectorAll('[data-bardchat-context]')).toHaveLength(7)
+        expect(toolbar.contains(title!)).toBe(true)
+        expect(toolbar.lastElementChild).toBe(run)
         expect(body.contains(input)).toBe(true)
-        expect(run.parentElement).toBe(body)
+        expect(run.parentElement).toBe(toolbar)
         expect(terminal.textContent).not.toContain('AI에게 지시를 내리세요')
         expect(terminal.textContent).not.toContain('DIRECT')
+    })
+
+    test('opens context controls as one column and closes them outside', async () => {
+        mounted = mount(RisuBardWikiCommandTerminal, {
+            target: document.body,
+            props: { onExecute: vi.fn() },
+        })
+        const open = document.querySelector<HTMLButtonElement>(
+            '[data-bardchat-context-open]'
+        )!
+        expect(open.textContent?.trim()).toBe('컨텍스트')
+        expect(document.querySelector('[data-bardchat-context-menu]')).toBeNull()
+
+        open.click()
+        await tick()
+        const menu = document.querySelector<HTMLElement>(
+            '[data-bardchat-context-menu]'
+        )!
+        expect(menu).not.toBeNull()
+        expect(menu.querySelectorAll('[data-bardchat-context]')).toHaveLength(7)
+        expect(getComputedStyle(menu).gridTemplateColumns).not.toContain('repeat')
+
+        document.body.click()
+        await tick()
+        expect(document.querySelector('[data-bardchat-context-menu]')).toBeNull()
+    })
+
+    test('exposes a tooltiped restore button and calls it once', async () => {
+        const onRestore = vi.fn(async () => {})
+        mounted = mount(RisuBardWikiCommandTerminal, {
+            target: document.body,
+            props: { onExecute: vi.fn(), onRestore, canRestore: true },
+        })
+        const restore = document.querySelector<HTMLButtonElement>(
+            '[data-bardchat-restore]'
+        )!
+        expect(restore.disabled).toBe(false)
+        expect(restore.title).toContain('이전 스냅샷')
+        restore.click()
+        await vi.waitFor(() => expect(onRestore).toHaveBeenCalledOnce())
     })
 
     test('shows seven compact context toggles and executes with the live selection', async () => {
@@ -111,6 +152,11 @@ describe('RisuBardWikiCommandTerminal', () => {
                 onContextSelectionChange,
             },
         })
+        await tick()
+
+        document.body.querySelector<HTMLButtonElement>(
+            '[data-bardchat-context-open]'
+        )!.click()
         await tick()
 
         const toggles = [...document.body.querySelectorAll<HTMLInputElement>(
@@ -154,7 +200,10 @@ describe('RisuBardWikiCommandTerminal', () => {
         document.body.appendChild(target)
         mounted = mount(RisuBardWikiCommandTerminal, {
             target,
-            props: { onExecute: vi.fn() },
+            props: {
+                onExecute: vi.fn(),
+                targetDocumentTitleOrId: '세계관 설정',
+            },
         })
 
         expect(document.body.textContent).toContain('BARDCHAT')
@@ -201,7 +250,9 @@ describe('RisuBardWikiCommandTerminal', () => {
             '[data-bardchat-template-insert]'
         )!.click()
 
-        const prompt = BARDCHAT_COMMAND_TEMPLATES[0].prompt
+        const prompt = BARDCHAT_COMMAND_TEMPLATES[0].prompt.replaceAll(
+            '<문서 제목 또는 ID>', '세계관 설정'
+        )
         await vi.waitFor(() => expect(input.value).toBe(`앞${prompt}뒤`))
         expect(input.selectionStart).toBe(1 + prompt.length)
         expect(input.selectionEnd).toBe(1 + prompt.length)

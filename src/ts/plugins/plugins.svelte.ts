@@ -19,8 +19,10 @@ import { isRootKeyDeferred } from "../storage/sql/deferredRootKeys";
 import { isSqlWindowPartial } from "../storage/sql/sqlRuntimeWindow";
 import { markSqlPluginStorageDirty } from "../storage/sql/sqlPersistenceRuntime";
 import { planPluginStorageLoad, tryEnablePerKeyPluginStorage } from "./pluginStorageAccess";
+import type { PluginProviderStructuredOutput } from './providerStructuredOutput';
 
 export const customProviderStore = writable([] as string[])
+export const pluginProviderOwners = new Map<string, string>()
 export const pluginLoadingStore = writable(false)
 export const pluginReadyStore = writable(false)
 export const pluginStateStore = writable<'idle' | 'loading' | 'ready' | 'failed'>('idle')
@@ -610,11 +612,7 @@ export async function importPlugin(code:string|null = null, argu:{
 
         console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
         setDatabaseLite(db)
-        if (isUpdate) {
-            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
-        } else {
-            void requestImmediateSave()
-        }
+        await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
 
         await loadPlugins()
 
@@ -737,6 +735,10 @@ export type PluginV2ProviderArgument = {
     temperature: number
     mode: string
     max_tokens: number
+    /** True whenever the caller expects schema-constrained JSON, including prompt-fallback retries. */
+    structured_output?: boolean
+    /** Native structured output request. Present only for providers that explicitly opt in. */
+    response_schema?: PluginProviderStructuredOutput
     /** Host-only, request-scoped route for the bundled PageFold provider. Never persist or log it. */
     pagefold_route?: unknown
 }
@@ -745,11 +747,13 @@ export type PluginV2ProviderOptions = {
     tokenizer?: string
     tokenizerFunc?: (content: string) => number[] | Promise<number[]>
     /** RisuVault keeps its host status UI by default; set true only when the plugin replaces the host request status UI. */
-    overrideRequestStatus?: boolean | (() => boolean)
+    overrideRequestStatus?: boolean | (() => boolean | Promise<boolean>)
     /** Legacy inverse switch. Prefer `overrideRequestStatus: true` for plugin-owned status UI. */
-    hostRequestStatus?: boolean | (() => boolean)
+    hostRequestStatus?: boolean | (() => boolean | Promise<boolean>)
     /** Plugin storage key whose `risubard` value opts in dynamically. */
     hostRequestStatusStorageKey?: string
+    /** Receive response_schema and translate it to the upstream provider's native structured-output format. */
+    structuredOutput?: boolean | (() => boolean)
 }
 
 export type EditFunction = (content: string) => string | null | undefined | Promise<string | null | undefined>
@@ -797,7 +801,7 @@ export const allowedDbKeys = [
     'characterOrder'
 ]
 
-export const getV2PluginAPIs = () => {
+export const getV2PluginAPIs = (pluginName = '') => {
     const chatOutputApi = createV2ChatOutputApi(pluginV2.chatOutput)
     return {
         risuFetch: globalFetch,
@@ -829,6 +833,7 @@ export const getV2PluginAPIs = () => {
             provs.push(name)
             pluginV2.providers.set(name, func)
             pluginV2.providerOptions.set(name, options ?? {})
+            if (pluginName) pluginProviderOwners.set(name, pluginName)
             customProviderStore.set(provs)
         },
         addRisuScriptHandler: (name: ScriptMode, func: EditFunction) => {
@@ -1165,6 +1170,7 @@ export async function loadV2Plugin(plugins: RisuPlugin[]) {
     globalThis.__pluginApis__ = getV2PluginAPIs()
 
     for (const plugin of plugins) {
+        globalThis.__pluginApis__ = getV2PluginAPIs(plugin.name)
         let data = ''
         let version = plugin.version || 2
 

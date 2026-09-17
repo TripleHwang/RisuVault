@@ -111,6 +111,38 @@ function parseCanonicalMarkdown(markdown: string): ParsedCanonicalMarkdown {
     }
 }
 
+export function parseCanonicalSectionPatchMarkdown(
+    value: string,
+): CanonicalSectionPatch[] {
+    if (!value.trim()) throw new Error('Canonical Markdown patch is empty')
+    if (value.length > 12_000) {
+        throw new Error('Canonical Markdown patch is too long')
+    }
+    const headings = headingsOutsideFences(value)
+    if (headings.length === 0 || headings[0].line.start !== 0) {
+        throw new Error('Canonical Markdown patch must start with a direct H3 section')
+    }
+    if (headings.length > 24 || headings.some((heading) => heading.level !== 3)) {
+        throw new Error('Canonical Markdown patch may contain only direct H3 sections')
+    }
+    const seen = new Set<string>()
+    return headings.map((heading, index) => {
+        const key = normalizeCanonicalSectionHeading(heading.text)
+        if (!key || heading.text.length > 160 || seen.has(key)) {
+            throw new Error(`Canonical Markdown patch has an invalid section: ${heading.text}`)
+        }
+        seen.add(key)
+        const content = value.slice(
+            heading.line.end,
+            headings[index + 1]?.line.start ?? value.length,
+        ).trim()
+        if (!content) {
+            throw new Error(`Canonical Markdown patch has invalid content: ${heading.text}`)
+        }
+        return { heading: heading.text, operation: 'upsert', content }
+    })
+}
+
 export function hasCanonicalSection(
     markdown: string,
     headings: readonly string[],

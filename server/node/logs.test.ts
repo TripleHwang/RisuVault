@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'vitest'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fork, spawnSync, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 const roots: string[] = []
 const logsModule = resolve('server/node/logs.cjs')
@@ -39,6 +40,24 @@ afterEach(() => {
 })
 
 describe('file-native system logs', () => {
+    test('repairs a valid log state checksum mismatch when the store opens', () => {
+        const root = tempRoot()
+        const statePath = join(root, 'logs', 'state.json')
+        writeFileSync(statePath, JSON.stringify({ schemaVersion: 1, nextId: 8 }))
+        writeFileSync(`${statePath}.sha256`, `${'0'.repeat(64)}\n`)
+
+        const result = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(logsModule)}).addLog({ level: 'info', origin: 'server', message: 'started' })`], {
+            env: { ...process.env, RISUBARD_DATA_ROOT: root },
+            encoding: 'utf8',
+        })
+
+        expect(result.status, result.stderr).toBe(0)
+        const state = readFileSync(statePath)
+        expect(readFileSync(`${statePath}.sha256`, 'utf8').trim()).toBe(createHash('sha256').update(state).digest('hex'))
+        const rows = readFileSync(join(root, 'logs', 'system.jsonl'), 'utf8').trim().split(/\r?\n/).map(line => JSON.parse(line) as { id: number })
+        expect(rows.map(row => row.id)).toEqual([8])
+    })
+
     test('repairs duplicate persisted ids when the log store opens', () => {
         const root = tempRoot()
         const rows = [
@@ -104,6 +123,8 @@ describe('file-native system logs', () => {
         const lockPath = join(root, 'logs', '.write.lock')
         const workerPath = join(root, 'lock-waiter.cjs')
         writeFileSync(lockPath, '')
+        const freshUntil = new Date(Date.now() + 5_000)
+        utimesSync(lockPath, freshUntil, freshUntil)
         writeFileSync(workerPath, `
             process.send({ type: 'ready' })
             process.on('message', message => {

@@ -37,8 +37,8 @@
 
     const tierClasses: Record<ShDialogTier, string> = {
         base: 'z-40',
-        alert: 'z-[2147483600]',
-        top: 'z-[2147483640]',
+        alert: 'z-50',
+        top: 'z-[60]',
     };
 
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any

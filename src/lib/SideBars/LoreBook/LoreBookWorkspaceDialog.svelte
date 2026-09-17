@@ -4,8 +4,10 @@
     import { tooltip } from 'src/ts/gui/tooltip'
     import type { loreBook } from 'src/ts/storage/database.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
+    import { CircleQuestionMarkIcon } from '@lucide/svelte'
     import LoreBookWorkspace from './LoreBookWorkspace.svelte'
     import type { LorebookLocalActivation } from './loreBookWorkspaceConnections'
+    import type { BardLoreAnalysisRun, BardLoreSettings } from 'src/ts/lorebook/bardLore'
 
     interface Props {
         open?: boolean
@@ -14,6 +16,10 @@
         scopeLabel: string
         scopeKey?: string
         dragEnabled?: boolean
+        bardMode?: boolean
+        bardSettings?: BardLoreSettings
+        bardAnalysisRun?: BardLoreAnalysisRun
+        onBardAnalysisRunChange?: (run: BardLoreAnalysisRun | undefined) => void
         legacyDisabledBackups?: Record<string, loreBook & { disabled?: boolean }>
         localActivation?: LorebookLocalActivation
         onChange: (entries: loreBook[]) => void
@@ -29,6 +35,10 @@
         scopeLabel,
         scopeKey,
         dragEnabled = true,
+        bardMode = false,
+        bardSettings,
+        bardAnalysisRun,
+        onBardAnalysisRunChange,
         legacyDisabledBackups,
         localActivation,
         onChange,
@@ -38,6 +48,7 @@
     }: Props = $props()
 
     let contentElement: HTMLElement | null = $state(null)
+    let guideOpen = $state(false)
     const edges = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'] as const
 
     function startWindowResize(edge: string) {
@@ -71,6 +82,20 @@
     closeAriaLabel={language.lorebookWorkspace.close}
     closeClass="lore-dialog-close"
 >
+    {#snippet headerActions()}
+        {#if bardMode}
+            <button
+                type="button"
+                class="lore-dialog-help"
+                data-bard-lore-guide-open
+                aria-label={language.lorebookWorkspace.bardGuideOpen}
+                title={language.lorebookWorkspace.bardGuideOpen}
+                onclick={() => guideOpen = true}
+            >
+                <CircleQuestionMarkIcon size={18} />
+            </button>
+        {/if}
+    {/snippet}
     {#snippet title()}{scopeLabel}{/snippet}
     <LoreBookWorkspace
         {entries}
@@ -78,6 +103,10 @@
         {scopeKey}
         active={open}
         {dragEnabled}
+        {bardMode}
+        {bardSettings}
+        {bardAnalysisRun}
+        {onBardAnalysisRunChange}
         {legacyDisabledBackups}
         {localActivation}
         {onChange}
@@ -91,6 +120,80 @@
             use:tooltip={language.lorebookWorkspace.resizeHint}
             use:resizeHandle={{ start: () => startWindowResize(edge), reset: resetWindowSize }}></button>
     {/each}
+</ShDialog>
+
+<ShDialog
+    bind:open={guideOpen}
+    closeOnEscape
+    tier="alert"
+    size="lg"
+    contentClass="bard-guide-dialog"
+    bodyClass="bard-guide-dialog-body"
+    ariaLabel={language.lorebookWorkspace.bardGuideTitle}
+    closeAriaLabel={language.lorebookWorkspace.close}
+>
+    {#snippet title()}{language.lorebookWorkspace.bardGuideTitle}{/snippet}
+    <article class="bard-guide" data-bard-lore-guide>
+        <nav class="bard-guide-toc" data-bard-lore-guide-toc aria-label={language.lorebookWorkspace.bardGuideContents}>
+            <strong>{language.lorebookWorkspace.bardGuideContents}</strong>
+            <a href="#bard-guide-generation">{language.lorebookWorkspace.bardGuideGenerationTitle}</a>
+            <a href="#bard-guide-activation">{language.lorebookWorkspace.bardGuideActivationTitle}</a>
+            <a href="#bard-guide-writing">{language.lorebookWorkspace.bardGuideWritingTitle}</a>
+            <a href="#bard-guide-search">{language.lorebookWorkspace.bardGuideSearchTitle}</a>
+            <a href="#bard-guide-prompt">{language.lorebookWorkspace.bardGuidePromptTitle}</a>
+            <a href="#bard-guide-links">{language.lorebookWorkspace.bardGuideLinksTitle}</a>
+            <a href="#bard-guide-budget">{language.lorebookWorkspace.bardGuideBudgetTitle}</a>
+            <a href="#bard-guide-analysis">{language.lorebookWorkspace.bardGuideAnalysisTitle}</a>
+            <a href="#bard-guide-compatibility">{language.lorebookWorkspace.bardGuideCompatibilityTitle}</a>
+        </nav>
+
+        <div class="bard-guide-content">
+            <p class="bard-guide-intro">{language.lorebookWorkspace.bardGuideIntro}</p>
+
+            <section id="bard-guide-generation">
+                <h3>{language.lorebookWorkspace.bardGuideGenerationTitle}</h3>
+                <p>{language.lorebookWorkspace.bardGuideGenerationBody}</p>
+            </section>
+
+            <section id="bard-guide-activation">
+                <h3>{language.lorebookWorkspace.bardGuideActivationTitle}</h3>
+                <dl class="bard-guide-rules">
+                    <div><dt>[{language.lorebookWorkspace.bardRequired}]</dt><dd>{language.lorebookWorkspace.bardGuideRequiredBody}</dd></div>
+                    <div><dt>[{language.lorebookWorkspace.bardKeyed}]</dt><dd>{language.lorebookWorkspace.bardGuideKeyedBody}</dd></div>
+                    <div><dt>[{language.lorebookWorkspace.bardRetrieve}]</dt><dd>{language.lorebookWorkspace.bardGuideRetrieveBody}</dd></div>
+                    <div><dt>[{language.lorebookWorkspace.bardNever}]</dt><dd>{language.lorebookWorkspace.bardGuideNeverBody}</dd></div>
+                </dl>
+            </section>
+
+            <section id="bard-guide-writing" class="bard-guide-writing">
+                <h3>{language.lorebookWorkspace.bardGuideWritingTitle}</h3>
+                <p class="writing-principle">{language.lorebookWorkspace.bardGuideWritingIntro}</p>
+                <div class="bard-writing-grid">
+                    <section><h4>{language.lorebookWorkspace.bardGuideWritingIdentityTitle}</h4><p>{language.lorebookWorkspace.bardGuideWritingIdentityBody}</p></section>
+                    <section><h4>{language.lorebookWorkspace.bardGuideWritingActivationTitle}</h4><p>{language.lorebookWorkspace.bardGuideWritingActivationBody}</p></section>
+                    <section><h4>{language.lorebookWorkspace.bardGuideWritingSecretTitle}</h4><p>{language.lorebookWorkspace.bardGuideWritingSecretBody}</p></section>
+                    <section><h4>{language.lorebookWorkspace.bardGuideWritingKeysTitle}</h4><p>{language.lorebookWorkspace.bardGuideWritingKeysBody}</p></section>
+                </div>
+                <aside class="bard-writing-example">
+                    <h4>{language.lorebookWorkspace.bardGuideWritingExampleTitle}</h4>
+                    <p>{language.lorebookWorkspace.bardGuideWritingExampleBody}</p>
+                </aside>
+                <div class="bard-writing-template">
+                    <h4>{language.lorebookWorkspace.bardGuideWritingTemplateTitle}</h4>
+                    <pre>{language.lorebookWorkspace.bardGuideWritingTemplateBody}</pre>
+                </div>
+            </section>
+
+            <div class="bard-guide-grid">
+                <section id="bard-guide-search"><h3>{language.lorebookWorkspace.bardGuideSearchTitle}</h3><p>{language.lorebookWorkspace.bardGuideSearchBody}</p></section>
+                <section id="bard-guide-prompt"><h3>{language.lorebookWorkspace.bardGuidePromptTitle}</h3><p>{language.lorebookWorkspace.bardGuidePromptBody}</p></section>
+                <section id="bard-guide-links"><h3>{language.lorebookWorkspace.bardGuideLinksTitle}</h3><p>{language.lorebookWorkspace.bardGuideLinksBody}</p></section>
+                <section id="bard-guide-budget"><h3>{language.lorebookWorkspace.bardGuideBudgetTitle}</h3><p>{language.lorebookWorkspace.bardGuideBudgetBody}</p></section>
+                <section id="bard-guide-analysis"><h3>{language.lorebookWorkspace.bardGuideAnalysisTitle}</h3><p>{language.lorebookWorkspace.bardGuideAnalysisBody}</p></section>
+                <section id="bard-guide-compatibility"><h3>{language.lorebookWorkspace.bardGuideCompatibilityTitle}</h3><p>{language.lorebookWorkspace.bardGuideCompatibilityBody}</p></section>
+            </div>
+        </div>
+    </article>
 </ShDialog>
 
 <style>
@@ -125,9 +228,59 @@
         color: var(--color-textcolor);
         transform: translateY(-50%);
     }
+    :global(.lore-dialog-help) {
+        position: absolute;
+        top: 50%;
+        right: 3.65rem;
+        z-index: 1;
+        display: grid;
+        width: 2.65rem;
+        height: 2.65rem;
+        padding: 0;
+        place-items: center;
+        border: 0;
+        border-radius: .72rem;
+        background: color-mix(in srgb, var(--color-selected) 58%, var(--color-darkbg));
+        color: var(--color-textcolor);
+        cursor: pointer;
+        transform: translateY(-50%);
+    }
+    :global(.lore-dialog-help:hover) { background: var(--color-selected); }
+    :global(.lore-dialog-help svg) { width: 1.35rem; height: 1.35rem; }
     :global(.lore-dialog-close:hover) { background: var(--color-selected); }
     :global(.lore-dialog-close svg) { width: 1.35rem; height: 1.35rem; }
     :global(.lore-dialog-body) { min-height: 0; flex: 1; padding: .7rem; }
+    :global(.bard-guide-dialog) {
+        width: min(94vw, 1080px);
+        max-width: calc(100vw - 1rem);
+        max-height: min(88dvh, 900px);
+        background: var(--color-darkbg);
+    }
+    :global(.bard-guide-dialog-body) { min-height: 0; overflow-y: auto; }
+    .bard-guide { display: grid; grid-template-columns: minmax(10.5rem, 13rem) minmax(0, 1fr); gap: 1.2rem; align-items: start; color: var(--color-textcolor); }
+    .bard-guide-content { display: grid; min-width: 0; gap: 1rem; }
+    .bard-guide p, .bard-guide dd { margin: 0; color: var(--color-textcolor2); font-size: .84rem; line-height: 1.65; }
+    .bard-guide-toc { position: sticky; top: 0; display: grid; gap: .2rem; padding: .7rem; border: 1px solid var(--color-darkborderc); border-radius: .65rem; background: color-mix(in srgb, var(--color-selected) 12%, var(--color-darkbg)); }
+    .bard-guide-toc strong { padding: .2rem .45rem .45rem; color: var(--color-textcolor); font-size: .76rem; letter-spacing: .04em; }
+    .bard-guide-toc a { padding: .42rem .48rem; border-radius: .38rem; color: var(--color-textcolor2); font-size: .77rem; line-height: 1.25; text-decoration: none; }
+    .bard-guide-toc a:hover, .bard-guide-toc a:focus-visible { background: var(--color-selected); color: var(--color-textcolor); outline: none; }
+    .bard-guide-intro { padding: .85rem 1rem; border-left: .22rem solid var(--color-borderc); border-radius: .45rem; background: color-mix(in srgb, var(--color-selected) 22%, var(--color-darkbg)); color: var(--color-textcolor) !important; }
+    .bard-guide section { display: grid; gap: .45rem; scroll-margin-top: .75rem; }
+    .bard-guide h3 { margin: 0; color: var(--color-textcolor); font-size: .92rem; }
+    .bard-guide h4 { margin: 0; color: var(--color-textcolor); font-size: .82rem; }
+    .bard-guide-rules { display: grid; margin: 0; gap: .45rem; }
+    .bard-guide-rules > div { display: grid; grid-template-columns: minmax(8rem, auto) 1fr; gap: .75rem; padding: .65rem .75rem; border: 1px solid var(--color-darkborderc); border-radius: .55rem; background: color-mix(in srgb, var(--color-selected) 12%, var(--color-darkbg)); }
+    .bard-guide-rules dt { color: var(--color-textcolor); font-size: .78rem; font-weight: 700; white-space: nowrap; }
+    .bard-guide-rules dd { margin: 0; }
+    .bard-guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+    .bard-guide-grid section { padding: .8rem; border: 1px solid var(--color-darkborderc); border-radius: .6rem; background: color-mix(in srgb, var(--color-selected) 10%, var(--color-darkbg)); }
+    .bard-guide-writing { gap: .7rem !important; padding: 1rem; border: 1px solid color-mix(in srgb, var(--color-borderc) 70%, var(--color-darkborderc)); border-radius: .7rem; background: color-mix(in srgb, var(--color-selected) 8%, var(--color-darkbg)); }
+    .writing-principle { padding: .75rem .85rem; border-radius: .5rem; background: color-mix(in srgb, var(--color-borderc) 12%, transparent); color: var(--color-textcolor) !important; }
+    .bard-writing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    .bard-writing-grid section { padding: .75rem; border-top: 2px solid color-mix(in srgb, var(--color-borderc) 65%, transparent); background: color-mix(in srgb, var(--color-selected) 10%, transparent); }
+    .bard-writing-example { display: grid; gap: .35rem; padding: .8rem .9rem; border-left: .2rem solid var(--color-borderc); border-radius: .45rem; background: color-mix(in srgb, var(--color-selected) 20%, var(--color-darkbg)); }
+    .bard-writing-template { display: grid; gap: .4rem; }
+    .bard-writing-template pre { margin: 0; padding: .8rem .9rem; overflow-x: auto; border: 1px solid var(--color-darkborderc); border-radius: .5rem; background: color-mix(in srgb, var(--color-darkbg) 92%, var(--color-selected)); color: var(--color-textcolor2); font-size: .78rem; line-height: 1.55; white-space: pre-wrap; }
     .window-resize { position: absolute; z-index: 10; padding: 0; border: 0; border-radius: 0; background: transparent; touch-action: none; }
     .window-resize:hover, .window-resize:focus-visible, .window-resize:global([data-resizing]) { background: color-mix(in srgb, var(--color-borderc) 45%, transparent); outline: none; }
     [data-lorebook-window-resize='n'], [data-lorebook-window-resize='s'] { left: 1rem; right: 1rem; height: .45rem; cursor: ns-resize; }
@@ -154,5 +307,10 @@
         :global(.lore-dialog > :first-child) { min-height: 4rem; padding-right: 4.8rem; }
         :global(.lore-dialog-close) { right: .65rem; width: 3rem; height: 3rem; border-radius: .9rem; }
         :global(.lore-dialog-close svg) { width: 1.55rem; height: 1.55rem; }
+        :global(.lore-dialog-help) { right: 4rem; width: 3rem; height: 3rem; border-radius: .9rem; }
+        :global(.lore-dialog-help svg) { width: 1.55rem; height: 1.55rem; }
+        .bard-guide, .bard-guide-rules > div, .bard-guide-grid, .bard-writing-grid { grid-template-columns: minmax(0, 1fr); }
+        .bard-guide-toc { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .bard-guide-toc strong { grid-column: 1 / -1; }
     }
 </style>

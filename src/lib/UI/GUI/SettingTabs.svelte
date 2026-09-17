@@ -9,14 +9,17 @@
     let {
         tabs,
         selected = $bindable(0),
+        variant = 'default',
     }: {
         tabs: Tab[];
         selected?: number;
+        variant?: 'default' | 'prominent';
     } = $props();
 </script>
 
 <SettingsSectionTabs
     {tabs}
     {selected}
+    {variant}
     onSelect={(value) => { selected = value }}
 />

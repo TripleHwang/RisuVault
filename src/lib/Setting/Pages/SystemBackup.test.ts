@@ -17,6 +17,25 @@ describe('system backup surface', () => {
         expect(backupPage).toContain('LoadLocalBackup')
     })
 
+    it('keeps V1 migration and compatibility exports together', () => {
+        const backupPage = read('src/lib/Setting/Pages/SystemBackup.svelte')
+
+        expect(backupPage).toContain('SaveLocalBackupForUpstream')
+        expect(backupPage).toContain('ImportFromSaveZip')
+        expect(backupPage).toContain('CleanupMigratedFiles')
+        expect(backupPage).toContain('SavePartialLocalBackup')
+        expect(backupPage).toContain('exportAsDataset')
+        expect(backupPage).not.toContain('V2Import')
+    })
+
+    it('shows one ordinary local restore action and keeps the lossy export under legacy tools', () => {
+        const backupPage = read('src/lib/Setting/Pages/SystemBackup.svelte')
+
+        expect(backupPage.match(/onclick=\{restoreFromLocalFile\}/g)).toHaveLength(1)
+        expect(backupPage.indexOf('onclick={downloadForUpstream}'))
+            .toBeGreaterThan(backupPage.indexOf('migrationLegacyAccordion'))
+    })
+
     it('does not expose server backups, compatibility snapshots, or boot backup prompts', () => {
         const backupPage = read('src/lib/Setting/Pages/SystemBackup.svelte')
         const dashboard = read('src/lib/Setting/Pages/SystemDashboard.svelte')

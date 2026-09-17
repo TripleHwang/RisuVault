@@ -283,6 +283,7 @@ describe('RisuBard memory CommonJS runtime', () => {
             health: {
                 danglingLinks: [],
                 unlinkedDocumentIds: [],
+                duplicatePassages: [],
             },
             documents: [],
         })
@@ -348,6 +349,7 @@ describe('RisuBard memory CommonJS runtime', () => {
             health: {
                 danglingLinks: [],
                 unlinkedDocumentIds: [],
+                duplicatePassages: [],
             },
             documents: [],
         })
@@ -424,6 +426,7 @@ describe('RisuBard memory CommonJS runtime', () => {
             health: {
                 danglingLinks: [],
                 unlinkedDocumentIds: [],
+                duplicatePassages: [],
             },
             documents: [],
         })

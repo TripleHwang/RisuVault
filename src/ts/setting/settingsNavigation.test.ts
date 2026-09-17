@@ -24,24 +24,31 @@ describe('settings navigation registry', () => {
         ])
     })
 
-    test('represents AI settings as one workspace entry', () => {
+    test('places chat prompt presets directly below the AI workspace', () => {
         const aiSection = settingsSections.find((section) => section.id === 'ai')
 
-        expect(aiSection?.items.map((item) => item.id)).toEqual(['ai-settings', 'advanced'])
+        expect(aiSection?.items.map((item) => item.id)).toEqual([
+            'ai-settings',
+            'chat-prompt-presets',
+            'advanced',
+        ])
         expect(aiSection?.items[0].route).toBe(SettingsRoute.ModelPreset)
-        expect(aiSection?.items[1].route).toBe(SettingsRoute.Advanced)
+        expect(aiSection?.items[1].route).toBe(SettingsRoute.PromptPreset)
+        expect(aiSection?.items[2].route).toBe(SettingsRoute.Advanced)
     })
 
-    test('keeps every legacy AI route active inside the unified workspace', () => {
+    test('keeps only the remaining legacy AI routes active inside the unified workspace', () => {
         const aiItem = settingsSections.find((section) => section.id === 'ai')?.items[0]
+        const promptPresetItem = settingsSections.find((section) => section.id === 'ai')?.items[1]
 
         expect(aiItem).toBeDefined()
         expect([
             SettingsRoute.ChatBot,
             SettingsRoute.ModelPreset,
-            SettingsRoute.PromptPreset,
             SettingsRoute.OtherBots,
         ].every((route) => isSettingsNavigationItemActive(aiItem!, route))).toBe(true)
+        expect(isSettingsNavigationItemActive(aiItem!, SettingsRoute.PromptPreset)).toBe(false)
+        expect(isSettingsNavigationItemActive(promptPresetItem!, SettingsRoute.PromptPreset)).toBe(true)
         expect(isSettingsNavigationItemActive(aiItem!, SettingsRoute.Display)).toBe(false)
     })
 
@@ -52,6 +59,7 @@ describe('settings navigation registry', () => {
         expect(risuBard?.items.map((item) => item.id)).toEqual([
             'risubard-common',
             'risubard-wiki-prompt',
+            'risubard-grimoire-prompt',
         ])
         expect(isSettingsNavigationItemActive(common!, SettingsRoute.RisuBardChat)).toBe(true)
     })
@@ -102,6 +110,26 @@ describe('settings navigation registry', () => {
         expect(system?.items.map((item) => item.id)).not.toContain('advanced')
     })
 
+    test('exposes privacy-safe developer diagnostics without enabling the internal dev panel', () => {
+        const hidden = getVisibleSettingsSections({
+            isLite: false,
+            isDesktop: true,
+            devPanelEnabled: false,
+        }).find((section) => section.id === 'system')
+        const enabled = getVisibleSettingsSections({
+            isLite: false,
+            isDesktop: true,
+            devPanelEnabled: true,
+        }).find((section) => section.id === 'system')
+
+        expect(hidden?.items).toContainEqual(expect.objectContaining({
+            id: 'developer',
+            route: (SettingsRoute as any).Developer,
+        }))
+        expect(hidden?.items.map((item) => item.route)).not.toContain(SettingsRoute.DevPanel)
+        expect(enabled?.items.map((item) => item.route)).toContain(SettingsRoute.DevPanel)
+    })
+
     test('keeps the lite workspace useful without exposing full-only pages', () => {
         const sections = getVisibleSettingsSections({
             isLite: true,
@@ -114,7 +142,6 @@ describe('settings navigation registry', () => {
             items: section.items.map((item) => item.id),
         }))).toEqual([
             { id: 'experience', items: ['experience-settings', 'hotkeys'] },
-            { id: 'system', items: ['migration'] },
         ])
     })
 

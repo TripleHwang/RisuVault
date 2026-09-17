@@ -14,6 +14,15 @@ export interface ModelResponse {
     retryAfterMs?: number
 }
 
+export type StructuredOutputMode = 'native' | 'prompt'
+
+export class NativeStructuredOutputUnavailableError extends Error {
+    constructor() {
+        super('The model provider rejected native structured output.')
+        this.name = 'NativeStructuredOutputUnavailableError'
+    }
+}
+
 export class ModelOutputError extends Error {
     retryable: boolean
     validationHint?: string
@@ -103,5 +112,43 @@ export async function runValidatedModelRequest<T>(options: {
         }
     }
     throw feedback!
+}
+
+// Owns the complete replay policy for strict structured output. Domain writes
+// must remain downstream of this function and its parser.
+export async function runStructuredModelRequest<T>(options: {
+    request(
+        mode: StructuredOutputMode,
+        feedback?: ModelOutputError
+    ): Promise<ModelResponse>
+    parse(text: string): T
+    nativeAttempts?: 1 | 2
+}): Promise<T> {
+    let fallbackFeedback: ModelOutputError
+    try {
+        return await runValidatedModelRequest({
+            maxAttempts: options.nativeAttempts,
+            request: (feedback) => options.request('native', feedback),
+            parse: options.parse,
+        })
+    }
+    catch (error) {
+        if (error instanceof NativeStructuredOutputUnavailableError) {
+            fallbackFeedback = new ModelOutputError(
+                'invalid-structure',
+                'Native structured output is unavailable; follow the schema included in the prompt.'
+            )
+        }
+        else if (error instanceof ModelOutputError && error.retryable) {
+            fallbackFeedback = error
+        }
+        else throw error
+    }
+
+    return runValidatedModelRequest({
+        maxAttempts: 1,
+        request: () => options.request('prompt', fallbackFeedback),
+        parse: options.parse,
+    })
 }
 import { stripModelReasoning } from './modelOutput'

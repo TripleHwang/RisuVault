@@ -17,12 +17,12 @@ function declarations(selector: string): Record<string, string> {
 }
 
 describe('theme-aware Tippy tooltips', () => {
-    test('keeps structural CSS and uses the local theme for both tooltip actions', () => {
+    test('keeps structural CSS and uses the local theme for all tooltip actions', () => {
         expect(tooltip).toContain("import 'tippy.js/dist/tippy.css'")
         expect(tooltip).toContain("import '../../styles/tooltip-theme.css'")
         expect(tooltip).not.toContain('themes/translucent.css')
         expect(tooltip).not.toContain("theme: 'translucent'")
-        expect(tooltip.match(/theme: 'risubard'/g)).toHaveLength(2)
+        expect(tooltip.match(/theme: 'risubard'/g)).toHaveLength(3)
     })
 
     test('uses editable tokens for the opaque surface, text, border and shadow', () => {

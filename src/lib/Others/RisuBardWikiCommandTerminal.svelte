@@ -1,9 +1,11 @@
 <script lang="ts">
     import { tick } from 'svelte'
     import {
+        ChevronDownIcon,
         ListTreeIcon,
         LoaderCircleIcon,
         PlayIcon,
+        RotateCcwIcon,
         SquareTerminalIcon,
         XIcon,
     } from '@lucide/svelte'
@@ -24,6 +26,9 @@
         onContextSelectionChange?: (
             selection: DirectWikiContextSelection
         ) => void
+        targetDocumentTitleOrId?: string
+        canRestore?: boolean
+        onRestore?: () => Promise<void>
     }
 
     const DEFAULT_CONTEXT_SELECTION: DirectWikiContextSelection = {
@@ -53,6 +58,9 @@
         contextSelection = DEFAULT_CONTEXT_SELECTION,
         mobileLayout = false,
         onContextSelectionChange,
+        targetDocumentTitleOrId = '',
+        canRestore = false,
+        onRestore,
     }: Props = $props()
     let selection = $state<DirectWikiContextSelection>({
         ...DEFAULT_CONTEXT_SELECTION,
@@ -62,7 +70,10 @@
     let running = $state(false)
     let error = $state('')
     let result = $state<DirectWikiCommandResult | null>(null)
+    let restoring = $state(false)
     let textareaElement = $state<HTMLTextAreaElement>()
+    let contextPopoverElement = $state<HTMLDivElement>()
+    let contextOpen = $state(false)
     let templatesOpen = $state(false)
     let selectedTemplateId = $state(BARDCHAT_COMMAND_TEMPLATES[0].id)
     let rememberedSelectionStart = $state(0)
@@ -71,6 +82,12 @@
         BARDCHAT_COMMAND_TEMPLATES.find((template) =>
             template.id === selectedTemplateId
         ) ?? BARDCHAT_COMMAND_TEMPLATES[0]
+    )
+    const selectedTemplatePrompt = $derived(
+        selectedTemplate.prompt.replaceAll(
+            '<문서 제목 또는 ID>',
+            targetDocumentTitleOrId.trim() || '<문서 제목 또는 ID>'
+        )
     )
 
     $effect(() => {
@@ -93,6 +110,7 @@
             ?? instruction.length
         rememberedSelectionEnd = textareaElement?.selectionEnd
             ?? rememberedSelectionStart
+        contextOpen = false
         templatesOpen = true
     }
 
@@ -101,7 +119,7 @@
     }
 
     async function applyTemplate(mode: 'insert' | 'replace') {
-        let caret = selectedTemplate.prompt.length
+        let caret = selectedTemplatePrompt.length
         if (mode === 'insert') {
             const start = Math.min(rememberedSelectionStart, instruction.length)
             const end = Math.min(
@@ -109,12 +127,12 @@
                 instruction.length
             )
             instruction = instruction.slice(0, start)
-                + selectedTemplate.prompt
+                + selectedTemplatePrompt
                 + instruction.slice(end)
-            caret = start + selectedTemplate.prompt.length
+            caret = start + selectedTemplatePrompt.length
         }
         else {
-            instruction = selectedTemplate.prompt
+            instruction = selectedTemplatePrompt
         }
         templatesOpen = false
         await tick()
@@ -138,46 +156,114 @@
             running = false
         }
     }
+
+    async function restore() {
+        if (!onRestore || !canRestore || running || restoring) return
+        restoring = true
+        error = ''
+        try {
+            await onRestore()
+            result = null
+        }
+        catch (cause) {
+            error = cause instanceof Error ? cause.message : String(cause)
+        }
+        finally {
+            restoring = false
+        }
+    }
+
+    function closeContextOutside(event: MouseEvent) {
+        if (!contextOpen || contextPopoverElement?.contains(event.target as Node)) return
+        contextOpen = false
+    }
 </script>
+
+<svelte:window onclick={closeContextOutside} />
 
 <section
     class="command-terminal"
     class:mobile-layout={mobileLayout}
     data-wiki-command-terminal
 >
-    <header>
+    <header class="terminal-toolbar">
         <div class="terminal-title">
             <span class="terminal-mark"><SquareTerminalIcon size={17} /></span>
             <strong>BARDCHAT</strong>
         </div>
-        <div class="terminal-toolbar">
-            <fieldset class="context-toolbar" aria-label="BARDCHAT 주입 정보">
-                {#each contextOptions as option}
-                    <label
-                        class:active={selection[option.key]}
-                        title={option.title}
-                    >
-                        <input
-                            type="checkbox"
-                            data-bardchat-context={option.key}
-                            checked={selection[option.key]}
-                            disabled={running}
-                            onchange={(event) => setContext(
-                                option.key,
-                                event.currentTarget.checked
-                            )}
-                        />
-                        <span>{option.label}</span>
-                    </label>
-                {/each}
-            </fieldset>
+        <div class="context-popover" bind:this={contextPopoverElement}>
             <button
                 type="button"
-                class="template-open"
-                data-bardchat-template-open
-                onclick={openTemplates}
-            ><ListTreeIcon size={14} /><span>명령어 리스트</span></button>
+                class="toolbar-button"
+                data-bardchat-context-open
+                aria-expanded={contextOpen}
+                aria-controls="bardchat-context-menu"
+                title="AI에게 함께 보낼 컨텍스트 선택"
+                disabled={running || restoring}
+                onclick={(event) => {
+                    event.stopPropagation()
+                    contextOpen = !contextOpen
+                }}
+            ><span>컨텍스트</span><ChevronDownIcon size={13} /></button>
+            {#if contextOpen}
+                <fieldset
+                    id="bardchat-context-menu"
+                    class="context-menu"
+                    aria-label="BARDCHAT 주입 정보"
+                    data-bardchat-context-menu
+                >
+                    {#each contextOptions as option}
+                        <label class:active={selection[option.key]} title={option.title}>
+                            <input
+                                type="checkbox"
+                                data-bardchat-context={option.key}
+                                checked={selection[option.key]}
+                                disabled={running || restoring}
+                                onchange={(event) => setContext(
+                                    option.key,
+                                    event.currentTarget.checked
+                                )}
+                            />
+                            <span>{option.label}</span>
+                        </label>
+                    {/each}
+                </fieldset>
+            {/if}
         </div>
+        <button
+            type="button"
+            class="toolbar-button"
+            data-bardchat-template-open
+            title="명령어 템플릿 열기"
+            onclick={openTemplates}
+        ><ListTreeIcon size={14} /><span>명령어 리스트</span></button>
+        <button
+            type="button"
+            class="restore-button"
+            data-bardchat-restore
+            aria-label="마지막 BARDCHAT 변경 복원"
+            title="마지막 BARDCHAT 실행 이전 스냅샷으로 복원"
+            disabled={!canRestore || running || restoring}
+            onclick={() => void restore()}
+        >
+            {#if restoring}<LoaderCircleIcon class="animate-spin" size={15} />
+            {:else}<RotateCcwIcon size={15} />{/if}
+        </button>
+        <span class="toolbar-spacer"></span>
+        <ShButton
+            variant="primary"
+            size="sm"
+            data-wiki-command-run
+            title="지시 실행 (Ctrl+Enter)"
+            onclick={run}
+            disabled={running || restoring || !instruction.trim()}
+        >
+            {#if running}
+                <LoaderCircleIcon class="animate-spin" size={14} /> 실행 중
+            {:else}
+                <PlayIcon size={14} /> 지시 실행
+            {/if}
+        </ShButton>
     </header>
 
     <div class="terminal-body">
@@ -196,21 +282,6 @@
                 }
             }}
         ></textarea>
-        <ShButton
-            variant="primary"
-            size="sm"
-            data-wiki-command-run
-            onclick={run}
-            disabled={running || !instruction.trim()}
-        >
-            {#if running}
-                <LoaderCircleIcon class="animate-spin" size={14} />
-                실행 중
-            {:else}
-                <PlayIcon size={14} />
-                지시 실행
-            {/if}
-        </ShButton>
     </div>
 
     <footer>
@@ -287,7 +358,7 @@
                         <span>{selectedTemplate.command}</span>
                         <strong>{selectedTemplate.title}</strong>
                     </div>
-                    <pre data-bardchat-template-preview>{selectedTemplate.prompt}</pre>
+                    <pre data-bardchat-template-preview>{selectedTemplatePrompt}</pre>
                 </article>
             </div>
 
@@ -334,7 +405,6 @@
             color-mix(in srgb, var(--risu-theme-darkbg) 96%, var(--color-bgcolor));
         box-shadow: inset 3px 0 0 color-mix(in srgb, var(--risu-theme-primary) 70%, transparent);
     }
-    .command-terminal > header,
     .command-terminal > footer {
         display: flex;
         align-items: center;
@@ -342,9 +412,7 @@
         padding: .62rem .75rem;
     }
     .command-terminal > header {
-        display: grid;
-        gap: .35rem;
-        padding-block: .48rem;
+        padding: .45rem .65rem;
         border-bottom: 1px solid var(--terminal-line);
     }
     .command-terminal > footer {
@@ -354,17 +422,17 @@
         border-top: 1px solid var(--terminal-line);
         background: color-mix(in srgb, var(--risu-theme-primary) 5%, transparent);
     }
-    .terminal-title,
     .terminal-toolbar {
         display: flex;
         align-items: center;
         min-width: 0;
     }
-    .terminal-title { gap: .5rem; }
     .terminal-toolbar {
-        flex-wrap: wrap;
-        gap: .28rem .4rem;
+        flex: 0 0 auto;
+        gap: .38rem;
+        overflow: visible;
     }
+    .terminal-title { display: flex; align-items: center; flex: 0 0 auto; gap: .5rem; }
     .terminal-title strong {
         color: var(--risu-theme-textcolor);
         font: 700 .82rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -384,18 +452,24 @@
         color: var(--risu-theme-primary);
         background: color-mix(in srgb, var(--risu-theme-primary) 8%, transparent);
     }
-    .context-toolbar {
-        display: flex;
-        flex: 1 1 32rem;
-        flex-wrap: wrap;
-        justify-content: flex-start;
+    .context-popover { position: relative; }
+    .context-menu {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + .45rem);
+        left: 0;
+        display: grid;
+        grid-template-columns: minmax(10rem, 1fr);
         gap: .22rem;
-        min-width: 0;
+        width: 12rem;
         margin: 0;
-        padding: 0;
-        border: 0;
+        padding: .35rem;
+        border: 1px solid var(--terminal-line);
+        border-radius: .45rem;
+        background: var(--risu-theme-darkbg);
+        box-shadow: 0 .65rem 1.6rem color-mix(in srgb, var(--color-darkbg) 60%, transparent);
     }
-    .context-toolbar label {
+    .context-menu label {
         display: inline-flex;
         align-items: center;
         gap: .24rem;
@@ -409,19 +483,20 @@
         cursor: pointer;
         user-select: none;
     }
-    .context-toolbar label.active {
+    .context-menu label.active {
         border-color: color-mix(in srgb, var(--risu-theme-primary) 60%, var(--terminal-line));
         color: var(--risu-theme-primary);
         background: color-mix(in srgb, var(--risu-theme-primary) 10%, transparent);
     }
-    .context-toolbar input {
+    .context-menu input {
         width: .72rem;
         height: .72rem;
         margin: 0;
         accent-color: var(--risu-theme-primary);
     }
-    .context-toolbar input:disabled { opacity: .55; }
-    .template-open {
+    .context-menu input:disabled { opacity: .55; }
+    .toolbar-button,
+    .restore-button {
         display: inline-flex;
         align-items: center;
         gap: .34rem;
@@ -435,16 +510,28 @@
         font-weight: 700;
         cursor: pointer;
     }
-    .template-open:hover,
-    .template-open:focus-visible {
+    .restore-button {
+        display: grid;
+        place-items: center;
+        width: 1.9rem;
+        min-width: 1.9rem;
+        padding: 0;
+    }
+    .toolbar-button:hover,
+    .toolbar-button:focus-visible,
+    .restore-button:hover:not(:disabled),
+    .restore-button:focus-visible {
         border-color: var(--risu-theme-primary);
         color: var(--risu-theme-primary);
         outline: 0;
     }
+    .restore-button:disabled { cursor: not-allowed; opacity: .42; }
+    .toolbar-spacer { flex: 1 1 auto; min-width: .25rem; }
+    .terminal-toolbar :global([data-wiki-command-run]) { flex: 0 0 auto; }
     .terminal-body {
         display: grid;
         flex: 1;
-        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-columns: auto minmax(0, 1fr);
         align-items: stretch;
         gap: .55rem;
         min-height: 0;
@@ -473,12 +560,6 @@
     textarea:focus-visible {
         border-left-color: var(--risu-theme-primary);
         background: color-mix(in srgb, var(--risu-theme-primary) 3%, transparent);
-    }
-    .terminal-body :global(button) {
-        align-self: end;
-        min-width: 6.6rem;
-        min-height: 2.5rem;
-        justify-content: center;
     }
     .terminal-status {
         display: grid;
@@ -648,24 +729,16 @@
             box-shadow: none;
         }
         .command-terminal.mobile-layout > header {
-            display: grid;
-            gap: .3rem;
+            display: flex;
+            gap: .28rem;
             padding: .4rem .45rem;
         }
         .mobile-layout .terminal-title { display: none; }
-        .mobile-layout .terminal-toolbar { flex-wrap: wrap; }
-        .mobile-layout .context-toolbar {
-            flex: 1 1 100%;
-            flex-wrap: wrap;
-            justify-content: flex-start;
-            min-width: 0;
-        }
-        .mobile-layout .context-toolbar label {
-            flex: 0 0 auto;
+        .mobile-layout .context-menu label {
             min-height: 2.25rem;
             padding-inline: .5rem;
         }
-        .mobile-layout .template-open {
+        .mobile-layout .toolbar-button {
             min-height: 2.25rem;
             justify-content: center;
             padding-inline: .55rem;

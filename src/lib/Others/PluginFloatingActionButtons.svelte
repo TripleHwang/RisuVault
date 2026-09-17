@@ -199,6 +199,7 @@
             size
         ))
     }
+
 </script>
 
 <svelte:window onresize={() => viewport = readViewport()} />

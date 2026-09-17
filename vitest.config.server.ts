@@ -4,6 +4,11 @@ import { defineConfig } from 'vitest/config'
 // Node modules and pure data-layer logic, no DOM. Kept separate
 // from the default happy-dom suite (vitest.config.ts) like the compat suite.
 export default defineConfig({
+  resolve: {
+    alias: {
+      src: '/src',
+    },
+  },
   test: {
     environment: 'node',
     include: ['server/node/**/*.test.ts'],

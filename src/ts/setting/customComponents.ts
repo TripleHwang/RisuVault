@@ -35,6 +35,7 @@ import PromptRegexBlock from 'src/lib/Setting/Pages/PromptPreset/PromptRegexBloc
 import ModelRegistryRefresh from 'src/lib/Setting/Pages/Model/ModelRegistryRefresh.svelte';
 import ModuleModelBindingList from 'src/lib/Setting/Pages/Model/ModuleModelBindingList.svelte';
 import RisuBardArcPlotterPresets from 'src/lib/Setting/Pages/RisuBardArcPlotterPresets.svelte';
+import RisuBardGrimoireLanguageSettings from 'src/lib/Setting/Pages/RisuBardGrimoireLanguageSettings.svelte';
 
 /**
  * Registry of custom components.
@@ -61,6 +62,7 @@ export const customComponents: Record<string, Component<any>> = {
     'ModelRegistryRefresh': ModelRegistryRefresh,
     'ModuleModelBindingList': ModuleModelBindingList,
     'RisuBardArcPlotterPresets': RisuBardArcPlotterPresets,
+    'RisuBardGrimoireLanguageSettings': RisuBardGrimoireLanguageSettings,
     // Add more as we migrate complex settings
 } as const;
 

@@ -1,5 +1,5 @@
 export type AutomaticWikiDocumentType = 'character' | 'location' | 'scene'
-    | 'faction' | 'item' | 'concept' | 'other'
+    | 'faction' | 'creature' | 'item' | 'concept' | 'other'
 
 export interface AutomaticWikiDocumentDescriptor {
     id: string
@@ -15,7 +15,8 @@ export interface AutomaticWikiTarget {
 }
 
 const canonicalTypes = new Set<AutomaticWikiDocumentType>([
-    'character', 'location', 'scene', 'faction', 'item', 'concept', 'other',
+    'character', 'location', 'scene', 'faction', 'creature', 'item',
+    'concept', 'other',
 ])
 
 export function parseAutomaticWikiTargets(

@@ -88,12 +88,40 @@ export function normalizeFetchError(err: unknown): ModelPresetAdapterError {
 }
 
 /**
+ * Pulls the upstream provider message out of a gateway wrapper's
+ * `metadata.raw`, or returns null when there is nothing to unwrap.
+ */
+function unwrapGatewayMessage(
+    wrapper: { metadata?: { raw?: unknown } }
+): string | null {
+    const raw = wrapper.metadata?.raw
+    if (typeof raw !== 'string') return null
+    try {
+        const inner = JSON.parse(raw) as { error?: { message?: unknown } }
+        const message = inner?.error?.message
+        if (typeof message === 'string' && message.trim()) return message
+    } catch {
+        // Not JSON — fall back to the wrapper's own message.
+    }
+    return null
+}
+
+/**
  * Best-effort error message extractor for vendor JSON error bodies. Handles
  * the common shapes:
  *  - `{ error: { message } }` — OpenAI-compatible, Anthropic Messages, Google AI Studio
  *  - `{ message }`            — bare-message responses
  *  - `{ error_description }`  — Google OAuth token endpoint (RFC 6749 §5.2)
  *  - `{ error }` (string)     — Google OAuth error code (e.g. "invalid_grant")
+ *
+ * Gateways that proxy other providers wrap the upstream failure and put their
+ * own text in `error.message`, keeping the real reason in `error.metadata.raw`
+ * (OpenRouter: `{"error":{"message":"Provider returned error","metadata":
+ * {"raw":"{…}"}}}`). Returning the wrapper hides why the request failed and
+ * defeats callers that match on the provider's wording — most notably
+ * `isStructuredOutputSchemaRejection`, whose anchored regex targets Google's
+ * exact "Request contains an invalid argument." That is why the unwrapped
+ * message is returned on its own rather than appended to the wrapper.
  *
  * Returns the first match in priority order, or a truncated raw body if the
  * payload is not JSON, or `null` if JSON parsed but no known field matched.
@@ -111,7 +139,11 @@ export function extractErrorMessage(bodyText: string): string | null {
             && parsed.error !== null
             && typeof (parsed.error as { message?: unknown }).message === 'string'
         ) {
-            return (parsed.error as { message: string }).message
+            const wrapper = parsed.error as {
+                message: string
+                metadata?: { raw?: unknown }
+            }
+            return unwrapGatewayMessage(wrapper) ?? wrapper.message
         }
         if (typeof parsed?.message === 'string') return parsed.message
         if (typeof parsed?.error_description === 'string') {

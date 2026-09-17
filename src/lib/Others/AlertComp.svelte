@@ -34,7 +34,7 @@
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
     import Help from "./Help.svelte";
     import { getChatBranches } from "src/ts/gui/branches";
-    import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
+    import { applyTogglePresetToChat, getCurrentCharacter, getCurrentChat, setPinnedTogglePresetBaseline, type TogglePreset, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
     import { selectSingleFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
@@ -730,6 +730,7 @@
 
 <ShAlertDialog
     open={$alertStore.type === 'ask'}
+    tier={$alertStore.tier ?? 'alert'}
     closeOnOutsideClick={true}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'ask') {
@@ -849,6 +850,7 @@
 
 <ShDialog
     open={$alertStore.type === 'input'}
+    tier={$alertStore.tier ?? 'alert'}
     closable={false}
     closeOnOutsideClick={false}
 >
@@ -952,7 +954,7 @@
                                     const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
                                     const confirmed = await alertConfirm(msg)
                                     if (!confirmed) return
-                                    applyToggleValues(preset.values)
+                                    applyTogglePresetToChat(preset)
                                     notifySuccess((language.togglePresetApplied as any)(name))
                                     closeTogglePresets()
                                 }}>
@@ -988,19 +990,18 @@
                                                 </ShButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
-                                        <!-- z-[45] sits between the base togglePresets dialog (z-40) and
-                                             nested alertConfirm/alertInput (z-50): the menu floats over
-                                             the list but is occluded by the confirm popups it triggers. -->
-                                        <ShDropdownMenuContent class="z-[45] min-w-40" align="end">
+                                        <ShDropdownMenuContent class="min-w-40" align="end">
                                             <ShDropdownMenuItem onSelect={async () => {
                                                 const idx = i
                                                 const presetName = DBState.db.togglePresets![idx].name
                                                 const confirmed = await alertConfirm((language.togglePresetOverwriteConfirm as any)(presetName))
                                                 if (confirmed) {
                                                     const promptPreset = DBState.db.botPresets[DBState.db.botPresetsId]
-                                                    DBState.db.togglePresets![idx].values = snapshotCurrentToggleValues()
+                                                    const values = snapshotCurrentToggleValues()
+                                                    DBState.db.togglePresets![idx].values = values
                                                     DBState.db.togglePresets![idx].promptPresetName = promptPreset?.name
                                                     DBState.db.togglePresets = [...DBState.db.togglePresets!]
+                                                    setPinnedTogglePresetBaseline(getCurrentChat(), values, presetName)
                                                     notifySuccess((language.togglePresetOverwritten as any)(presetName))
                                                 }
                                             }}>

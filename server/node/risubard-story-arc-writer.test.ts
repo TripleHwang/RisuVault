@@ -66,9 +66,9 @@ describe('story arc writer', () => {
 
         expect(plan?.events).toHaveLength(4)
         expect(storyArcRewriteInstruction('ko', settings)).toContain(
-            '아크 글머리표 최대 5개, 전환점 최대 9개, 미해결 줄기 최대 3개'
+            'at most 5 chronological arc bullets, 9 turning-point bullets, and 3 open-thread bullets'
         )
-        expect(storyArcRewriteInstruction('ko', settings)).toContain('4,500자')
+        expect(storyArcRewriteInstruction('ko', settings)).toContain('4,500 characters')
     })
 
     test('continues from the program checkpoint and updates one reserved map', () => {
@@ -77,7 +77,7 @@ describe('story arc writer', () => {
             type: 'other' as const,
             title: 'Story Arc Map',
             content: stampStoryArcCheckpoint(
-                '## Story Arc Map\n\n### Arc Overview\n\n- The road begins.',
+                '## Story Arc Map\n\n### Arc Overview\n\n- The road begins at [[사건 8]].',
                 'event.8'
             ),
             sourceMessageIds: [],
@@ -103,6 +103,38 @@ describe('story arc writer', () => {
             Array.from({ length: 8 }, (_, index) => `event.${index + 9}`)
         )
         expect(readStoryArcCheckpoint(existing.content)).toBe('event.8')
+    })
+
+    test('repairs a checkpoint plot that has no event links', () => {
+        const existing = {
+            id: 'other.story-arc-plot',
+            type: 'other' as const,
+            title: '스토리 아크 플롯',
+            content: stampStoryArcCheckpoint(
+                '## 스토리 아크 플롯\n\n### 아크 개요\n\n- 관문까지 여정이 이어졌다.',
+                'event.8'
+            ),
+            sourceMessageIds: [],
+        }
+        const plan = buildStoryArcUpdatePlan({
+            documents: [
+                existing,
+                ...Array.from({ length: 9 }, (_, index) => event(index + 1)),
+            ],
+            savedEvents: [],
+            writingLanguage: 'ko',
+        })
+
+        expect(plan).toMatchObject({
+            checkpointEventId: 'event.8',
+            candidate: {
+                action: 'update',
+                targetDocumentId: 'other.story-arc-plot',
+            },
+        })
+        expect(plan?.events.map((item) => item.id)).toEqual(
+            Array.from({ length: 8 }, (_, index) => `event.${index + 1}`)
+        )
     })
 
     test('replaces a stale checkpoint marker without changing the body', () => {
@@ -133,5 +165,23 @@ describe('story arc writer', () => {
         expect(isStoryArcTitle('Story Arc Plot')).toBe(true)
         expect(isStoryArcTitle('스토리 아크 지도')).toBe(true)
         expect(isStoryArcTitle('Story Arc Map')).toBe(true)
+    })
+
+    test.each([
+        ['ja', 'ストーリーアークプロット', 'アーク概要'],
+        ['zh-Hans', '故事篇章情节', '篇章概览'],
+        ['zh-Hant', '故事篇章情節', '篇章概覽'],
+    ] as const)('uses locale data for the %s story arc', (locale, title, overview) => {
+        const plan = buildStoryArcUpdatePlan({
+            documents: Array.from(
+                { length: STORY_ARC_CHECKPOINT_SIZE },
+                (_, index) => event(index + 1)
+            ),
+            savedEvents: [],
+            writingLanguage: locale,
+        })
+        expect(plan?.candidate.title).toBe(title)
+        expect(storyArcRewriteInstruction(locale)).toContain(overview)
+        expect(isStoryArcTitle(title)).toBe(true)
     })
 })

@@ -16,29 +16,36 @@ const mocks = vi.hoisted(() => ({
     downloadFile: vi.fn(),
 }))
 
-vi.mock('src/ts/risubard/chatRequestEvidence', () => ({
-    loadChatRequestEvidence: mocks.loadChatRequestEvidence,
-    addRetainedAssistantSummary: mocks.addRetainedAssistantSummary,
-    formatChatRequestEvidenceMarkdown: vi.fn(() => '# evidence'),
-    buildLegacyChatRequestEvidence: vi.fn((chatId: string, entries: unknown[]) => ({
-        schemaVersion: 1,
-        generatedAt: '2026-08-12T04:00:00.000Z',
-        chatId,
-        requestCount: entries.length,
-        totals: { inputTokens: 10, outputTokens: 2, cachedTokens: 0, reasoningTokens: 0 },
-        requests: entries.map((entry: any, index: number) => ({
-            id: -(index + 1),
-            timestamp: new Date(entry.timestamp).toISOString(),
-            generationId: entry.generationId,
-            source: 'main',
-            model: entry.model,
-            outcome: 'done',
-            streaming: false,
-            inputTokens: entry.inputTokens,
-            outputTokens: entry.outputTokens,
+vi.mock('src/ts/risubard/chatRequestEvidence', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('src/ts/risubard/chatRequestEvidence')>()
+    return {
+        ...actual,
+        loadChatRequestEvidence: mocks.loadChatRequestEvidence,
+        addRetainedAssistantSummary: mocks.addRetainedAssistantSummary,
+        formatChatRequestEvidenceMarkdown: vi.fn(() => '# evidence'),
+        chatRequestFailureLabel: vi.fn((category: string) => category === 'format'
+            ? '구조화 응답 검증 오류'
+            : '공급자 응답 오류'),
+        buildLegacyChatRequestEvidence: vi.fn((chatId: string, entries: unknown[]) => ({
+            schemaVersion: 1,
+            generatedAt: '2026-08-12T04:00:00.000Z',
+            chatId,
+            requestCount: entries.length,
+            totals: { inputTokens: 10, outputTokens: 2, cachedTokens: 0, reasoningTokens: 0 },
+            requests: entries.map((entry: any, index: number) => ({
+                id: -(index + 1),
+                timestamp: new Date(entry.timestamp).toISOString(),
+                generationId: entry.generationId,
+                source: 'main',
+                model: entry.model,
+                outcome: 'done',
+                streaming: false,
+                inputTokens: entry.inputTokens,
+                outputTokens: entry.outputTokens,
+            })),
         })),
-    })),
-}))
+    }
+})
 vi.mock('src/ts/globalApi.svelte', () => ({
     downloadFile: mocks.downloadFile,
 }))
@@ -115,6 +122,92 @@ describe('RisuBardMemoryActivity', () => {
 
         expect(document.body.textContent).toContain(
             '위키 조회 제한 시간을 초과했습니다.'
+        )
+    })
+
+    it('interleaves provider responses and canonical results without inventing retries', async () => {
+        mocks.loadChatRequestEvidence.mockResolvedValue({
+            schemaVersion: 1,
+            generatedAt: '2026-09-01T04:08:00.000Z',
+            chatId: 'chat-result',
+            requestCount: 3,
+            totals: { inputTokens: 30, outputTokens: 9, cachedTokens: 0, reasoningTokens: 0 },
+            requests: [3, 2, 1].map((id) => ({
+                id,
+                timestamp: id === 3
+                    ? '2026-09-01T04:08:03.000Z'
+                    : `2026-09-01T04:07:0${id}.000Z`,
+                source: 'memory',
+                purpose: 'bardwiki-canonical-update',
+                outcome: id === 3 ? 'failed' : 'response-received',
+                ...(id === 3 ? { failureCategory: 'format' as const } : {}),
+                streaming: false,
+                inputTokens: 10,
+                outputTokens: 3,
+            })),
+        })
+        const target = document.body.appendChild(document.createElement('div'))
+        mounted = mount(RisuBardMemoryActivity, {
+            target,
+            props: {
+                characterId: 'character',
+                chatId: 'chat-result',
+                messages: [{
+                    role: 'char', data: 'reply',
+                    time: Date.parse('2026-09-01T04:07:45.000Z'),
+                    chatId: 'assistant-1',
+                    risubardCanonicalReceipt: {
+                        sourceMessageIds: ['assistant-1'],
+                        eventIds: ['event-1'],
+                        changes: [],
+                        warnings: ['정본 문서 갱신 실패 (응답 형식 오류). 다음 턴에 자동으로 다시 시도합니다.'],
+                        recordedAt: '2026-09-01T04:07:45.000Z',
+                    },
+                }],
+            },
+        })
+
+        await vi.waitFor(() => {
+            expect(document.body.textContent).toContain('BardWiki 정본 반영')
+            expect(document.body.textContent).toContain('실패')
+            expect(document.body.textContent).toContain('응답 수신')
+            expect(document.body.textContent).toContain('구조화 응답 검증 오류')
+        })
+        expect(document.body.textContent).not.toContain('확정 작업 결과')
+        expect(document.body.textContent).not.toContain('응답 시도')
+        expect([...document.querySelectorAll('time')].map((node) => node.dateTime))
+            .toEqual([
+                '2026-09-01T04:08:03.000Z',
+                '2026-09-01T04:07:45.000Z',
+                '2026-09-01T04:07:02.000Z',
+                '2026-09-01T04:07:01.000Z',
+            ])
+    })
+
+    it('does not show an empty state when only a canonical result exists', async () => {
+        const target = document.body.appendChild(document.createElement('div'))
+        mounted = mount(RisuBardMemoryActivity, {
+            target,
+            props: {
+                characterId: 'character',
+                chatId: 'receipt-only',
+                messages: [{
+                    role: 'char', data: 'reply', chatId: 'assistant-only',
+                    risubardCanonicalReceipt: {
+                        sourceMessageIds: ['assistant-only'],
+                        eventIds: ['event-only'],
+                        changes: [], warnings: [],
+                        recordedAt: '2026-09-01T04:07:45.000Z',
+                    },
+                }],
+            },
+        })
+
+        await vi.waitFor(() => {
+            expect(document.body.textContent).toContain('BardWiki 정본 반영')
+        })
+        expect(document.body.textContent).not.toContain(
+            '이 채팅에 보존된 요청 기록이 없습니다.'
         )
     })
 
@@ -305,8 +398,11 @@ describe('RisuBardMemoryActivity', () => {
                         { kind: 'persona', tokens: 200 },
                         { kind: 'wiki', name: 'characters/라비안.md', tokens: 400 },
                         { kind: 'lorebook', name: 'Main', tokens: 500 },
-                        { kind: 'chatHistory', name: '3개 (8~10)', tokens: 600 },
-                        { kind: 'instruction', name: 'Guidelines', tokens: 700 },
+                        { kind: 'chatHistory', name: '4개 (1~4)', tokens: 300 },
+                        { kind: 'instruction', name: 'Guidelines', tokens: 350 },
+                        { kind: 'chatHistory', name: '1개 (5~5)', tokens: 150 },
+                        { kind: 'instruction', name: 'Postamble', tokens: 350 },
+                        { kind: 'chatHistory', name: '1개 (6~6)', tokens: 150 },
                     ],
                 },
             }],
@@ -329,11 +425,22 @@ describe('RisuBardMemoryActivity', () => {
         expect(summary).toContain('페르소나 200')
         expect(summary).toContain('BardWiki 400')
         expect(summary).toContain('로어북 500')
-        expect(summary).toContain('채팅 기록 3개 (8~10) 600')
+        expect(summary).toContain('채팅 기록 6개 (1~6) 600')
         expect(document.body.textContent).not.toContain('보존 요청 1')
         expect(document.body.textContent).not.toContain('이번 실행 이벤트 0')
         expect(card.querySelector('.request-details')?.textContent).toContain('System Rule')
-        expect(card.querySelector('.request-details')?.textContent).toContain('채팅 기록 3개 (8~10)')
+        const details = card.querySelector('.request-details')?.textContent ?? ''
+        expect(details).toContain('채팅 기록 6개 (1~6)')
+        expect(details.match(/추가 지침/g)).toHaveLength(1)
+        expect(details).not.toContain('5~5')
+        expect(details).not.toContain('6~6')
+        const instructionGroup = card.querySelector<HTMLDetailsElement>(
+            '[data-injection-group="instruction"]'
+        )
+        expect(instructionGroup).not.toBeNull()
+        expect(instructionGroup?.open).toBe(false)
+        expect(instructionGroup?.textContent).toContain('Guidelines')
+        expect(instructionGroup?.textContent).toContain('Postamble')
         expect(document.querySelector('.request-kind')?.textContent).not.toMatch(/^\[|\]$/)
     })
 

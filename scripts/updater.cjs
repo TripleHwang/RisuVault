@@ -10,8 +10,8 @@ const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const { compareUpdateVersions, isAllowedGitHubReleaseUrl, validateUpdateManifest } = require('../server/node/update-manifest.cjs');
+const { execFileSync, execSync } = require('child_process');
+const { rollbackInterruptedUpdate } = require('./updater-recovery.cjs');
 
 // A standalone build must be pointed at the fork that owns its releases.
 // Do not fall back to the upstream repository: its artifacts may carry a
@@ -19,26 +19,39 @@ const { compareUpdateVersions, isAllowedGitHubReleaseUrl, validateUpdateManifest
 const REPO = (process.env.RISU_UPDATE_REPOSITORY || 'TripleHwang/RisuVault').trim();
 const ROOT = path.resolve(__dirname, '..');
 
+// Everything under server/ is moved to .update-tmp/backup while an update is
+// applied, so a killed update can leave it absent until the backup is
+// restored. scripts/ is never moved. These helpers are therefore loaded on
+// demand rather than at module init: the --rollback path needs nothing from
+// server/, and the normal path restores an interrupted backup first (see
+// recoverInterruptedInstallation) using updater-recovery.cjs, which is
+// self-contained. The specifiers stay string literals on purpose —
+// scripts/portable/gen-server-deps.cjs walks this file's require graph and
+// rejects non-literal specifiers.
+function loadPortableUpdate() {
+    return require('../server/node/portable-update.cjs');
+}
+function loadUpdateManifest() {
+    return require('../server/node/update-manifest.cjs');
+}
+
 const isWin = process.platform === 'win32';
-const REQUIRED_ENTRIES = ['dist', 'server', 'package.json'];
+const REQUIRED_ENTRIES = ['dist', 'server', 'package.json', 'node_modules'];
 const REQUIRED_DIST_FILES = ['index.html'];
 const REQUIRED_WIN_ENTRIES = ['bin'];
 const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
 
-function log(msg) { process.stdout.write(`[updater] ${msg}\n`); }
-function error(msg) { process.stderr.write(`[ERROR] ${msg}\n`); process.exit(1); }
+function log(msg) {
+    process.stdout.write(`[updater] ${msg}\n`);
+    try { fs.appendFileSync(path.join(ROOT, 'update.log'), `${new Date().toISOString()} ${msg}\n`); } catch {}
+}
+function error(msg) { log(`[ERROR] ${msg}`); process.exit(1); }
 
 function getCurrentVersion() {
-    const markerPath = path.join(ROOT, '.installed-version');
-    if (fs.existsSync(markerPath)) {
-        return fs.readFileSync(markerPath, 'utf-8').trim();
-    }
     try {
         const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
         return 'v' + pkg.version;
-    } catch {
-        return 'unknown';
-    }
+    } catch { return 'unknown'; }
 }
 
 // If the user moved the server-backup directory to a custom location *inside*
@@ -141,6 +154,7 @@ function resolveExtractedRoot(extractedDir) {
 }
 
 function validateExtractedRoot(extractedRoot) {
+    loadPortableUpdate().validatePackage(extractedRoot);
     for (const entry of REQUIRED_ENTRIES) {
         if (!fs.existsSync(path.join(extractedRoot, entry))) {
             throw new Error(`Downloaded package is missing required entry: ${entry}`);
@@ -160,19 +174,66 @@ function validateExtractedRoot(extractedRoot) {
     }
 }
 
-function restoreBackupIntoRoot(backupDir, overwrite = true) {
+function restoreBackupIntoRoot(backupDir) {
     if (!fs.existsSync(backupDir)) return;
-    for (const entry of fs.readdirSync(backupDir)) {
-        const src = path.join(backupDir, entry);
-        const dest = path.join(ROOT, entry);
-        try {
-            if (overwrite && fs.existsSync(dest)) {
-                fs.rmSync(dest, { recursive: true, force: true });
-            }
-            if (!fs.existsSync(dest)) {
-                fs.renameSync(src, dest);
-            }
-        } catch { /* best effort */ }
+    const { restoreEntries } = loadPortableUpdate();
+    restoreEntries(ROOT, backupDir, fs.readdirSync(backupDir).filter(entry => entry !== 'update.bat'));
+}
+
+// A previous update may have been killed part-way. Put the installation back
+// together before reading its version, so a half-applied update is never
+// mistaken for an installed one.
+function recoverInterruptedInstallation() {
+    const tmpDir = path.join(ROOT, '.update-tmp');
+    const interrupted = path.join(tmpDir, 'backup');
+    if (!fs.existsSync(interrupted)) return;
+    const statePath = path.join(tmpDir, 'install-state.json');
+    const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;
+    if (state?.phase === 'complete') {
+        loadPortableUpdate().validatePackage(ROOT);
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return;
+    }
+    log('Recovering interrupted installation before checking its version...');
+    if (!fs.existsSync(path.join(ROOT, 'server', 'node', 'portable-update.cjs'))) {
+        // server/ itself is still in the backup, so the restore helper cannot
+        // be loaded from it. updater-recovery.cjs needs nothing from server/.
+        rollbackInterruptedUpdate(ROOT, { log });
+        return;
+    }
+    restoreBackupIntoRoot(interrupted);
+}
+
+function assertNoOtherWindowsRuntimeProcesses() {
+    if (!isWin) return;
+
+    const script = [
+        "$target = [IO.Path]::GetFullPath($env:RISUBARD_RUNTIME_DIR).TrimEnd('\\')",
+        '$selfPid = [int]$env:RISUBARD_UPDATER_PID',
+        "$launcher = Join-Path $env:RISUBARD_INSTALL_DIR 'RisuVault.exe'",
+        "$running = @(Get-Process -Name node,cloudflared,RisuVault -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $selfPid -and $_.Path -and ([IO.Path]::GetFullPath((Split-Path -Parent $_.Path)).TrimEnd('\\') -ieq $target -or $_.Path -ieq $launcher) })",
+        "if ($running.Count -gt 0) { $running | ForEach-Object { Write-Output ('{0} (PID {1})' -f $_.Path, $_.Id) }; exit 23 }",
+    ].join('; ');
+
+    try {
+        execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+            encoding: 'utf8',
+            env: {
+                ...process.env,
+                RISUBARD_RUNTIME_DIR: path.join(ROOT, 'bin'),
+                RISUBARD_INSTALL_DIR: ROOT,
+                RISUBARD_UPDATER_PID: String(process.pid),
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+    } catch (e) {
+        const details = String(e.stdout || '').trim();
+        if (e.status === 23) {
+            throw new Error(
+                `Another RisuVault runtime is still running. Close every RisuVault console and remote-access tunnel, then run update.bat again.${details ? `\n${details}` : ''}`
+            );
+        }
+        throw new Error(`Could not verify that RisuVault is closed. Close it and run update.bat again. (${e.message})`);
     }
 }
 
@@ -215,9 +276,13 @@ function areDirectoriesEquivalent(a, b) {
 }
 
 async function main() {
+    assertNoOtherWindowsRuntimeProcesses();
+    recoverInterruptedInstallation();
     if (!REPO) {
         error('Self-update is not configured. Set RISU_UPDATE_REPOSITORY to the owner/repository that publishes this standalone build.');
     }
+    const { validatePackage } = loadPortableUpdate();
+    const { compareUpdateVersions, isAllowedGitHubReleaseUrl, validateUpdateManifest } = loadUpdateManifest();
     const current = getCurrentVersion();
     log(`Current version: ${current}`);
     log('Checking for updates...');
@@ -235,8 +300,11 @@ async function main() {
     if (!latest) error('Could not determine latest version.');
 
     if (current === latest) {
-        log(`Already up to date (${current}).`);
-        return;
+        try {
+            validatePackage(ROOT);
+            log(`Already up to date (${current}); dependencies verified.`);
+            return;
+        } catch { log('Current installation is incomplete; downloading the same version to repair it.'); }
     }
 
     log(`New version available: ${latest}`);
@@ -266,7 +334,7 @@ async function main() {
         const prevBackup = path.join(tmpDir, 'backup');
         if (fs.existsSync(prevBackup)) {
             log('Restoring files from previous interrupted update...');
-            restoreBackupIntoRoot(prevBackup, true);
+            restoreBackupIntoRoot(prevBackup);
         }
         fs.rmSync(tmpDir, { recursive: true });
     }
@@ -288,6 +356,10 @@ async function main() {
     const extractedDir = path.join(tmpDir, 'extracted');
     const extractedRoot = resolveExtractedRoot(extractedDir);
     validateExtractedRoot(extractedRoot);
+    const certificate = path.join(ROOT, 'server', 'node', 'ssl', 'certificate');
+    if (fs.existsSync(certificate)) {
+        fs.cpSync(certificate, path.join(extractedRoot, 'server', 'node', 'ssl', 'certificate'), { recursive: true });
+    }
     const currentBin = path.join(ROOT, 'bin');
     const newBin = path.join(extractedRoot, 'bin');
     const skipBinReplacement = fs.existsSync(currentBin)
@@ -299,7 +371,7 @@ async function main() {
 
     // Phase 1: move old files to backup (safer than immediate delete)
     log('Replacing files...');
-    const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable']);
+    const keep = new Set(['save', 'backups', '.installed-version', '.update-tmp', 'scripts', '.env', '.npmrc', '.portable', 'update.log', 'update.bat']);
     if (isWin || skipBinReplacement) keep.add('bin');
     const customBackupKeep = getCustomBackupKeepEntry();
     if (customBackupKeep && !keep.has(customBackupKeep)) {
@@ -316,7 +388,7 @@ async function main() {
         } catch (e) {
             log(`Error backing up ${entry}: ${e.message}`);
             log('Restoring files already moved to backup...');
-            restoreBackupIntoRoot(backupDir, true);
+            restoreBackupIntoRoot(backupDir);
             error(isWin
                 ? 'Update failed because some files are in use. Close the running RisuVault window/console first, then run update.bat again.'
                 : 'Update failed because some files are in use. Stop the running server first, then try again.');
@@ -325,7 +397,7 @@ async function main() {
 
     // Phase 2: move new files from extracted to root
     const moved = [];
-    const skipMove = new Set(['save', 'scripts']);
+    const skipMove = new Set(['save', 'scripts', 'update.bat']);
     if (isWin || skipBinReplacement) skipMove.add('bin');
     try {
         for (const entry of fs.readdirSync(extractedRoot)) {
@@ -348,11 +420,12 @@ async function main() {
                 throw new Error(`Required file was not installed: dist/${file}`);
             }
         }
+        validatePackage(ROOT);
     } catch (e) {
         // Restore from backup on failure
         log(`Error moving files: ${e.message}`);
         log('Restoring from backup...');
-        restoreBackupIntoRoot(backupDir, true);
+        restoreBackupIntoRoot(backupDir);
         error('Update failed, previous version restored. Please try again.');
     }
 
@@ -410,4 +483,12 @@ async function main() {
     }
 }
 
-main().catch((e) => error(e.message));
+if (process.argv.includes('--rollback')) {
+    try {
+        rollbackInterruptedUpdate(ROOT, { log });
+    } catch (e) {
+        error(`Automatic rollback failed: ${e.message}`);
+    }
+} else {
+    main().catch((e) => error(e.message));
+}

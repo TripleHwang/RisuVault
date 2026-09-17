@@ -16,6 +16,12 @@ describe('matchesLorebookKey', () => {
         expect(matchesLorebookKey('fighting now', 'fight', 'whitespace')).toBe(false)
     })
 
+    it('matches a multi-word key as consecutive whitespace-delimited terms', () => {
+        expect(matchesLorebookKey('game over', 'game over', 'whitespace')).toBe(true)
+        expect(matchesLorebookKey('the game over screen', 'game over', 'whitespace')).toBe(true)
+        expect(matchesLorebookKey('game overrun', 'game over', 'whitespace')).toBe(false)
+    })
+
     it('matches Unicode word boundaries around punctuation', () => {
         expect(matchesLorebookKey('fight, now', 'fight', 'word-boundary', 'en')).toBe(true)
         expect(matchesLorebookKey('(fight)', 'fight', 'word-boundary', 'en')).toBe(true)

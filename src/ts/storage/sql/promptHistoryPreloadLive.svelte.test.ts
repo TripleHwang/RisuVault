@@ -198,7 +198,10 @@ describe("loading the history a prompt needs before generating", () => {
       { chatId: "chat-vanishing", length: TRIMMING },
       { chatId: "chat-measure", length: MEASURED, body: realisticBody },
       // Two of every three recent messages disabled: the shape the raw
-      // target's "double it and add eight" guess is wrong about.
+      // target's settings-only guess (`visible + 8` slots) is wrong about, so
+      // the walk has to read the messages to find out. Visible messages are
+      // the indices divisible by three, 400 of the 1200; the newest resident
+      // slice of N messages holds about N / 3 of them.
       { chatId: "chat-disabled", length: MEASURED, disabled: (index) => index % 3 !== 0 },
     ]))).toBe(true);
     activeStorage.current = storage;
@@ -344,8 +347,19 @@ describe("loading the history a prompt needs before generating", () => {
 
     it("loads 40 of them at default settings, in no requests at all", async () => {
       const character = await openChat("chat-measure");
+      // Twelve turns of working set and twelve of recent-memory projection
+      // each reach `12 x 2 + 1 = 25` messages (each turn's char message and
+      // the user message before it, plus the user message being sent). The
+      // raw guess at the slots holding them is `25 + 8 = 33`, the lorebook
+      // scan depth is 5, and the larger of those is under the 40 a chat opens
+      // on, so the floor is the target. The 40 already resident satisfy it
+      // before the first page request: zero requests, which is the figure
+      // this feature was published on. A multiplier on the guess -- the
+      // `25 x 2 + 8 = 58` of the previous round -- would put one 18-message
+      // page on every chat's first send.
       const bound = boundFor({});
-      expect(bound.targetMessages).toBe(40);
+      expect(bound.targetMessages).toBe(OPEN_PAGE);
+      expect(bound.targetEnabledMessages).toBe(25);
 
       const result = await ensurePromptHistoryResident({
         character,
@@ -357,7 +371,7 @@ describe("loading the history a prompt needs before generating", () => {
       });
       flushSync();
 
-      expect(result.resident).toBe(40);
+      expect(result.resident).toBe(OPEN_PAGE);
       expect(result.requests).toBe(0);
       expect(result.historySatisfied).toBe(true);
       expect(result.holdsNewestEnd).toBe(true);
@@ -377,6 +391,8 @@ describe("loading the history a prompt needs before generating", () => {
           { comment: "deep", key: "brackwater", content: "@@scan_depth 150\ndeep entry", mode: "normal", insertorder: 100, alwaysActive: false, secondkey: "", selective: false },
         ],
       });
+      // The scan depth is a RAW term -- it slices resident slots, not visible
+      // messages -- so it takes no headroom: `max(25 + 8, 150) = 150`.
       expect(bound.targetMessages).toBe(150);
 
       const result = await ensurePromptHistoryResident({
@@ -390,7 +406,8 @@ describe("loading the history a prompt needs before generating", () => {
       flushSync();
 
       // Exactly the scan's reach, not a round hundred past it: the last page is
-      // sized to what is still missing.
+      // sized to what is still missing. From 40 resident: 110 missing, one
+      // full page of 100 to 140, then a page of 10 to 150. Two requests.
       expect(result.resident).toBe(150);
       expect(result.requests).toBe(2);
       expect(result.resident).toBeLessThanOrEqual(MAX_RESIDENT_MESSAGES);
@@ -404,12 +421,14 @@ describe("loading the history a prompt needs before generating", () => {
 
     it("loads what a heavy narrative working set needs, and stops there", async () => {
       const character = await openChat("chat-measure");
-      // 100 messages of working set, doubled for the disabled headroom plus a
-      // fixed eight.
+      // A hundred TURNS of working set reach `100 x 2 + 1 = 201` messages of
+      // an alternating history, plus the fixed eight of disabled headroom:
+      // 209, inside the residency bound.
       const bound = boundFor({
         risuBardSettings: { risuBardResponseMessageCount: 100 },
       });
-      expect(bound.targetMessages).toBe(208);
+      expect(bound.targetMessages).toBe(209);
+      expect(bound.targetEnabledMessages).toBe(201);
 
       const result = await ensurePromptHistoryResident({
         character,
@@ -421,7 +440,9 @@ describe("loading the history a prompt needs before generating", () => {
       });
       flushSync();
 
-      expect(result.resident).toBe(208);
+      // From 40 resident: 169 missing, a full page of 100 to 140, then a page
+      // of 69 to 209. Two requests, and not one slot past the target.
+      expect(result.resident).toBe(209);
       expect(result.requests).toBe(2);
       // The deliberately heavy case still sits inside the residency bound,
       // which is the property that was lost.
@@ -430,16 +451,18 @@ describe("loading the history a prompt needs before generating", () => {
 
     it("clamps a hostile configuration to the residency bound rather than past it", async () => {
       const character = await openChat("chat-measure");
-      // 100 in the working set with user messages filtered out of it needs 200
-      // enabled messages, and the disabled headroom doubles that again: 408,
-      // which is more resident than this application is willing to hold.
+      // Two hundred turns reach `200 x 2 + 1 = 401` messages, `401 + 8 = 409`
+      // slots: more resident than this application is willing to hold, so
+      // both targets clamp to the ceiling. (Excluding user messages from the
+      // working set used to be what made a configuration hostile; it no longer
+      // moves the reach at all, because the user filter runs on the slice the
+      // turn walk has already selected -- `narrativeContext.ts:619` -- and
+      // `resolvePromptHistoryBound` reads the turn count alone.)
       const bound = boundFor({
-        risuBardSettings: {
-          risuBardResponseMessageCount: 100,
-          risuBardResponseExcludeUserMessages: true,
-        },
+        risuBardSettings: { risuBardResponseMessageCount: 200 },
       });
       expect(bound.targetMessages).toBe(MAX_RESIDENT_MESSAGES);
+      expect(bound.targetEnabledMessages).toBe(MAX_RESIDENT_MESSAGES);
 
       const result = await ensurePromptHistoryResident({
         character,
@@ -452,7 +475,9 @@ describe("loading the history a prompt needs before generating", () => {
       flushSync();
 
       // At the bound and not one message past it -- the last page is sized to
-      // what is still missing, so paging cannot overshoot into a trim.
+      // what is still missing, so paging cannot overshoot into a trim. From 40
+      // resident: full pages to 140 and 240, then the 80 of headroom left
+      // under the ceiling. Three requests.
       expect(result.resident).toBe(MAX_RESIDENT_MESSAGES);
       expect(result.requests).toBe(3);
       expect(hasNewerSqlMessages(character.chats[0])).toBe(false);
@@ -484,10 +509,13 @@ describe("loading the history a prompt needs before generating", () => {
       // means a send never shrinks the window a trigger script or a
       // `{{history}}` token sees. Passed straight through here to show the
       // preload itself does not add a floor of its own -- the bound owns it.
+      // One turn reaches `1 x 2 + 1 = 3` messages; the confirmed-memory turn
+      // (4) is then the largest enabled term, `4 + 8 = 12` slots, the scan
+      // depth is 5, and `max(12, 5)` is floored to the opening page.
       const bound = boundFor({
         risuBardSettings: { risuBardResponseMessageCount: 1, risuBardRecentMessageCount: 1 },
       });
-      expect(bound.targetMessages).toBe(40);
+      expect(bound.targetMessages).toBe(OPEN_PAGE);
       const result = await ensurePromptHistoryResident({
         character,
         chatIndex: 0,
@@ -500,20 +528,29 @@ describe("loading the history a prompt needs before generating", () => {
     }, 120_000);
 
     it("keeps paging when disabled messages make the raw target optimistic", async () => {
-      // `targetMessages` is a guess -- "double the visible requirement and add
-      // eight" -- made before a single message is loaded. On a chat with two of
-      // every three recent messages disabled that guess is short by a third,
-      // and the prompt would have been built from 43 of the 60 messages the
-      // reader configured, with nothing to say so. The walk checks the guess
-      // against the messages it actually holds.
-      const bound = boundFor({ risuBardSettings: { risuBardResponseMessageCount: 60 } });
-      expect(bound.targetMessages).toBe(128);
-      expect(bound.targetEnabledMessages).toBe(60);
+      // `targetMessages` is a guess -- "the visible requirement plus eight" --
+      // made before a single message is loaded. On a chat with two of every
+      // three recent messages disabled it holds a third of what it guesses,
+      // and the prompt would have been built from a fraction of the working
+      // set the reader configured, with nothing to say so. The walk checks
+      // the guess against the messages it actually holds.
+      //
+      // Thirty turns, not sixty: sixty turns reach 121 visible messages, which
+      // at one visible in three is 363 slots, past the 320 ceiling -- that is
+      // the scenario below, not this one. Thirty reach `30 x 2 + 1 = 61`,
+      // `61 + 8 = 69` slots to guess at, and 61 visible take about 183 slots
+      // of this chat: past the opening page, inside the ceiling.
+      const bound = boundFor({ risuBardSettings: { risuBardResponseMessageCount: 30 } });
+      expect(bound.targetMessages).toBe(69);
+      expect(bound.targetEnabledMessages).toBe(61);
 
       const visible = (chat: Chat) =>
         (chat.message ?? []).filter((message) => message.disabled !== true).length;
 
-      // The guess alone, which is what shipped before this: short.
+      // The guess alone, which is what shipped before this: short. With no
+      // visible target the ceiling defaults to the raw target, so the one
+      // page is sized to the 29 missing and the walk ends at 69 slots, which
+      // hold 23 visible messages (indices 1131..1197 divisible by three).
       const guessOnly = await openChat("chat-disabled");
       await ensurePromptHistoryResident({
         character: guessOnly,
@@ -524,8 +561,9 @@ describe("loading the history a prompt needs before generating", () => {
         pageSize: 100,
       });
       flushSync();
-      expect(guessOnly.chats[0].message).toHaveLength(128);
-      expect(visible(guessOnly.chats[0])).toBeLessThan(60);
+      expect(guessOnly.chats[0].message).toHaveLength(69);
+      expect(visible(guessOnly.chats[0])).toBe(23);
+      expect(visible(guessOnly.chats[0])).toBeLessThan(61);
 
       // The guess plus the check on what actually arrived.
       const character = await openChat("chat-disabled");
@@ -541,11 +579,20 @@ describe("loading the history a prompt needs before generating", () => {
       });
       flushSync();
 
-      expect(visible(character.chats[0])).toBeGreaterThanOrEqual(60);
-      // 183 resident to hold 60 visible, in two requests -- the page size is
-      // scaled by the visible density already observed. Sizing it by the raw
-      // shortfall instead filled a third of the gap each time and took ten.
-      expect(result.resident).toBe(183);
+      expect(visible(character.chats[0])).toBeGreaterThanOrEqual(61);
+      // Two requests, because the page size is scaled by the visible density
+      // already observed rather than by the raw shortfall -- sizing it by the
+      // shortfall filled a third of the gap each time and took ten. The walk,
+      // step by step (`nextPageSize` in `promptHistoryPreload.ts`):
+      //
+      //   40 resident, 13 visible (1161..1197 by three). Missing is the larger
+      //   of `69 - 40 = 29` and `61 - 13 = 48`; at density 13/40 the 48 want
+      //   `ceil(48 / 0.325) = 148` slots, capped at the 100-message page.
+      //   140 resident, 46 visible (1062..1197). Missing `61 - 46 = 15`; at
+      //   density 46/140 that is `ceil(15 x 140 / 46) = 46` slots.
+      //   186 resident, 62 visible (1014..1197). 62 >= 61: satisfied.
+      expect(result.resident).toBe(186);
+      expect(visible(character.chats[0])).toBe(62);
       expect(result.requests).toBe(2);
       // Still inside the residency bound, and still the newest end.
       expect(result.resident).toBeLessThanOrEqual(MAX_RESIDENT_MESSAGES);
@@ -556,10 +603,14 @@ describe("loading the history a prompt needs before generating", () => {
 
     it("stops at the residency ceiling even when the visible target is unreachable", async () => {
       // Almost everything disabled: no resident count this application is
-      // willing to hold contains 200 visible messages. The ceiling is the
-      // answer, not an unbounded walk.
+      // willing to hold contains the visible messages this asks for. Two
+      // hundred turns reach `200 x 2 + 1 = 401` visible messages, which the
+      // ceiling clamps to 320 (both targets: `401 + 8 = 409` raw, 401
+      // visible), and 320 slots of this chat hold about 107 visible. The
+      // ceiling is the answer, not an unbounded walk.
       const bound = boundFor({ risuBardSettings: { risuBardResponseMessageCount: 200 } });
-      expect(bound.targetEnabledMessages).toBe(200);
+      expect(bound.targetEnabledMessages).toBe(MAX_RESIDENT_MESSAGES);
+      expect(bound.targetMessages).toBe(MAX_RESIDENT_MESSAGES);
 
       const character = await openChat("chat-disabled");
       const result = await ensurePromptHistoryResident({
@@ -574,7 +625,14 @@ describe("loading the history a prompt needs before generating", () => {
       });
       flushSync();
 
+      // From 40 resident: full pages to 140 and 240 (the density-scaled
+      // request wants far more than a page each time), then the 80 slots of
+      // headroom left under the ceiling. Three requests, and the visible
+      // count never reaches the target -- the ceiling is what stops the walk.
       expect(result.resident).toBe(MAX_RESIDENT_MESSAGES);
+      expect(result.requests).toBe(3);
+      expect((character.chats[0].message ?? []).filter((message) => message.disabled !== true).length)
+        .toBeLessThan(bound.targetEnabledMessages!);
       expect(hasNewerSqlMessages(character.chats[0])).toBe(false);
     }, 120_000);
   });

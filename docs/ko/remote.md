@@ -41,7 +41,7 @@ PC와 접속할 모든 기기에서 동일한 계정(Google, Microsoft 등)으�
 RisuVault가 실행 중인 PC의 터미널에서 한 번만 실행:
 
 ```bash
-tailscale serve --bg http://localhost:6001
+tailscale serve --bg http://localhost:7777
 ```
 
 ### 4단계: 다른 기기에서 접속

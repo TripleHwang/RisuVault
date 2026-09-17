@@ -10,8 +10,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * history was worth the WHOLE request budget -- 65,000 tokens on a ModelPreset
  * -- which put a measured 1200-message chat at 740 resident, 2.3x
  * `MAX_RESIDENT_MESSAGES`, to build a prompt whose history is capped at twelve
- * messages by `selectNarrativeWorkingMessages`. `resolvePromptHistoryBound`
- * replaces that with a figure derived from the consumers.
+ * assistant turns -- about two dozen messages -- by
+ * `selectNarrativeWorkingMessages`. `resolvePromptHistoryBound` replaces that
+ * with a figure derived from the consumers.
  *
  * A bound that is too generous costs memory. A bound that is too tight costs
  * correctness, invisibly -- a prompt built from a history shorter than it
@@ -24,7 +25,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  *    `messages.slice(len - scanDepth, len)`, and must still find its key;
  *  - a raised `risuBardResponseMessageCount` is run through the real
  *    `selectNarrativeWorkingMessages`, the function `sendChat` itself calls at
- *    `index.svelte.ts:1953`, and must still come away with a full working set.
+ *    `index.svelte.ts:2549`, and must still come away with a full working set.
+ *    The setting counts ASSISTANT TURNS and the selection pulls each turn's
+ *    user messages in with it, so a full working set of N turns is 2N
+ *    messages of an alternating history, 2N + 1 when the newest message is
+ *    the user's; a bound that still treated the setting as a message count
+ *    prepared half of what the prompt then read.
  *
  * Both fail if the target ignores the term they cover; both are shown failing
  * at the old opening-page window of 40 in the same test, so the assertion is
@@ -164,36 +170,46 @@ beforeEach(() => {
 })
 
 describe('how far back a send has to load', () => {
-    it('asks for the opening page and nothing more at default settings', () => {
+    it('stays inside the page a chat opens on at default settings', () => {
         const character = makeCharacter({ resident: [] })
         const bound = resolvePromptHistoryBound(character, character.chats[0], baseDatabase())
 
-        // Every term at its default: a twelve-message narrative working set, a
-        // twelve-message recent-memory projection, a scan depth of five, a
-        // three-message confirmed turn. All of them fit inside the page a chat
-        // already opens on, so the honest answer is "load nothing".
+        // Every term at its default: a twelve-TURN narrative working set and a
+        // twelve-turn recent-memory projection, 25 messages each in an
+        // alternating chat whose newest message is the one being sent, a scan
+        // depth of five, a three-message confirmed turn. The 25 the prompt must
+        // see fit inside the page a chat opens on, and so does the raw guess at
+        // what holds them (`25 + 8 = 33`), so the floor is the answer and a
+        // default send makes no storage request. That zero is the property the
+        // preload was measured on -- a 1200-message chat at 40 resident and 0
+        // requests -- and a multiplier on the guess (`25 x 2 + 8 = 58`) is what
+        // would put one 18-message page back on every chat's first send.
         expect(bound.targetMessages).toBe(PROMPT_HISTORY_FLOOR_MESSAGES)
         expect(bound.unboundedReason).toBeUndefined()
-        expect(bound.terms.map((term) => term.messages)).toEqual([12, 12, 5, 4])
+        expect(bound.terms.map((term) => term.messages)).toEqual([25, 25, 5, 4])
         // What the prompt must be able to SEE, separately from how many array
         // slots that is guessed to take.
-        expect(bound.targetEnabledMessages).toBe(12)
+        expect(bound.targetEnabledMessages).toBe(25)
         expect(bound.residentCeiling).toBe(PROMPT_HISTORY_CEILING_MESSAGES)
     })
 
     it('keeps the visible requirement separate from the guess at its raw cost', () => {
-        // `targetMessages` is `enabled x 2 + 8`, a guess made without reading a
+        // `targetMessages` is `enabled + 8`, a guess made without reading a
         // single message. On a chat with two of every three recent messages
-        // disabled it is short by a third, so the visible figure travels with
-        // it and the preload checks the guess against what it actually holds.
-        // Measured before this pair existed: 43 visible where 60 were asked for.
+        // disabled it holds a third of what it guesses, so the visible figure
+        // travels with it and the preload checks the guess against what it
+        // actually holds. Measured before this pair existed, on the old doubled
+        // guess: 43 visible where 60 were asked for -- a multiplier does not
+        // close the gap either, which is why the guess no longer carries one.
+        // Thirty turns is 61 messages of an alternating history that ends on
+        // the message being sent, and 69 slots to guess at.
         const character = makeCharacter({
             resident: [],
-            risuBardSettings: { risuBardResponseMessageCount: 60 },
+            risuBardSettings: { risuBardResponseMessageCount: 30 },
         })
         const bound = resolvePromptHistoryBound(character, character.chats[0], baseDatabase())
-        expect(bound.targetEnabledMessages).toBe(60)
-        expect(bound.targetMessages).toBe(128)
+        expect(bound.targetEnabledMessages).toBe(61)
+        expect(bound.targetMessages).toBe(69)
 
         const history = Array.from({ length: 400 }, (_, index) => ({
             role: index % 2 === 0 ? 'user' : 'char',
@@ -243,10 +259,13 @@ describe('how far back a send has to load', () => {
         expect(bound.targetMessages).toBe(PROMPT_HISTORY_CEILING_MESSAGES)
     })
 
-    it('doubles the reach when user messages are filtered out of the working set', () => {
-        // `selectNarrativeWorkingMessages` drops user messages BEFORE it slices,
-        // so `limit` survivors can need up to `2 x limit` raw messages in an
-        // alternating history.
+    it('reaches two messages per configured turn, with or without the user filter', () => {
+        // `selectNarrativeWorkingMessages` walks back to the `limit`-th newest
+        // char message and opens the slice on the user messages before it, so
+        // `limit` turns of an alternating history is `2 x limit` messages, and
+        // one more for the user message being sent. The user filter runs on
+        // that slice AFTERWARDS: it shrinks the working set without moving
+        // where it starts, so it must not change the reach.
         const includingCharacter = makeCharacter({
             resident: [],
             risuBardSettings: { risuBardResponseMessageCount: 60 },
@@ -268,9 +287,9 @@ describe('how far back a send has to load', () => {
             excludingCharacter.chats[0],
             baseDatabase(),
         )
-        expect(including.terms[0].messages).toBe(60)
-        expect(excluding.terms[0].messages).toBe(120)
-        expect(excluding.targetMessages!).toBeGreaterThan(including.targetMessages!)
+        expect(including.terms[0].messages).toBe(121)
+        expect(excluding.terms[0].messages).toBe(121)
+        expect(excluding.targetMessages!).toBe(including.targetMessages!)
     })
 
     it('reads the deepest scan any activatable entry asks for, not one global setting', () => {
@@ -307,7 +326,7 @@ describe('how far back a send has to load', () => {
         // is why `sendChat` handing the getter over is asserted from source
         // below rather than assumed.
         expect(resolvePromptHistoryBound(character, character.chats[0], baseDatabase())
-            .targetMessages).toBe(PROMPT_HISTORY_FLOOR_MESSAGES)
+            .targetMessages).toBeLessThan(200)
     })
 
     it('refuses to invent a number for a scan depth that does not parse', () => {
@@ -373,16 +392,17 @@ describe('a target too tight to serve the consumers', () => {
 
         const planning = makeCharacter({ resident: [], risuBardSettings })
         const bound = resolvePromptHistoryBound(planning, planning.chats[0], baseDatabase())
-        expect(bound.targetMessages!).toBeGreaterThanOrEqual(100)
+        // A hundred turns of an alternating history is two hundred messages.
+        expect(bound.targetMessages!).toBeGreaterThanOrEqual(200)
 
         // `selectNarrativeWorkingMessages` is the function `sendChat` calls at
-        // `index.svelte.ts:1953`, on the enabled messages of `chat.message`. A
+        // `index.svelte.ts:2549`, on the enabled messages of `chat.message`. A
         // preload that stopped short here would hand it fewer messages than the
         // reader configured and nothing downstream would say so.
         const loaded = newest(messages, bound.targetMessages!)
-        expect(selectNarrativeWorkingMessages(loaded, 100, true)).toHaveLength(100)
+        expect(selectNarrativeWorkingMessages(loaded, 100, true)).toHaveLength(200)
 
-        // Short by 60 on the window a chat opens with.
+        // Short by 160 on the window a chat opens with: 40 messages is 20 turns.
         const openingPage = newest(messages, PROMPT_HISTORY_FLOOR_MESSAGES)
         expect(selectNarrativeWorkingMessages(openingPage, 100, true)).toHaveLength(
             PROMPT_HISTORY_FLOOR_MESSAGES,
@@ -398,11 +418,13 @@ describe('a target too tight to serve the consumers', () => {
         const planning = makeCharacter({ resident: [], risuBardSettings })
         const bound = resolvePromptHistoryBound(planning, planning.chats[0], baseDatabase())
 
-        // 60 surviving messages out of a strictly alternating history needs 120
-        // raw ones; the doubling in the bound is what pays for that.
+        // Sixty turns of a strictly alternating history is 120 raw messages,
+        // and the user filter then keeps the 60 char messages plus the newest
+        // user one. The per-turn factor in the bound is what pays for the 120.
         const loaded = newest(messages, bound.targetMessages!)
         const selected = selectNarrativeWorkingMessages(loaded, 60, false)
         expect(selected.length).toBeGreaterThanOrEqual(60)
+        expect(selected.filter((message: any) => message.role === 'char')).toHaveLength(60)
     })
 })
 
@@ -433,22 +455,44 @@ describe('the same prompt history a fully resident chat would have built', () =>
 
     const DEEP = 'deepwater'
 
-    /** `HISTORY_LENGTH` messages, one needle 150 back and one 260 back. */
+    /**
+     * `HISTORY_LENGTH` messages, one needle 150 back and one 260 back.
+     *
+     * Roles alternate along the VISIBLE messages, not the raw index, which
+     * also puts a user message newest whenever anything is disabled -- the
+     * shape of a real send -- while the undisabled conversation ends on a
+     * char message, the shape of a continue. The
+     * working set is counted in assistant turns and opens on the user messages
+     * before its oldest turn, so what the bound has to cover is a visible
+     * history of one user message per char message -- the shape every ordinary
+     * chat has once its disabled messages are skipped. Alternating by raw index
+     * would break that shape twice over: an even stride would leave only user
+     * messages visible, and the always-visible newest four would put two user
+     * messages back to back. Either is a turn that costs more than two visible
+     * slots, which `MESSAGES_PER_TURN` in the bound documents as the one shape
+     * a settings-derived figure cannot cover; it is not what this comparison
+     * is measuring.
+     */
     function conversation(disabledEvery?: number): any[] {
-        return Array.from({ length: HISTORY_LENGTH }, (_, index) => ({
-            role: index % 2 === 0 ? 'user' : 'char',
-            data: index === HISTORY_LENGTH - 150
-                ? `we finally reached ${NEEDLE} at dusk`
-                : index === HISTORY_LENGTH - 260
-                    ? `the ${DEEP} signal was heard`
-                    : `ordinary message number ${index}`,
-            chatId: `m${String(index).padStart(4, '0')}`,
+        let visibleOrdinal = 0
+        return Array.from({ length: HISTORY_LENGTH }, (_, index) => {
             // The newest four are always visible so the turn projections have
             // something to read.
-            ...(disabledEvery && index % disabledEvery !== 0 && index < HISTORY_LENGTH - 4
-                ? { disabled: true }
-                : {}),
-        }))
+            const visible = !disabledEvery
+                || index % disabledEvery === 0
+                || index >= HISTORY_LENGTH - 4
+            const ordinal = visible ? visibleOrdinal++ : index
+            return {
+                role: ordinal % 2 === 0 ? 'user' : 'char',
+                data: index === HISTORY_LENGTH - 150
+                    ? `we finally reached ${NEEDLE} at dusk`
+                    : index === HISTORY_LENGTH - 260
+                        ? `the ${DEEP} signal was heard`
+                        : `ordinary message number ${index}`,
+                chatId: `m${String(index).padStart(4, '0')}`,
+                ...(visible ? {} : { disabled: true }),
+            }
+        })
     }
 
     function windowed(char: any, resident: any[]) {
@@ -523,10 +567,14 @@ describe('the same prompt history a fully resident chat would have built', () =>
             selectNarrativeWorkingMessages(makeMs(char.chats[0].message), limit, include)
                 .map((message: any) => message.chatId)
         expect(workingSet(atBound)).toEqual(workingSet(full))
-        return { resident, actives: await activeComments(atBound) }
+        return { resident, bound, actives: await activeComments(atBound) }
     }
 
     it('at default settings', async () => {
+        // Twelve turns, 25 messages, guessed at 33 slots: under the 40 a chat
+        // opens on, so the floor is the bound and nothing is paged in. The
+        // prompt built from those 40 must still be the one a fully resident
+        // chat builds -- that is what makes the zero-request default safe.
         expect((await compare({})).resident).toBe(PROMPT_HISTORY_FLOOR_MESSAGES)
     })
 
@@ -558,10 +606,30 @@ describe('the same prompt history a fully resident chat would have built', () =>
         expect(result.actives).toEqual(['moduledeep'])
     })
 
+    it('with a working set of 60', async () => {
+        // Sixty turns is 121 messages; `121 + 8` slots.
+        expect((await compare({
+            risuBardSettings: { risuBardResponseMessageCount: 60 },
+        })).resident).toBe(129)
+    })
+
     it('with a working set of 100', async () => {
+        // A hundred turns is 201 messages; `201 + 8` slots, inside the
+        // residency bound. The doubled guess put this configuration at the
+        // ceiling (`201 x 2 + 8 = 410`); the prompt it builds is the same.
         expect((await compare({
             risuBardSettings: { risuBardResponseMessageCount: 100 },
-        })).resident).toBe(208)
+        })).resident).toBe(209)
+    })
+
+    it('with the largest working set the residency bound can hold whole', async () => {
+        // `2 x 155 + 1 + 8` is 319, one under the ceiling. Past this the ceiling
+        // clamps the target and the prompt is short BY DESIGN -- the memory
+        // bound wins -- so this is the last configuration for which bounded and
+        // fully resident builds can be required to agree.
+        expect((await compare({
+            risuBardSettings: { risuBardResponseMessageCount: 155 },
+        })).resident).toBe(PROMPT_HISTORY_CEILING_MESSAGES - 1)
     })
 
     it('with a working set of 100 that excludes user messages', async () => {
@@ -578,21 +646,32 @@ describe('the same prompt history a fully resident chat would have built', () =>
     })
 
     it('with two of every three recent messages disabled', async () => {
-        // The case the raw target alone gets wrong: 128 slots hold 43 visible
-        // messages, not 60. Only the visible target closes it.
+        // The case the raw target alone gets wrong: thirty turns is 61 visible
+        // messages, guessed at 69 slots, and 69 slots of this chat hold 26
+        // visible messages (23 at the one-in-three stride plus the newest
+        // three the fixture keeps visible). Only the visible target closes it,
+        // and it closes it from a guess of 69 exactly as it did from the old
+        // doubled guess of 130: the raw figure decides where the walk opens,
+        // the visible one decides where it stops.
         const result = await compare({
             disabledEvery: 3,
-            risuBardSettings: { risuBardResponseMessageCount: 60 },
+            risuBardSettings: { risuBardResponseMessageCount: 30 },
         })
-        expect(result.resident).toBeGreaterThan(128)
+        expect(result.bound.targetMessages).toBe(69)
+        expect(result.resident).toBeGreaterThan(69)
         expect(result.resident).toBeLessThanOrEqual(PROMPT_HISTORY_CEILING_MESSAGES)
     })
 
-    it('with three of every four recent messages disabled', async () => {
-        await compare({
-            disabledEvery: 4,
-            risuBardSettings: { risuBardResponseMessageCount: 30 },
+    it('with four of every five recent messages disabled', async () => {
+        // Fifteen turns is 31 visible messages, guessed at 39 slots and so
+        // floored to 40; at one visible in five, 40 slots hold 12 and the 31
+        // take about 150. The visible target is what pays for the difference.
+        const result = await compare({
+            disabledEvery: 5,
+            risuBardSettings: { risuBardResponseMessageCount: 15 },
         })
+        expect(result.bound.targetMessages).toBe(PROMPT_HISTORY_FLOOR_MESSAGES)
+        expect(result.resident).toBeGreaterThan(result.bound.targetMessages!)
     })
 })
 

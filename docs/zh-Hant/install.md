@@ -47,7 +47,7 @@ RisuVault 有四種安裝方式。
 
 **Windows**
 
-解壓縮 zip,雙擊資料夾中的 `RisuVault.exe`。瀏覽器自動開啟 `http://localhost:6001`。
+解壓縮 zip,雙擊資料夾中的 `RisuVault.exe`。瀏覽器自動開啟 `http://localhost:7777`。
 
 **macOS**
 
@@ -67,7 +67,7 @@ cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
-在瀏覽器中開啟 `http://localhost:6001`。
+在瀏覽器中開啟 `http://localhost:7777`。
 
 ### 無介面伺服器(一行下載)
 
@@ -127,7 +127,7 @@ curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-comp
 docker compose up -d
 ```
 
-在瀏覽器中開啟 `http://localhost:6001`。
+在瀏覽器中開啟 `http://localhost:7777`。
 
 ### 更新
 
@@ -172,7 +172,7 @@ cd ~/risubard
 pnpm runserver
 ```
 
-在瀏覽器中開啟 `http://localhost:6001`。
+在瀏覽器中開啟 `http://localhost:7777`。
 
 ### 更新
 
@@ -205,7 +205,7 @@ pnpm build
 pnpm runserver
 ```
 
-在瀏覽器中開啟 `http://localhost:6001`。
+在瀏覽器中開啟 `http://localhost:7777`。
 
 ### 更新
 

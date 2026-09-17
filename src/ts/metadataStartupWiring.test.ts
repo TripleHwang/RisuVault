@@ -91,7 +91,7 @@ describe('metadata-first startup wires up what saveDb used to', () => {
      * one of them for the session.
      */
     it('does not clone a patch baseline it will never read', () => {
-        expect(bootstrap).toMatch(/if \(startupMode !== 'metadata-first'\) \{\s*\n\s*setPatchSyncBaseline\(safeStructuredClone\(existingSql\.database\)\)/)
+        expect(bootstrap).toMatch(/if \(startupMode !== 'metadata-first'\) \{\s*\n\s*setPatchSyncBaseline\(existingSql\.database\)/)
         expect(startMetadataPersistenceBlock()).toContain('setPatchSyncBaseline(null)')
     })
 })

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { runInNewContext } from 'node:vm'
+import { readFileSync } from 'node:fs'
 
 const validCard = (assets: any[] = []) => ({
     spec: 'chara_card_v3',
@@ -10,16 +11,17 @@ const validCard = (assets: any[] = []) => ({
 const state = vi.hoisted(() => ({
     events: [] as string[], alerts: [] as string[], waitAlerts: [] as string[], doneCalls: 0, importerCalls: 0,
     completion: Promise.resolve(), localCardData: JSON.stringify({ spec: 'not-v3', data: {} }), isNodeServer: false, selectedFiles: null as File[] | null,
-    importCharX: vi.fn(), readModule: vi.fn(), pin: vi.fn(),
+    importCharX: vi.fn(), readModule: vi.fn(), pin: vi.fn(), requestImmediateSave: vi.fn(),
     db: { statics: { imports: 0 }, characters: [] as any[] },
 }))
 
 vi.mock('./platform', () => ({ get isNodeServer() { return state.isNodeServer } }))
 vi.mock('./alert', () => ({
     alertCardExport: vi.fn(), alertConfirm: vi.fn(),
-    alertError: vi.fn((error) => state.alerts.push(String(error))), alertInput: vi.fn(),
+    alertError: vi.fn((error) => { state.alerts.push(String(error)); state.events.push('error') }), alertInput: vi.fn(),
     alertStore: { set: vi.fn((alert) => state.waitAlerts.push(alert.msg)) },
-    alertTOS: vi.fn(), alertWait: vi.fn(), notifyError: vi.fn((message) => state.events.push(`notify:${message}`)), notifySuccess: vi.fn(),
+    alertTOS: vi.fn(), alertWait: vi.fn((msg) => state.waitAlerts.push(msg)),
+    notifyError: vi.fn((message) => state.events.push(`notify:${message}`)), notifySuccess: vi.fn(() => state.events.push('notified')),
 }))
 vi.mock('./storage/database.svelte', () => ({
     appVer: 'test', defaultSdDataFunc: () => ({}), getDatabase: () => state.db,
@@ -28,8 +30,14 @@ vi.mock('./storage/database.svelte', () => ({
 vi.mock('./process/processzip', () => ({
     CharXImporter: class {
         alertInfo = false; assets = {}; cardData: string | undefined; moduleData: Uint8Array | undefined
-        constructor() { state.importerCalls += 1 }
-        async parse() { state.completion = new Promise<void>((resolve) => setTimeout(() => { this.cardData = state.localCardData; state.events.push('assets-5/5'); resolve() }, 0)) }
+        constructor(private readonly progress?: (event: any) => void) { state.importerCalls += 1 }
+        async parse() {
+            this.progress?.({ phase: 'reading', completed: 5, total: 10 })
+            this.progress?.({ phase: 'extracting', completed: 2, total: 3 })
+            this.progress?.({ phase: 'preparing-assets', completed: 3, total: 5 })
+            this.progress?.({ phase: 'saving-assets', completed: 5, total: 5 })
+            state.completion = new Promise<void>((resolve) => setTimeout(() => { this.cardData = state.localCardData; state.events.push('assets-5/5'); resolve() }, 0))
+        }
         async done() { state.doneCalls += 1; await state.completion }
     },
     CharXSkippableChecker: vi.fn(), CharXWriter: class {},
@@ -37,7 +45,7 @@ vi.mock('./process/processzip', () => ({
 vi.mock('./globalApi.svelte', () => ({
     AppendableBuffer: class {}, BlankWriter: class {}, LocalWriter: class {}, VirtualWriter: class {},
     checkCharOrder: vi.fn(), downloadFile: vi.fn(), forageStorage: { importCharX: (...args: any[]) => state.importCharX(...args) },
-    loadAsset: vi.fn(), readImage: vi.fn(), saveAsset: vi.fn(),
+    loadAsset: vi.fn(), readImage: vi.fn(), requestImmediateSave: (...args: any[]) => state.requestImmediateSave(...args), saveAsset: vi.fn(),
 }))
 vi.mock('./process/modules', () => ({ exportModuleLegacy: vi.fn(), readModule: (...args: any[]) => state.readModule(...args) }))
 vi.mock('./util', async (importOriginal) => ({ ...(await importOriginal<typeof import('./util')>()), selectFileByDom: vi.fn(() => state.selectedFiles) }))
@@ -47,9 +55,43 @@ vi.mock('./media', () => ({ compressImage: vi.fn(), getImageType: vi.fn() }))
 vi.mock('./parser/parser.svelte', () => ({ hasher: vi.fn(), risuChatParser: vi.fn() }))
 vi.mock('./process/files/inlays', () => ({ reencodeImage: vi.fn() }))
 vi.mock('./characterVault', () => ({ pinCharacterVaultQuickAccess: (...args: any[]) => state.pin(...args) }))
-vi.mock('src/lang', () => ({ language: { errors: { noData: 'invalid-data' }, importedCharacter: 'imported' } }))
+vi.mock('src/lang', () => ({
+    language: {
+        errors: { noData: 'invalid-data' },
+        importedCharacter: 'imported',
+        characterImportReading: '읽기',
+        characterImportReadingBytes: (done: string, total: string) => `읽기 ${done}/${total}`,
+        characterImportScanning: (count: number) => `검사 ${count}`,
+        characterImportExtracting: (done: number, total: number) => `압축 ${done}/${total}`,
+        characterImportPreparingAssets: (done: number, total: number) => `준비 ${done}/${total}`,
+        characterImportSavingAssets: (done: number, total: number) => `저장 ${done}/${total}`,
+        characterPackageProgressFinalizing: '마무리',
+        characterImportReadingMetadata: '메타데이터 읽기',
+        characterImportReadingModule: '모듈 읽기',
+        characterImportApplying: '캐릭터 적용',
+        characterImportEmotions: (done: number, total: number) => `감정 ${done}/${total}`,
+        characterImportAssets: (done: number, total: number) => `에셋 ${done}/${total}`,
+        characterImportVoiceFiles: (done: number, total: number) => `음성 ${done}/${total}`,
+        characterImportMissingAsset: (key: string) => `missing ${key}`,
+        characterImportDataUriTooLarge: 'data uri too large',
+    },
+}))
 
 import { createBaseV2, createBaseV3, importCharacter, importCharacterProcess } from './characterCards'
+import { createBardLoreSettings, fingerprintLegacyLore, upgradeLegacyLorebook } from './lorebook/bardLore'
+
+/** Progress the mocked local importer reports, in the order the UI shows it. */
+const LOCAL_IMPORT_PROGRESS = ['읽기 5 B/10 B', '압축 2/3', '준비 3/5', '저장 5/5', '메타데이터 읽기']
+
+function resetState() {
+    state.events = []; state.alerts = []; state.waitAlerts = []; state.doneCalls = 0; state.importerCalls = 0; state.completion = Promise.resolve()
+    state.localCardData = JSON.stringify({ spec: 'not-v3', data: {} }); state.isNodeServer = false; state.selectedFiles = null; state.db.statics.imports = 0; state.db.characters = []
+    state.pin.mockReset(); state.importCharX.mockReset(); state.readModule.mockReset()
+    state.requestImmediateSave.mockReset()
+    state.requestImmediateSave.mockImplementation(async () => { state.events.push('saved') })
+}
+
+beforeEach(resetState)
 
 function cardFixture(spec: 'chara_card_v2'|'chara_card_v3', risuai: Record<string, unknown>|undefined, postHistory = 'legacy card global note') {
     return {
@@ -74,19 +116,21 @@ async function importFixture(card: ReturnType<typeof cardFixture>) {
 }
 
 describe('CharX import completion', () => {
-    beforeEach(() => {
-        state.events = []; state.alerts = []; state.waitAlerts = []; state.doneCalls = 0; state.importerCalls = 0; state.completion = Promise.resolve()
-        state.localCardData = JSON.stringify({ spec: 'not-v3', data: {} }); state.isNodeServer = false; state.selectedFiles = null; state.db.statics.imports = 0; state.db.characters = []
-        state.pin.mockReset(); state.importCharX.mockReset(); state.readModule.mockReset()
-    })
-
     test('waits for delayed archive completion before validating card metadata', async () => {
         await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
         await state.completion
         expect(state.doneCalls).toBe(1)
-        expect(state.events).toEqual(['assets-5/5'])
+        expect(state.events).toEqual(['assets-5/5', 'error'])
         expect(state.alerts).toContain('invalid-data')
-        expect(state.waitAlerts).toEqual(['Loading... (Reading)'])
+        expect(state.waitAlerts).toEqual(LOCAL_IMPORT_PROGRESS)
+    })
+})
+
+describe('character import localization', () => {
+    test('does not ship hard-coded English loading or import error messages', () => {
+        const source = readFileSync('src/ts/characterCards.ts', 'utf8')
+        expect(source).not.toMatch(/Loading\.\.\. \((Reading|Loading Emotions|Loading Assets|Assets)\)/)
+        expect(source).not.toContain('alertError("Error while importing")')
     })
 })
 
@@ -96,8 +140,7 @@ describe('Node-assisted CharX import', () => {
     })
 
     beforeEach(() => {
-        state.events = []; state.alerts = []; state.waitAlerts = []; state.doneCalls = 0; state.importerCalls = 0; state.completion = Promise.resolve()
-        state.localCardData = JSON.stringify(validCard()); state.db.statics.imports = 0; state.db.characters = []; state.pin.mockReset(); state.readModule.mockReset(); state.importCharX.mockReset()
+        state.localCardData = JSON.stringify(validCard())
         state.isNodeServer = true
         state.importCharX.mockResolvedValue(serverResult())
     })
@@ -145,7 +188,7 @@ describe('Node-assisted CharX import', () => {
         await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
         expect(state.importCharX).not.toHaveBeenCalled()
         expect(state.importerCalls).toBe(1)
-        expect(state.waitAlerts).toEqual(['Loading... (Reading)'])
+        expect(state.waitAlerts).toEqual([...LOCAL_IMPORT_PROGRESS, '캐릭터 적용'])
     })
 
     test('propagates a server rejection without local fallback', async () => {
@@ -167,6 +210,7 @@ describe('Node-assisted CharX import', () => {
         state.importCharX.mockResolvedValue(serverResult({ moduleBase64: Buffer.from('module').toString('base64') }))
         await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
         expect(state.readModule).toHaveBeenCalledWith(Buffer.from('module'))
+        expect(state.waitAlerts).toContain('모듈 읽기')
         expect(state.db.characters[0]).toMatchObject({ triggerscript: [{ id: 'trigger' }], customscript: [{ id: 'regex' }], globalLore: [{ key: 'lore' }] })
     })
 
@@ -176,6 +220,12 @@ describe('Node-assisted CharX import', () => {
         await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
         expect(state.db.characters[0].image).toBe('assets/hash.png')
         expect(state.pin).toHaveBeenCalledWith(state.db, state.db.characters[0].chaId)
+    })
+
+    test('persists a server-imported character before reporting success', async () => {
+        await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
+        expect(state.requestImmediateSave).toHaveBeenCalledWith({ flushServer: true, rejectOnFailure: true })
+        expect(state.events).toEqual(['saved', 'notified'])
     })
 
     test('returns the created character when requested', async () => {
@@ -191,19 +241,26 @@ describe('Node-assisted CharX import', () => {
             return serverResult({ excludedFiles: ['large.png'], warnings: ['asset skipped'] })
         })
         await importCharacterProcess({ name: 'realm.charx', data: new Uint8Array() })
-        expect(state.waitAlerts).toEqual(['Uploading CharX…', 'Processing CharX on server…', 'Finalizing character…'])
-        expect(state.events).toEqual(['notify:large.png\nasset skipped'])
+        expect(state.waitAlerts).toEqual(['Uploading CharX…', 'Processing CharX on server…', '메타데이터 읽기', 'Finalizing character…', '캐릭터 적용'])
+        expect(state.events).toEqual(['saved', 'notified', 'notify:large.png\nasset skipped'])
     })
 
     test.each(['portrait.jpg', 'portrait.jpeg'])('keeps %s on the local importer', async (name) => {
         await importCharacterProcess({ name, data: new Uint8Array() })
         expect(state.importCharX).not.toHaveBeenCalled()
         expect(state.importerCalls).toBe(1)
-        expect(state.waitAlerts).toEqual(['Loading... (Reading)'])
+        expect(state.waitAlerts).toEqual([...LOCAL_IMPORT_PROGRESS, '캐릭터 적용'])
     })
 })
 
 describe('legacy character-card replace-global-note compatibility', () => {
+    test('persists an imported card before reporting success', async () => {
+        await importFixture(cardFixture('chara_card_v3', undefined))
+
+        expect(state.requestImmediateSave).toHaveBeenCalledWith({ flushServer: true, rejectOnFailure: true })
+        expect(state.events).toEqual(['saved', 'notified'])
+    })
+
     test.each(['chara_card_v2', 'chara_card_v3'] as const)('restores legacy replaceGlobalNote from %s cards with a Risu extension that does not own it', async (spec) => {
         const imported = await importFixture(cardFixture(spec, {}))
 
@@ -241,6 +298,175 @@ describe('legacy character-card replace-global-note compatibility', () => {
 })
 
 describe('public character-card lifecycle round-trips', () => {
+    test.each([
+        ['v2', createBaseV2],
+        ['v3', createBaseV3],
+    ] as const)('migrates namespaced Bard Lore without losing one-sided edits through %s', async (_spec, createCard) => {
+        const legacyLore = [{
+            id: 'legacy',
+            key: 'legacy',
+            secondkey: '',
+            insertorder: 10,
+            comment: 'Legacy',
+            content: 'Legacy content',
+            mode: 'normal',
+            alwaysActive: false,
+            selective: false,
+        }]
+        const bardEntry = {
+            ...legacyLore[0],
+            id: 'legacy',
+            comment: 'Bard',
+            content: 'Bard content',
+            bard: {
+                sourceLegacyId: 'legacy',
+                sourceHash: fingerprintLegacyLore(legacyLore[0] as any),
+                kind: 'location',
+                activation: 'retrieve',
+                aliases: ['장소'],
+                tags: ['데이트'],
+                summary: '장소 요약',
+                facets: [],
+                injection: 'full',
+                links: [],
+            },
+        }
+        const source = {
+            name: 'Bard Lore lifecycle',
+            globalLore: legacyLore,
+            loreExt: {},
+            bardLore: {
+                schemaVersion: 1,
+                mode: 'bard',
+                entries: [bardEntry],
+                settings: createBardLoreSettings({ maximumTokens: 777, maxEntries: 3 }),
+                analysisRun: {
+                    schemaVersion: 1,
+                    id: 'run',
+                    scope: 'all',
+                    targetIds: ['legacy'],
+                    createdAt: '2026-08-31T00:00:00.000Z',
+                    updatedAt: '2026-08-31T00:00:00.000Z',
+                    status: 'review',
+                    settingsSnapshot: createBardLoreSettings({ maximumTokens: 777, maxEntries: 3 }),
+                    overwriteExisting: false,
+                    batches: [{
+                        id: 'batch',
+                        index: 0,
+                        targetIds: ['legacy'],
+                        estimatedInputTokens: 120,
+                        status: 'complete',
+                        candidates: [{
+                            id: 'legacy',
+                            sourceHash: 'draft-hash',
+                            kind: 'location',
+                            aliases: ['장소'],
+                            tags: ['데이트'],
+                            summary: '검토 대기',
+                            facets: [],
+                            injection: 'full',
+                            atoms: [],
+                            links: [],
+                        }],
+                    }],
+                },
+            },
+        } as any
+
+        const exported = createCard(source)
+        expect(exported.data.character_book?.entries).toHaveLength(1)
+        expect(exported.data.character_book?.entries[0]).toMatchObject({
+            name: 'Bard',
+            content: 'Bard content',
+        })
+        expect((exported.data.extensions as any).risubard.bardLore.settings.maximumTokens).toBe(777)
+        expect(JSON.stringify((exported.data.extensions as any).risubard.bardLore)).not.toContain('Bard content')
+
+        const imported = await importFixture(exported as any)
+        const reexported = createCard(imported)
+
+        expect(imported.globalLore).toHaveLength(1)
+        expect(imported.bardLore).toMatchObject({
+            schemaVersion: 2,
+            metadata: [expect.objectContaining({ sourceLegacyId: 'legacy', kind: 'location' })],
+            derivedEntries: [],
+        })
+        expect(imported.bardLore).not.toHaveProperty('entries')
+        expect((reexported.data.extensions as any).risubard.bardLore).toEqual(imported.bardLore)
+    })
+
+    test.each([
+        ['v2', createBaseV2],
+        ['v3', createBaseV3],
+    ] as const)('preserves completed Bard analysis drafts for ID-less lore through %s', async (_spec, createCard) => {
+        const idlessLore = {
+            key: 'place', secondkey: '', insertorder: 10, comment: 'Place', content: 'Stable place body',
+            mode: 'normal' as const, alwaysActive: false, selective: false,
+        }
+        const settings = createBardLoreSettings()
+        const bardLore = upgradeLegacyLorebook([{ ...idlessLore, id: 'old-source-id' }], () => 'unused', settings)
+        bardLore.analysisRun = {
+            schemaVersion: 1,
+            id: 'run',
+            scope: 'all',
+            targetIds: ['old-source-id'],
+            createdAt: '2026-09-02T00:00:00.000Z',
+            updatedAt: '2026-09-02T00:00:00.000Z',
+            status: 'review',
+            settingsSnapshot: settings,
+            overwriteExisting: false,
+            batches: [{
+                id: 'batch', index: 0, targetIds: ['old-source-id'], estimatedInputTokens: 10, status: 'complete',
+                candidates: [{ id: 'old-source-id', sourceHash: 'draft', kind: 'location', aliases: [], tags: [], summary: 'completed', links: [] }],
+            }],
+        }
+
+        const imported = await importFixture(createCard({
+            name: 'ID-less Bard Lore',
+            globalLore: [idlessLore],
+            loreExt: {},
+            bardLore,
+        } as any) as any)
+        const importedId = imported.globalLore[0].id
+
+        expect(importedId).toBeTruthy()
+        expect(imported.bardLore?.analysisRun?.targetIds).toEqual([importedId])
+        expect(imported.bardLore?.analysisRun?.batches[0].candidates?.[0].id).toBe(importedId)
+    })
+
+    test.each([
+        ['v2', createBaseV2],
+        ['v3', createBaseV3],
+    ] as const)('ignores malformed Bard Lore metadata without breaking the standard lorebook through %s', async (_spec, createCard) => {
+        const exported = createCard({
+            name: 'Standard compatibility',
+            globalLore: [{
+                id: 'legacy',
+                key: 'legacy',
+                secondkey: '',
+                insertorder: 10,
+                comment: 'Legacy',
+                content: 'Legacy content',
+                mode: 'normal',
+                alwaysActive: false,
+                selective: false,
+            }],
+            loreExt: {},
+        } as any)
+        ;(exported.data.extensions as any).risubard = {
+            bardLore: { schemaVersion: 999, entries: 'invalid' },
+        }
+
+        const imported = await importFixture(exported as any)
+
+        expect(imported.globalLore).toHaveLength(1)
+        expect(imported.globalLore[0]).toMatchObject({
+            comment: 'Legacy',
+            content: 'Legacy content',
+        })
+        expect(imported.bardLore).toBeUndefined()
+    })
+
     test.each([
         ['v2', createBaseV2],
         ['v3', createBaseV3],

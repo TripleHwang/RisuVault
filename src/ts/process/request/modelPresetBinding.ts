@@ -1,7 +1,7 @@
 import { getDatabase, type Chat, type Database } from 'src/ts/storage/database.svelte'
 import type { AdapterCredential } from 'src/ts/preset/adapter'
 import type { ModelBindingSet, ModelPreset } from 'src/ts/preset/types'
-import type { ModelModeExtended } from './shared'
+import { resolveStoredSamplingParameter, resolveStoredTemperature, type ModelModeExtended } from './shared'
 
 /**
  * P4 dual-regime resolution (plan v6 §7, model-preset-p4-task).
@@ -262,24 +262,18 @@ type PromptPresetParameterSource = Partial<Pick<Database,
 >>
 
 const PROMPT_PARAM_READERS: Record<string, (source: PromptPresetParameterSource) => number | undefined> = {
-    temperature: (source) => hundredScale(source.temperature),
-    top_p: (source) => source.top_p,
-    topP: (source) => source.top_p,
-    top_k: (source) => source.top_k,
-    topK: (source) => source.top_k,
-    frequency_penalty: (source) => hundredScale(source.frequencyPenalty),
-    frequencyPenalty: (source) => hundredScale(source.frequencyPenalty),
-    presence_penalty: (source) => hundredScale(source.PresensePenalty),
-    presencePenalty: (source) => hundredScale(source.PresensePenalty),
-    repetition_penalty: (source) => source.repetition_penalty,
-    min_p: (source) => source.min_p,
-    top_a: (source) => source.top_a,
-}
-
-// Classic sliders store hundredths (0–200 => 0–2.0); -1000 means disabled.
-function hundredScale(value: number | undefined): number | undefined {
-    if (value === undefined || value === -1000) return undefined
-    return value / 100
+    temperature: (source) => resolveStoredTemperature(source.temperature),
+    top_p: (source) => resolveStoredSamplingParameter('top_p', source.top_p),
+    topP: (source) => resolveStoredSamplingParameter('top_p', source.top_p),
+    top_k: (source) => resolveStoredSamplingParameter('top_k', source.top_k),
+    topK: (source) => resolveStoredSamplingParameter('top_k', source.top_k),
+    frequency_penalty: (source) => resolveStoredSamplingParameter('frequency_penalty', source.frequencyPenalty),
+    frequencyPenalty: (source) => resolveStoredSamplingParameter('frequency_penalty', source.frequencyPenalty),
+    presence_penalty: (source) => resolveStoredSamplingParameter('presence_penalty', source.PresensePenalty),
+    presencePenalty: (source) => resolveStoredSamplingParameter('presence_penalty', source.PresensePenalty),
+    repetition_penalty: (source) => resolveStoredSamplingParameter('repetition_penalty', source.repetition_penalty),
+    min_p: (source) => resolveStoredSamplingParameter('min_p', source.min_p),
+    top_a: (source) => resolveStoredSamplingParameter('top_a', source.top_a),
 }
 
 export function applyPromptPresetParams(
@@ -310,6 +304,9 @@ export function applyPromptPresetValues(
         if (!read) continue
         const value = read(source)
         if (value === undefined || value === null || Number.isNaN(value) || value === -1000) continue
+        if (field.type === 'integer' && !Number.isInteger(value)) continue
+        if (field.min !== undefined && value < field.min) continue
+        if (field.max !== undefined && value > field.max) continue
         overrides[field.key] = value
     }
     if (Object.keys(overrides).length === 0) return preset

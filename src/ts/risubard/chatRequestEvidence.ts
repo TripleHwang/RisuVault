@@ -20,7 +20,7 @@ export interface ChatRequestEvidenceEntry {
     purpose?: RequestPurpose
     model?: string
     provider?: string
-    outcome: 'done' | 'failed' | 'aborted'
+    outcome: 'done' | 'response-received' | 'failed' | 'aborted'
     status?: number
     route?: RequestLogRoute
     streaming: boolean
@@ -33,7 +33,7 @@ export interface ChatRequestEvidenceEntry {
     injectionManifest?: RequestInjectionManifest
     selectedHistoryMessageCount?: number
     failureCategory?: 'timeout' | 'rate-limit' | 'authentication'
-        | 'server' | 'network' | 'provider'
+        | 'server' | 'network' | 'format' | 'invalid-request' | 'provider'
 }
 
 export interface ChatRequestEvidence {
@@ -73,6 +73,8 @@ const injectionLabels: Record<RequestInjectionKind, string> = {
     character: '캐릭터',
     persona: '페르소나',
     lorebook: '로어북',
+    grimoire: '그리모어',
+    grimoireRequired: '그리모어(필수)',
     wiki: 'BardWiki',
     memory: '메모리',
     exampleDialogue: '예시 대화',
@@ -80,6 +82,125 @@ const injectionLabels: Record<RequestInjectionKind, string> = {
     instruction: '추가 지침',
     tool: '도구',
     other: '기타',
+}
+
+export interface DisplayInjectionItem {
+    kind: RequestInjectionKind
+    label: string
+    tokens: number
+    details?: Array<{ label: string, tokens: number }>
+}
+
+interface ChatRange {
+    start: number
+    end: number
+}
+
+function parseChatRange(name: string | undefined): ChatRange | undefined {
+    const match = name?.match(/^\d+개 \((\d+)(?:~(\d+))?\)$/)
+    if (!match) return undefined
+    const start = Number(match[1])
+    const end = Number(match[2] ?? match[1])
+    return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start > 0 && end >= start
+        ? { start, end }
+        : undefined
+}
+
+function mergeChatRanges(ranges: ChatRange[]): ChatRange[] {
+    const sorted = ranges.slice().sort((a, b) => a.start - b.start || a.end - b.end)
+    const merged: ChatRange[] = []
+    for (const range of sorted) {
+        const previous = merged.at(-1)
+        if (previous && range.start <= previous.end + 1) {
+            previous.end = Math.max(previous.end, range.end)
+        } else {
+            merged.push({ ...range })
+        }
+    }
+    return merged
+}
+
+function chatHistoryDisplay(items: RequestInjectionManifest['items']): DisplayInjectionItem {
+    const ranges = items.map((item) => parseChatRange(item.name))
+    const tokens = items.reduce((total, item) => total + item.tokens, 0)
+    if (ranges.every((range): range is ChatRange => range !== undefined)) {
+        const merged = mergeChatRanges(ranges)
+        const count = merged.reduce((total, range) => total + range.end - range.start + 1, 0)
+        const rangeLabel = merged.map((range) => range.start === range.end
+            ? String(range.start)
+            : `${range.start}~${range.end}`
+        ).join(', ')
+        return {
+            kind: 'chatHistory',
+            label: `채팅 기록 · ${count}개 (${rangeLabel})`,
+            tokens,
+            ...(items.length > 1 ? {
+                details: items.map((item, index) => {
+                    const range = ranges[index]
+                    const itemCount = range.end - range.start + 1
+                    const itemRange = range.start === range.end
+                        ? String(range.start)
+                        : `${range.start}~${range.end}`
+                    return {
+                        label: `${itemCount}개 (${itemRange})`,
+                        tokens: item.tokens,
+                    }
+                }),
+            } : {}),
+        }
+    }
+    return {
+        kind: 'chatHistory',
+        label: items.length === 1 && items[0].name
+            ? `채팅 기록 · ${items[0].name}`
+            : `채팅 기록 · ${items.length}개 항목`,
+        tokens,
+    }
+}
+
+/** Body-free, deterministic projection shared by the activity UI and export. */
+export function groupInjectionManifestItems(
+    manifest: RequestInjectionManifest
+): DisplayInjectionItem[] {
+    const instructions = manifest.items.filter((item) => item.kind === 'instruction')
+    const chatHistory = manifest.items.filter((item) => item.kind === 'chatHistory')
+    const result: DisplayInjectionItem[] = []
+    let emittedInstructions = false
+    let emittedChatHistory = false
+
+    for (const item of manifest.items) {
+        if (item.kind === 'instruction') {
+            if (emittedInstructions) continue
+            emittedInstructions = true
+            result.push({
+                kind: 'instruction',
+                label: instructions.length === 1 && instructions[0].name
+                    ? `추가 지침 · ${instructions[0].name}`
+                    : `추가 지침 · ${instructions.length}개 항목`,
+                tokens: instructions.reduce((total, source) => total + source.tokens, 0),
+                ...(instructions.length > 1 ? {
+                    details: instructions.map((source, index) => ({
+                        label: source.name || `이름 없는 지침 ${index + 1}`,
+                        tokens: source.tokens,
+                    })),
+                } : {}),
+            })
+            continue
+        }
+        if (item.kind === 'chatHistory') {
+            if (emittedChatHistory) continue
+            emittedChatHistory = true
+            result.push(chatHistoryDisplay(chatHistory))
+            continue
+        }
+        const label = item.kind === 'other' && item.name
+            ? item.name
+            : item.name
+                ? `${injectionLabels[item.kind]} · ${item.name}`
+                : injectionLabels[item.kind]
+        result.push({ kind: item.kind, label, tokens: item.tokens })
+    }
+    return result
 }
 
 const number = (value: number | undefined) => value?.toLocaleString('ko-KR') ?? '확인 불가'
@@ -93,7 +214,15 @@ const failureLabels: Record<
     authentication: '인증 오류',
     server: '공급자 서버 오류',
     network: '네트워크 오류',
+    format: '구조화 응답 검증 오류',
+    'invalid-request': '요청 인자 거부',
     provider: '공급자 응답 오류',
+}
+
+export function chatRequestFailureLabel(
+    category: NonNullable<ChatRequestEvidenceEntry['failureCategory']>
+): string {
+    return failureLabels[category]
 }
 
 function localTimeZone(): string {
@@ -145,7 +274,10 @@ function requestFailureCategory(
     entry: RequestLogEntry
 ): ChatRequestEvidenceEntry['failureCategory'] | undefined {
     if (entry.success && !entry.aborted) return undefined
-    const message = (entry.errorMessage ?? '').toLocaleLowerCase()
+    const message = [entry.errorMessage, providerResponseError(entry.responseBody)]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
     if (entry.status === 408 || entry.status === 504
         || /timed?\s*out|timeout|시간.*초과/u.test(message)) return 'timeout'
     if (entry.status === 429
@@ -153,6 +285,12 @@ function requestFailureCategory(
     if (entry.status === 401 || entry.status === 403
         || /unauthor|forbidden|authentication|api.?key/u.test(message)) {
         return 'authentication'
+    }
+    if (/structured.?output.*validation|json.?schema.*validation|response.?schema.*validation/u.test(message)) {
+        return 'format'
+    }
+    if (/\binvalid[_ ]argument\b|request contains an invalid argument/u.test(message)) {
+        return 'invalid-request'
     }
     if ((entry.status ?? 0) >= 500
         || /bad gateway|service unavailable|internal server/u.test(message)) {
@@ -162,6 +300,32 @@ function requestFailureCategory(
         return 'network'
     }
     return 'provider'
+}
+
+function providerResponseError(responseBody: string | undefined): string {
+    if (!responseBody) return ''
+    try {
+        const parsed = JSON.parse(responseBody) as unknown
+        if (!parsed || typeof parsed !== 'object') return ''
+        const error = (parsed as { error?: unknown }).error
+        if (!error || typeof error !== 'object') return ''
+        const record = error as { status?: unknown, message?: unknown }
+        return [record.status, record.message]
+            .filter((value): value is string => typeof value === 'string')
+            .join(' ')
+    }
+    catch {
+        return ''
+    }
+}
+
+function requestOutcome(entry: RequestLogEntry): ChatRequestEvidenceEntry['outcome'] {
+    if (entry.aborted) return 'aborted'
+    if (!entry.success) return 'failed'
+    return entry.source === 'memory'
+        && ['bardwiki-analysis', 'bardwiki-canonical-update'].includes(entry.purpose ?? '')
+        ? 'response-received'
+        : 'done'
 }
 
 export function buildChatRequestEvidence(
@@ -180,7 +344,7 @@ export function buildChatRequestEvidence(
         ...(entry.purpose ? { purpose: entry.purpose } : {}),
         ...(entry.model ? { model: entry.model } : {}),
         ...(entry.provider ? { provider: entry.provider } : {}),
-        outcome: entry.aborted ? 'aborted' : entry.success ? 'done' : 'failed',
+        outcome: requestOutcome(entry),
         ...(entry.status !== undefined ? { status: entry.status } : {}),
         ...(entry.route ? { route: entry.route } : {}),
         streaming: entry.streaming,
@@ -361,10 +525,13 @@ export function formatChatRequestEvidenceMarkdown(evidence: ChatRequestEvidence)
         '> 이 보고서는 요청 메타데이터만 포함합니다. 프롬프트, 응답 본문, 헤더와 인증 정보는 제외됩니다.',
     ]
 
-    for (const [index, request] of evidence.requests.entries()) {
+    for (const request of evidence.requests) {
+        const requestHeading = request.id >= 0
+            ? `요청 #${request.id}`
+            : `레거시 요청 ${Math.abs(request.id)}`
         lines.push(
             '',
-            `## 요청 ${index + 1}`,
+            `## ${requestHeading} · ${requestPurposeLabel(request.purpose, request.source)}`,
             '',
             '| 항목 | 값 |',
             '| --- | --- |',
@@ -374,12 +541,14 @@ export function formatChatRequestEvidenceMarkdown(evidence: ChatRequestEvidence)
             `| 로그 종류 | ${request.source} |`,
             `| 모델 | ${escapeTable(request.model)} |`,
             `| 공급자 | ${escapeTable(request.provider)} |`,
-            `| 결과 | ${request.outcome} |`,
+            `| 결과 | ${request.outcome === 'response-received'
+                ? '응답 수신 (후속 검증·저장 결과 별도)'
+                : request.outcome} |`,
             ...(request.status === undefined ? [] : [
                 `| HTTP 상태 | ${request.status} |`,
             ]),
             ...(request.failureCategory === undefined ? [] : [
-                `| 오류 유형 | ${failureLabels[request.failureCategory]} |`,
+                `| 오류 유형 | ${chatRequestFailureLabel(request.failureCategory)} |`,
             ]),
             `| 경과 시간 | ${durationLabel(request.durationMs)} |`,
             `| 첫 토큰 | ${durationLabel(request.firstTokenMs)} |`,
@@ -398,13 +567,8 @@ export function formatChatRequestEvidenceMarkdown(evidence: ChatRequestEvidence)
                 '',
                 '| 주입 항목 | 토큰 |',
                 '| --- | ---: |',
-                ...request.injectionManifest.items.map((item) => {
-                    const label = item.kind === 'other' && item.name
-                        ? escapeTable(item.name)
-                        : item.name
-                            ? `${injectionLabels[item.kind]} · ${escapeTable(item.name)}`
-                        : injectionLabels[item.kind]
-                    return `| ${label} | ${number(item.tokens)} |`
+                ...groupInjectionManifestItems(request.injectionManifest).map((item) => {
+                    return `| ${escapeTable(item.label)} | ${number(item.tokens)} |`
                 }),
             )
         }

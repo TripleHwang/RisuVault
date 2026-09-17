@@ -214,6 +214,41 @@ describe('actual narrative inquiry prompt', () => {
         })).rejects.toMatchObject({ name: 'AbortError' })
     })
 
+    it('sends bounded recent conversation text as a fallback inquiry', async () => {
+        const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+            mode: 'v2-current',
+            graphRevision: 0,
+            indexRevision: 0,
+            cacheStatus: 'current',
+            sources: [],
+            entityCandidates: [],
+            metrics: {
+                candidateCount: 0,
+                inspectedNodeCount: 0,
+                inspectedEdgeCount: 0,
+                selectedNodeCount: 0,
+                selectedTokens: 0,
+                hopCount: 0,
+                auxiliaryModelCalls: 0,
+            },
+        }))) as unknown as typeof fetch
+
+        await loadNarrativeInquiry({
+            characterId: 'character-1',
+            chatId: 'chat-1',
+            currentInput: '*says nothing*',
+            fallbackInput: '하니아와 침수된 도서관'.repeat(400),
+            fetchImpl,
+            createAuth: async () => 'auth',
+        })
+
+        const body = JSON.parse((fetchImpl as any).mock.calls[0][1].body)
+        expect(body.fallbackInput).toHaveLength(4_096)
+        expect(body.fallbackInput).toBe(
+            '하니아와 침수된 도서관'.repeat(400).slice(-4_096)
+        )
+    })
+
     it('loads bounded server sources and serializes only selected content', async () => {
         const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
             mode: 'v2-current',
@@ -243,10 +278,14 @@ describe('actual narrative inquiry prompt', () => {
             characterId: 'character-1',
             chatId: 'chat-1',
             currentInput: 'What happened?',
-            tokenBudget: { target: 1_500, maximum: 4_500 },
+            tokenBudget: { target: 1_500, events: 2_000, perSource: 700, maximum: 4_500 },
             semanticMatches: [{
                 documentId: 'event-bridge',
                 score: 0.91,
+            }],
+            entityHints: [{
+                kind: 'character',
+                names: ['Haania', 'Hania', '하니아', 'Hanya'],
             }],
             sourceMatches: Array.from({ length: 9 }, (_, index) => ({
                 messageId: `message-${index}`,
@@ -276,12 +315,16 @@ describe('actual narrative inquiry prompt', () => {
                     characterId: 'character-1',
                     chatId: 'chat-1',
                     currentInput: 'What happened?',
-                    tokenBudget: { target: 1_500, maximum: 4_500 },
+                    tokenBudget: { target: 1_500, events: 2_000, perSource: 700, maximum: 4_500 },
                     semanticMatches: [{
                         documentId: 'event-bridge',
                         score: 0.91,
                     }],
-                    sourceMatches: Array.from({ length: 8 }, (_, index) => ({
+                    entityHints: [{
+                        kind: 'character',
+                        names: ['Haania', 'Hania', '하니아', 'Hanya'],
+                    }],
+                    sourceMatches: Array.from({ length: 9 }, (_, index) => ({
                         messageId: `message-${index}`,
                         role: 'assistant',
                         content: index === 0
@@ -322,6 +365,109 @@ describe('actual narrative inquiry prompt', () => {
         })).resolves.toMatchObject({
             metrics: { selectedTokens: 1_147 },
         })
+    })
+
+    it('recompiles with exact source IDs requested by the selected event', async () => {
+        const base = {
+            mode: 'v2-current',
+            graphRevision: 2,
+            indexRevision: 2,
+            cacheStatus: 'current',
+            entityCandidates: [],
+            metrics: {
+                candidateCount: 2,
+                inspectedNodeCount: 2,
+                inspectedEdgeCount: 0,
+                selectedNodeCount: 1,
+                selectedTokens: 40,
+                selectedEventTokens: 40,
+                semanticCandidateCount: 0,
+                hopCount: 0,
+                auxiliaryModelCalls: 0,
+            },
+        }
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                ...base,
+                sources: [{
+                    id: 'narrative-memory:wiki:events/abduction.md',
+                    kind: 'memory',
+                    role: 'system',
+                    content: '# 네 처녀의 실종',
+                    tokens: 40,
+                    priority: 120,
+                    displayName: '사건 · 네 처녀의 실종 · abduction',
+                }],
+                evidenceRequests: [{
+                    messageId: 'turn-4',
+                    eventTitle: '네 처녀의 실종',
+                }],
+            })))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                ...base,
+                sources: [
+                    {
+                        id: 'narrative-memory:wiki:events/abduction.md',
+                        kind: 'memory',
+                        role: 'system',
+                        content: '# 네 처녀의 실종',
+                        tokens: 40,
+                        priority: 120,
+                        displayName: '사건 · 네 처녀의 실종 · abduction',
+                    },
+                    {
+                        id: 'narrative-memory:source:turn-4:7',
+                        kind: 'memory',
+                        role: 'system',
+                        content: '기도실과 본당 어디에도 시신은 없었다.',
+                        tokens: 20,
+                        priority: 250,
+                        occurredAt: 7,
+                        displayName: '과거 원문 · 턴 4 응답 · 출처 기반 · 네 처녀의 실종',
+                    },
+                ],
+                evidenceRequests: [{
+                    messageId: 'turn-4',
+                    eventTitle: '네 처녀의 실종',
+                }],
+            }))) as unknown as typeof fetch
+
+        const inquiry = await loadNarrativeInquiry({
+            characterId: 'character-1',
+            chatId: 'chat-1',
+            currentInput: '수녀들이 데려간 여자들에 대해 묻는다.',
+            sourceLimit: 8,
+            sourceMatches: [{
+                messageId: 'turn-9', role: 'assistant', occurredAt: 17,
+                score: 9, content: '수녀 괴물과 싸웠다.',
+            }],
+            resolveSourceMatches: (messageIds) => messageIds.map(
+                (messageId) => ({
+                    messageId,
+                    role: 'assistant' as const,
+                    occurredAt: 7,
+                    score: 1_000,
+                    content: '기도실과 본당 어디에도 시신은 없었다.',
+                })
+            ),
+            fetchImpl,
+            createAuth: async () => 'auth',
+        } as any)
+
+        expect(fetchImpl).toHaveBeenCalledTimes(2)
+        const secondBody = JSON.parse(
+            (fetchImpl as any).mock.calls[1][1].body
+        )
+        expect(secondBody.sourceLimit).toBe(8)
+        expect(secondBody.sourceMatches.map(
+            (match: { messageId: string }) => match.messageId
+        )).toEqual(['turn-4', 'turn-9'])
+        expect((inquiry.sources[0] as any).displayName).toBe(
+            '사건 · 네 처녀의 실종 · abduction'
+        )
+        expect((inquiry.sources[1] as any).displayName).toContain(
+            '턴 4 응답 · 출처 기반 · 네 처녀의 실종'
+        )
     })
 
     it('accepts progressive inquiry metrics for a large Markdown catalog', async () => {
@@ -385,10 +531,9 @@ describe('actual narrative inquiry prompt', () => {
             priority: 120,
         }], '')!
 
-        expect(prompt).toContain('event documents are the detailed evidence')
-        expect(prompt).toContain('Do not invent an omitted action target or location')
-        expect(prompt).toContain('Do not turn temporal order into causation')
-        expect(prompt).toContain('character knowledge boundary')
+        expect(prompt).toContain('Treat retrieved sources as authoritative evidence')
+        expect(prompt).toContain('chronology')
+        expect(prompt).toContain('viewpoint knowledge')
     })
 
     it('gives canonical current-state sections precedence', () => {
@@ -399,12 +544,8 @@ describe('actual narrative inquiry prompt', () => {
             tokens: 20, priority: 120,
         }], '')!
 
-        expect(prompt).toContain(
-            'Current-state sections in canonical character documents outrank older historical descriptions'
-        )
-        expect(prompt).toContain(
-            'Do not replace an established identity, status, relationship, duration, location, or goal with an unsupported detail'
-        )
+        expect(prompt).toContain('current canonical state for present facts')
+        expect(prompt).toContain('unsupported continuation')
     })
 
     it('injects preset-bound response guidance only beside retrieved Wiki sources', () => {
@@ -519,25 +660,26 @@ describe('selectNarrativeWorkingMessages', () => {
         ])
     })
 
-    it('counts eight as total slots and always retains the current user request', () => {
+    it('counts configured history as assistant turns and retains the current user request', () => {
         const messages = Array.from({ length: 8 }, (_, index) => [
             { id: `user-${index + 1}`, role: 'user' },
             { id: `assistant-${index + 1}`, role: 'char' },
         ]).flat().concat({ id: 'user-current', role: 'user' })
 
         const withUsers = selectNarrativeWorkingMessages(
-            messages, 8, true
+            messages, 2, true
         )
-        expect(withUsers.filter((message) => message.role === 'user')).toHaveLength(4)
-        expect(withUsers.filter((message) => message.role === 'char')).toHaveLength(4)
+        expect(withUsers.map((message) => message.id)).toEqual([
+            'user-7', 'assistant-7', 'user-8', 'assistant-8', 'user-current',
+        ])
 
         const withoutHistoricalUsers = selectNarrativeWorkingMessages(
-            messages, 8, false
+            messages, 2, false
         )
         expect(withoutHistoricalUsers.filter((message) => message.role === 'user'))
             .toEqual([{ id: 'user-current', role: 'user' }])
         expect(withoutHistoricalUsers.filter((message) => message.role === 'char'))
-            .toHaveLength(7)
+            .toHaveLength(2)
     })
 
     it('keeps the first greeting inside the message budget', () => {

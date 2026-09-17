@@ -1,6 +1,5 @@
 # 사건 초안 필드 계약
 
-- `schemaVersion`: 항상 `1`.
 - `title`: 사건이나 변화 하나를 식별하는 짧은 제목. Markdown 표식을 넣지 않는다.
 - `establishedEvents`: 확정 본문에서 실제로 일어난 사건. 시간 순서대로 최대 12개. 이 배열만 이어 읽어도 이야기 흐름이 자연스러워야 하며 상태 관리, 미완성 플롯 관리, 정본 갱신 제안은 넣지 않는다.
 - `stateChanges`: `subject`, `before`, `after`. `before`가 근거에 없으면 `null`.

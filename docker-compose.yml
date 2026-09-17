@@ -9,7 +9,7 @@ services:
     image: risuvault:local
     restart: always
     ports:
-      - 6001:6001
+      - 7777:7777
     environment:
       RISU_UPDATE_REPOSITORY: TripleHwang/RisuVault
       RISU_RELEASE_ARTIFACT_PREFIX: RisuVault

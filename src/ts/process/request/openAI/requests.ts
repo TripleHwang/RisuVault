@@ -28,7 +28,7 @@ import { applyChatTemplate } from "../../templates/chatTemplate"
 import { supportsInlayImage } from "../../files/inlays"
 import { callTool, decodeToolCall, encodeToolCall } from "../../mcp/mcp"
 import type { RequestDataArgumentExtended, requestDataResponse, StreamResponseChunk } from '../request'
-import { applyAdditionalParameters, applyParameters, getAdditionalParameters, isReasoningCapabilityParameter } from '../shared'
+import { applyAdditionalParameters, applyParameters, getAdditionalParameters, isReasoningCapabilityParameter, resolveApiSamplingParameter, resolveStoredSamplingParameter } from '../shared'
 
 import type { Contents, OpenAIChatExtra, OpenAIChatFull, ResponseInputItem, ResponseItem, ResponseOutputItem, ToolCall } from './types'
 
@@ -887,6 +887,12 @@ export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtende
     }
 
     const completionsUrl = arg.customURL ?? "https://api.openai.com/v1/completions"
+    const presencePenalty = arg.PresensePenalty === undefined
+        ? resolveStoredSamplingParameter('presence_penalty', db.PresensePenalty)
+        : resolveApiSamplingParameter('presence_penalty', arg.PresensePenalty)
+    const frequencyPenalty = arg.frequencyPenalty === undefined
+        ? resolveStoredSamplingParameter('frequency_penalty', db.frequencyPenalty)
+        : resolveApiSamplingParameter('frequency_penalty', arg.frequencyPenalty)
     const response = await globalFetch(completionsUrl, {
         logCategory: 'llm',
         logSource: 'main',
@@ -898,8 +904,8 @@ export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtende
             temperature: temperature,
             top_p: 1,
             stop:["User:"," User:", "user:", " user:"],
-            presence_penalty: arg.PresensePenalty || (db.PresensePenalty / 100),
-            frequency_penalty: arg.frequencyPenalty || (db.frequencyPenalty / 100),
+            ...(presencePenalty === undefined ? {} : { presence_penalty: presencePenalty }),
+            ...(frequencyPenalty === undefined ? {} : { frequency_penalty: frequencyPenalty }),
         },
         headers: {
             "Content-Type": "application/json",

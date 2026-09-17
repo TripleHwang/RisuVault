@@ -1,10 +1,12 @@
-import { allowedDbKeys, assertPluginStorageResident, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, hasMetadataOnlyCharacters, isPluginCharacterComplete, isPluginChatComplete, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
+import { allowedDbKeys, assertPluginStorageResident, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, hasMetadataOnlyCharacters, isPluginCharacterComplete, isPluginChatComplete, pluginProviderOwners, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
 import { SandboxHost } from "./factory";
 import { getDatabase, normalizeChat } from "src/ts/storage/database.svelte";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { bindPluginRequestStatusStorage } from "../providerRequestStatus";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import { isRootKeyDeferred } from "src/ts/storage/sql/deferredRootKeys";
+import { hasNewerSqlMessages, hasOlderSqlMessages } from "src/ts/storage/sql/sqlRuntimeWindow";
+import { resolveRisuBardChatSettings } from "src/ts/risubard/risuBardSettings";
 import {
     clearPluginStorageLazily,
     isPluginStoragePerKeyMode,
@@ -37,6 +39,18 @@ import { requestChatDataMain } from "src/ts/process/request/request";
 import type { OpenAIChat } from "src/ts/process/index.svelte";
 import { getModuleLorebooks } from "src/ts/process/modules";
 import { addOwnedChatOutputListener, readInlayWithPermission, removeOwnedChatOutputListener } from "../pluginChatOutput";
+import {
+    buildBardWikiPluginContext,
+    decorateBardWikiCharacterForPlugin,
+    decorateBardWikiChatForPlugin,
+    getBardWikiPluginDocuments,
+    saveBardWikiPluginDocument,
+    setBardWikiPluginDocumentContextMode,
+    stripBardWikiVirtualMemory,
+    stripBardWikiVirtualMemoryFromCharacter,
+    stripBardWikiVirtualMemoryFromDatabase,
+    trashBardWikiPluginDocument,
+} from "src/ts/risubard/pluginBardWiki";
 import {
     registerTTSPreprocessor,
     unregisterTTSPreprocessor,
@@ -573,8 +587,8 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
 }
 
-type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat'|'inlay';
-const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat', 'inlay'];
+type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat'|'inlay'|'bardWikiWrite';
+const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat', 'inlay', 'bardWikiWrite'];
 const trustedBuiltInPlugins = new Set<string>();
 
 // Plugin names are free text (the //@name directive), so `${name}_${desc}` keys
@@ -680,6 +694,7 @@ const removeV3Provider = (pluginName: string, name: string) => {
     );
     if (modelIndex !== -1) customV3ProviderMetaStore.splice(modelIndex, 1);
     v3ProviderOwner.delete(name);
+    if (pluginProviderOwners.get(name) === pluginName) pluginProviderOwners.delete(name);
 }
 
 const removeV3Providers = (pluginName: string) => {
@@ -773,6 +788,7 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
             : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
             : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
             : permissionDesc === 'inlay' ? language.inlayPermissionConsent.replace("{}", pluginName)
+            : permissionDesc === 'bardWikiWrite' ? language.bardWikiWriteConsent.replace("{}", pluginName)
             : `Error`
         if(alertTitle === 'Error'){
             return false;
@@ -816,9 +832,111 @@ const authorizationHeaders = [
     'proxy-authorization',
 ]
 
+/**
+ * Why a live chat cannot honestly feed the BardWiki plugin context, or `null`
+ * when it can.
+ *
+ * Upstream's `buildBardWikiPluginContext` reads `chat.risuBardSettings` and the
+ * tail of `chat.message` straight off the live chat, which there is the whole
+ * record. Here a live chat is a view of storage. Its settings arrive with
+ * `detailsLoaded` -- the RisuBard settings are a `chat_extension_nodes` field,
+ * so a chat whose details have not been read carries none and
+ * `resolveRisuBardChatSettings` would silently answer with the global values --
+ * and its message array is a resident window that may be missing the newest end
+ * (residency trimming) or the oldest (a chat opens on its newest page).
+ *
+ * The builder reads only the tail: the last `risuBardResponseMessageCount`
+ * assistant turns after the last `allBefore` marker, plus the user turns that
+ * lead into them. So an older gap is fine as long as that tail is resident. A
+ * resident `allBefore` proves it outright. Otherwise one assistant turn more
+ * than the count proves the selected tail, leading user turns included, sits
+ * inside the window. A newer gap is never fine: the tail IS the missing part.
+ *
+ * A reason rather than a boolean, so the explicit API can throw it and the
+ * legacy-memory decorators can log it. Neither answers from a chat it cannot
+ * see: a context built from a cut-short tail reads as a complete one, and a
+ * plugin acting on it has no way to tell.
+ *
+ * Evaluate this on the LIVE chat. `$state.snapshot` drops the symbol-keyed
+ * window, so a snapshot always looks whole.
+ */
+export const describeBardWikiScopeGap = (chat: any, globalSettings: any): string | null => {
+    if (!chat || chat._stub === true || chat._placeholder === true || chat.messagesLoaded === false || !Array.isArray(chat.message)) {
+        return 'its messages are not loaded'
+    }
+    if (chat.detailsLoaded === false) return 'its settings are not loaded'
+    if (hasNewerSqlMessages(chat)) return 'its newest messages are not resident'
+    if (!hasOlderSqlMessages(chat)) return null
+
+    const messages: any[] = chat.message
+    const cut = messages.findLastIndex((message) => message?.disabled === 'allBefore')
+    if (cut !== -1) return null
+    const settings = resolveRisuBardChatSettings(globalSettings, chat.risuBardSettings)
+    const limit = settings.risuBardResponseMessageCount
+    const usable = messages.filter((message) =>
+        message?.disabled !== true
+        && message?.isComment !== true
+        && typeof message?.data === 'string'
+        && message.data.trim().length > 0
+    )
+    const assistants = usable.filter((message) =>
+        message.role === 'char' || message.role === 'assistant'
+    ).length
+    const enough = assistants > 0 ? assistants > limit : usable.length > limit
+    if (enough) return null
+    return `only ${usable.length} of the recent messages it would read are resident`
+}
+
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
+    const createBardWikiAuth = () => forageStorage.createAuth()
+    const warnBardWikiCompatibilityFailure = (error: unknown) => {
+        console.warn('[RisuVault] BardWiki plugin compatibility unavailable:', error)
+    }
+    const decoratePluginCharacter = (character: any) => {
+        if (!character?.chaId) return character
+        return decorateBardWikiCharacterForPlugin({
+            character,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+            onError: warnBardWikiCompatibilityFailure,
+        })
+    }
+    const decoratePluginChat = (character: any, chat: any) => {
+        if (!character?.chaId || !chat?.id) return chat
+        return decorateBardWikiChatForPlugin({
+            characterId: character.chaId,
+            chatId: chat.id,
+            chat,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+            onError: warnBardWikiCompatibilityFailure,
+        })
+    }
+    const getPluginCharacter = async () =>
+        decoratePluginCharacter(oldApis.getChar())
+    const setPluginCharacter = (character: any) =>
+        oldApis.setChar(stripBardWikiVirtualMemoryFromCharacter(character))
+    const getCurrentBardWikiScope = () => {
+        const selectedId = get(selectedCharID)
+        const character = DBState.db.characters[selectedId]
+        const chat = character?.chats?.[character.chatPage]
+        if (!character?.chaId || !chat?.id) {
+            throw new Error('BardWiki requires a selected saved chat')
+        }
+        return {
+            characterId: character.chaId,
+            chatId: chat.id,
+            character,
+            chat,
+            globalSettings: DBState.db,
+            fetchImpl: fetch,
+            createAuth: createBardWikiAuth,
+        }
+    }
     return {
 
         //Old APIs from v2.1
@@ -855,8 +973,8 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
             return oldApis.nativeFetch(url, options);
         },
-        getChar: oldApis.getChar,
-        setChar: oldApis.setChar,
+        getChar: getPluginCharacter,
+        setChar: setPluginCharacter,
         addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             const providerName = name.trim()
@@ -895,6 +1013,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 oldApis.pluginStorage.getItem,
                 oldApis.pluginStorage.setItem,
             ))
+            pluginProviderOwners.set(providerName, plugin.name)
             customProviderStore.set(provs)
 
             const modelData:LLMModel = {
@@ -957,8 +1076,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         removeRisuChatListener: (mode: 'output', func: Function) => {
             removeOwnedChatOutputListener(pluginV2.chatOutput, `v3:${plugin.name}`, mode, func as any);
         },
-        setDatabaseLite: oldApis.setDatabaseLite,
-        setDatabase: oldApis.setDatabase,
+        setDatabaseLite: (database: any) =>
+            oldApis.setDatabaseLite(stripBardWikiVirtualMemoryFromDatabase(database)),
+        setDatabase: (database: any) =>
+            oldApis.setDatabase(stripBardWikiVirtualMemoryFromDatabase(database)),
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
         readInlay: async (id: string) => {
@@ -1001,6 +1122,21 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     continue;
                 }
                 (liteDB as any)[key] = $state.snapshot((db as any)[key]);
+            }
+            const characters = (liteDB as any).characters
+            const selectedId = get(selectedCharID)
+            if (characters?.[selectedId]) {
+                // The gap check needs the live chat; the snapshot in `liteDB`
+                // has already lost its residency window.
+                const liveCharacter = db.characters[selectedId]
+                const gap = describeBardWikiScopeGap(liveCharacter?.chats?.[liveCharacter.chatPage], db)
+                if (gap) {
+                    warnBardWikiCompatibilityFailure(`current chat skipped: ${gap}`)
+                } else {
+                    characters[selectedId] = await decoratePluginCharacter(
+                        characters[selectedId]
+                    )
+                }
             }
             return liteDB;
         },
@@ -1092,13 +1228,15 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
             }
         },
-        getCharacterFromIndex: (index:number) => {
+        getCharacterFromIndex: async (index:number) => {
             const db = DBState.db
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
                 if (!isPluginCharacterComplete(db.characters[charId])) return null
-                return $state.snapshot(db.characters[charId]);
+                return decoratePluginCharacter(
+                    $state.snapshot(db.characters[charId])
+                );
             }
             return null;
         },
@@ -1108,18 +1246,23 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charId = charIds[index];
             if(charId){
                 if (!isPluginCharacterComplete(db.characters[charId])) throw new Error('Character details are still loading')
-                DBState.db.characters[charId] = char
+                DBState.db.characters[charId] =
+                    stripBardWikiVirtualMemoryFromCharacter(char)
             }
         },
-        getChatFromIndex: (characterIndex:number, chatIndex:number) => {
+        getChatFromIndex: async (characterIndex:number, chatIndex:number) => {
             const db = DBState.db
             const charIds = Object.keys(db.characters);
             const charId = charIds[characterIndex];
             if(charId){
-                const chats = db.characters[charId].chats;
+                const character = db.characters[charId]
+                const chats = character.chats;
                 if(chats && chats[chatIndex]){
                     if (!isPluginChatComplete(chats[chatIndex])) return null
-                    return $state.snapshot(chats[chatIndex]);
+                    return decoratePluginChat(
+                        character,
+                        $state.snapshot(chats[chatIndex])
+                    );
                 }
             }
             return null;
@@ -1132,7 +1275,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 const chats = db.characters[charId].chats;
                 if(chats && chats[chatIndex]){
                     if (!isPluginChatComplete(chats[chatIndex])) throw new Error('Chat history is still loading')
-                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(chat)
+                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(
+                        stripBardWikiVirtualMemory(chat)
+                    )
                 }
             }
         },
@@ -1159,14 +1304,70 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return $state.snapshot(characterLore.concat(chatLore).concat(moduleLore))
         },
         //New names for character APIs, to match API naming conventions
-        getCharacter: oldApis.getChar,
-        setCharacter: oldApis.setChar,
+        getCharacter: getPluginCharacter,
+        setCharacter: setPluginCharacter,
+
+        _getBardWikiContext: async (options: { query?: string } = {}) => {
+            const scope = getCurrentBardWikiScope()
+            // The document calls below need only the ids. This one reads the
+            // chat's settings and message tail, so it is the one that has to
+            // ask whether they are here -- on the live chat, before anything
+            // snapshots it: the resident window is a symbol-keyed mark that no
+            // snapshot carries.
+            const gap = describeBardWikiScopeGap(scope.chat, scope.globalSettings)
+            if (gap) {
+                throw new Error(`BardWiki cannot read the current chat: ${gap}`)
+            }
+            return buildBardWikiPluginContext({
+                ...scope,
+                query: options.query,
+            })
+        },
+        _getBardWikiDocuments: async (options: {
+            types?: any[]
+            statuses?: any[]
+        } = {}) => {
+            const scope = getCurrentBardWikiScope()
+            return getBardWikiPluginDocuments({
+                ...scope,
+                types: options.types,
+                statuses: options.statuses,
+            })
+        },
+        _saveBardWikiDocument: async (document: any) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return saveBardWikiPluginDocument({
+                ...getCurrentBardWikiScope(),
+                document,
+            })
+        },
+        _setBardWikiContextMode: async (input: {
+            documentId: string
+            contextMode: any
+            expectedContentHash: string
+        }) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return setBardWikiPluginDocumentContextMode({
+                ...getCurrentBardWikiScope(),
+                ...input,
+            })
+        },
+        _trashBardWikiDocument: async (documentId: string) => {
+            const conf = await getPluginPermission(plugin.name, 'bardWikiWrite')
+            if (!conf) return null
+            return trashBardWikiPluginDocument({
+                ...getCurrentBardWikiScope(),
+                documentId,
+            })
+        },
 
         showContainer: (
             //more types may be added in future
             type: 'fullscreen' = 'fullscreen'
         ) => {
-            iframe.style.display = "block";
+            iframe.style.setProperty('display', 'block', 'important');
             
             switch(type) {
                 case 'fullscreen': {
@@ -1191,7 +1392,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
         },
         hideContainer: () => {
-            iframe.style.display = "none";
+            iframe.style.setProperty('display', 'none', 'important');
         },
         getRootDocument: async () => {
             const conf = await getPluginPermission(plugin.name, 'mainDom');
@@ -1565,6 +1766,13 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     'clear': '_clearSafeLocalStorage',
                     'key': '_keySafeLocalStorage',
                     'keys': '_keysSafeLocalStorage',
+                },
+                'bardWiki':{
+                    'getContext': '_getBardWikiContext',
+                    'getDocuments': '_getBardWikiDocuments',
+                    'saveDocument': '_saveBardWikiDocument',
+                    'setContextMode': '_setBardWikiContextMode',
+                    'trashDocument': '_trashBardWikiDocument',
                 }
             }
         },
@@ -1714,7 +1922,7 @@ export async function executePluginV3(plugin:RisuPlugin){
     }
 
     const iframe = document.createElement('iframe');
-    iframe.style.display = "none";
+    iframe.style.setProperty('display', 'none', 'important');
     document.body.appendChild(iframe);
     const host = new SandboxHost(makeRisuaiAPIV3(iframe, plugin));
     v3PluginInstances.push({

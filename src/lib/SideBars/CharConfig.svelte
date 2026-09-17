@@ -48,6 +48,7 @@ import ShButton from "../UI/GUI/ShButton.svelte";
     let iconRemoveMode = $state(false)
     let pkgIncludeCharacter = $state(true)
     let pkgIncludeChats = $state(true)
+    let pkgIncludeGallery = $state(false)
     let pkgIncludePersona = $state(true)
     let pkgIncludeInlays = $state(false)
     let viewSubMenu = $state(0)
@@ -673,7 +674,12 @@ import ShButton from "../UI/GUI/ShButton.svelte";
     {/if}
 {:else if activeSubMenu === 3}
     {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold">{language.loreBook} <Help key="lorebook"/></h2>
+        <section data-lorebook-sidebar-header class="border-b border-darkborderc pb-2">
+            <div class="flex min-h-10 items-center gap-1 px-1.5 py-2 text-textcolor">
+                <strong class="truncate text-base font-semibold">{language.loreBook}</strong>
+                <Help key="lorebook"/>
+            </div>
+        </section>
     {/if}
     <LoreBook />
 {:else if activeSubMenu === 4}
@@ -767,6 +773,10 @@ import ShButton from "../UI/GUI/ShButton.svelte";
                     <CheckInput bind:check={pkgIncludeChats} name={language.characterPackageChats + ' (json)'} margin={false} />
                     <span class="text-textcolor2 text-sm ml-2 shrink-0">{char.chats.length}{language.characterPackageChatCount}</span>
                 </div>
+                <div class="flex items-center justify-between py-1">
+                    <CheckInput bind:check={pkgIncludeGallery} name={language.characterPackageGallery} margin={false} />
+                    <span class="text-textcolor2 text-sm ml-2 shrink-0">{char.risuBardGallery?.slots.length ?? 0}{language.characterPackageGalleryCount}</span>
+                </div>
                 <div class="flex items-center py-1">
                     <CheckInput bind:check={pkgIncludePersona} name={language.characterPackagePersona} margin={false} />
                 </div>
@@ -778,6 +788,7 @@ import ShButton from "../UI/GUI/ShButton.svelte";
                 await exportCharacterPackage($selectedCharID, {
                     includeCharacter: licenseRestricted ? false : pkgIncludeCharacter,
                     includeChats: pkgIncludeChats,
+                    includeGallery: pkgIncludeGallery,
                     includePersona: pkgIncludePersona,
                     includeInlays: pkgIncludeInlays
                 })
@@ -788,11 +799,13 @@ import ShButton from "../UI/GUI/ShButton.svelte";
         </div>
     {/if}
 
-{:else if activeSubMenu === 5}
+{:else if activeSubMenu === 2}
+    {#if !$MobileGUI}
+        <h2 class="mb-2 text-2xl font-bold">{language.advancedSettings}</h2>
+    {/if}
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
-        {#if !$MobileGUI}
-            <h2 class="mb-2 text-2xl font-bold">TTS</h2>
-        {/if}
+        <section data-character-tts-settings class="mb-4 rounded-md border border-selected p-2">
+        <h3 class="mb-2 text-lg font-semibold text-textcolor">TTS</h3>
         <span class="text-textcolor">{language.provider}</span>
         <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={(e) => {
             if(DBState.db.characters[$selectedCharID].type === 'character'){
@@ -1089,10 +1102,7 @@ import ShButton from "../UI/GUI/ShButton.svelte";
                 <Check bind:check={DBState.db.characters[$selectedCharID].ttsReadOnlyQuoted} name={language.ttsReadOnlyQuoted}/>
             </div>
         {/if}
-    {/if}
-{:else if activeSubMenu === 2}
-    {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold">{language.advancedSettings}</h2>
+        </section>
     {/if}
         <span class="text-textcolor mt-2">Bias <Help key="bias"/></span>
         <div class="w-full max-w-full border border-selected rounded-md p-2 mb-2">
@@ -1206,7 +1216,7 @@ import ShButton from "../UI/GUI/ShButton.svelte";
             <Check bind:check={(DBState.db.characters[$selectedCharID] as import('src/ts/storage/database.svelte').character).escapeOutput} name={language.escapeOutput}/>
         </div>
 
-        {#if DBState.db.hypaV3}
+        {#if DBState.db.showMenuHypaMemoryModal && DBState.db.hypaV3}
             <Button
                 onclick={() => {
                     $hypaV3ModalOpen = true

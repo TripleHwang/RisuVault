@@ -209,6 +209,26 @@ function createRuntimeMemoryService(userDataDirectory, options = {}) {
             input.chatId,
             () => wiki.reviewCanonicalDocument(input)
         ),
+        beginBardChatUndo: (input) => serialized(
+            input.characterId,
+            input.chatId,
+            () => wiki.beginBardChatUndo(input)
+        ),
+        finalizeBardChatUndo: (input) => serialized(
+            input.characterId,
+            input.chatId,
+            () => wiki.finalizeBardChatUndo(input)
+        ),
+        getBardChatUndoStatus: (input) => serialized(
+            input.characterId,
+            input.chatId,
+            () => wiki.getBardChatUndoStatus(input)
+        ),
+        restoreBardChatUndo: (input) => serialized(
+            input.characterId,
+            input.chatId,
+            () => wiki.restoreBardChatUndo(input)
+        ),
         saveManualWikiDocument: (input) => serialized(
             input.characterId,
             input.chatId,

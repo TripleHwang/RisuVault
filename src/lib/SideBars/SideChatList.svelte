@@ -132,7 +132,7 @@
             localLore: [] as any[],
             fmIndex: -1,
             id: v4(),
-            ...newChatModelDefaults(),
+            ...newChatModelDefaults(chara, activeChat),
         }
         chara.chats.unshift(newChat)
         chara.chats = chara.chats
@@ -601,17 +601,16 @@
             {#if DBState.db.showModelInSidebar}
                 <ModelBind />
             {/if}
-            {#if DBState.db.showPresetInSidebar}
-                <PromptBind />
-            {/if}
             {#if DBState.db.showPersonaInSidebar}
                 <PersonaBind />
+            {/if}
+            {#if DBState.db.showPresetInSidebar}
+                <PromptBind />
             {/if}
             <Toggles bind:chara={chara} noContainer />
             <ShButton className="w-full mt-2" onclick={() => {
                 const char = DBState.db.characters[$selectedCharID]
                 if (!char) return
-                char.chats[char.chatPage].modules ??= []
                 openModuleListStore.set(true)
             }}>
                 <PackageIcon size={16} class="shrink-0" />

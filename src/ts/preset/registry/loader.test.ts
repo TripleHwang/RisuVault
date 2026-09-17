@@ -62,6 +62,7 @@ const EXPECTED_PROFILE_IDS = [
     "google:gemini-35-flash-lite",
     "google:gemini-36-flash",
     "google:gemini-37-flash",
+    "google:gemini-38-flash",
     "google:gemma-4-26b",
     "google:gemma-4-31b",
     "lightning-ai:claude-fable-5",
@@ -100,6 +101,7 @@ const EXPECTED_PROFILE_IDS = [
     "llmgateway:gemini-35-flash-lite",
     "llmgateway:gemini-36-flash",
     "llmgateway:gemini-37-flash",
+    "llmgateway:gemini-38-flash",
     "llmgateway:glm-52",
     "llmgateway:gpt-55",
     "llmgateway:gpt-56-luna",
@@ -116,6 +118,7 @@ const EXPECTED_PROFILE_IDS = [
     "nanogpt:gemini-35-flash-lite",
     "nanogpt:gemini-36-flash",
     "nanogpt:gemini-37-flash",
+    "nanogpt:gemini-38-flash",
     "nanogpt:gemma-4-31b",
     "nanogpt:glm-51",
     "nanogpt:glm-52",
@@ -190,6 +193,7 @@ const EXPECTED_PROFILE_IDS = [
     "openrouter:gemini-35-flash-lite",
     "openrouter:gemini-36-flash",
     "openrouter:gemini-37-flash",
+    "openrouter:gemini-38-flash",
     "openrouter:gemma-4-26b",
     "openrouter:gemma-4-31b",
     "openrouter:glm-51",
@@ -229,6 +233,7 @@ const EXPECTED_PROFILE_IDS = [
     "vercel:gemini-35-flash-lite",
     "vercel:gemini-36-flash",
     "vercel:gemini-37-flash",
+    "vercel:gemini-38-flash",
     "vercel:gemma-4-26b",
     "vercel:gemma-4-31b",
     "vercel:glm-51",
@@ -264,6 +269,7 @@ const EXPECTED_PROFILE_IDS = [
     "vertex-gemini-native:gemini-35-flash-lite",
     "vertex-gemini-native:gemini-36-flash",
     "vertex-gemini-native:gemini-37-flash",
+    "vertex-gemini-native:gemini-38-flash",
     "vertex-gemini-native:pro",
     "vertex-openai:standard",
     "wellspring:deepseek-v32-marp",
@@ -316,5 +322,32 @@ describe('loadBundledRegistry', () => {
         expect(profiles['openrouter:gemini-37-flash']?.modelId).toBe('google/gemini-3.7-flash')
         expect(profiles['vercel:gemini-37-flash']?.modelId).toBe('google/gemini-3.7-flash')
         expect(profiles['vertex-gemini-native:gemini-37-flash']?.modelId).toBe('gemini-3.7-flash')
+    })
+
+    test('ships Gemini 3.8 Flash across every supported registry provider', () => {
+        const entry = loadBundledRegistry().registries[getBundledRegistryId()]!
+        const expectedModelIds = {
+            'google:gemini-38-flash': 'gemini-3.8-flash',
+            'llmgateway:gemini-38-flash': 'gemini-3.8-flash',
+            'nanogpt:gemini-38-flash': 'google/gemini-3.8-flash',
+            'openrouter:gemini-38-flash': 'google/gemini-3.8-flash',
+            'vercel:gemini-38-flash': 'google/gemini-3.8-flash',
+            'vertex-gemini-native:gemini-38-flash': 'gemini-3.8-flash',
+        }
+
+        for (const [profileId, modelId] of Object.entries(expectedModelIds)) {
+            expect(entry.profiles[profileId]?.modelId).toBe(modelId)
+            expect(entry.profiles[profileId]?.limits?.maxOutputTokens).toBe(65536)
+        }
+
+        const vertexOpenAi = entry.baseProviders['vertex-openai']
+        const vertexModelIds = vertexOpenAi.requestSchema
+            .find((field) => field.key === 'modelId')?.enum?.map((option) => option.value)
+        expect(vertexOpenAi.version).toBe(8)
+        expect(vertexModelIds).toEqual(expect.arrayContaining([
+            'google/gemini-3.7-flash',
+            'google/gemini-3.8-flash',
+        ]))
+        expect(entry.profiles['vertex-openai:standard']?.updatedAt).toBe(1788406474967)
     })
 })

@@ -1,5 +1,5 @@
 import { alertError, alertStore, alertWait, alertMd, alertConfirm, alertConfirmMulti, alertClear, waitAlert, notifySuccess, notifyInfo, notifyError } from "../alert";
-import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
+import { downloadFile, LocalWriter, forageStorage, requestImmediateSave } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { hydrateSummaryCharacters } from '../storage/sql/sqlRuntimeHydration'
@@ -26,6 +26,19 @@ async function pickNativeBackupFile(fallbackName: string): Promise<FileSystemFil
             accept: { 'application/octet-stream': ['.bin'] },
         }],
     })
+}
+
+/**
+ * Persist before a backup is built, and refuse the backup if that fails.
+ *
+ * `withSaverScope('export')` flushes the SQL runtime for itself, so on the
+ * metadata-first path this is a second, empty flush. It stays because it is the
+ * call that refuses a backup while external canonical-file editing has
+ * persistence paused, and on the legacy patch-sync path it is the one that
+ * pushes `database.bin` to the server before the server reads it.
+ */
+async function persistCurrentStateForBackup() {
+    await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
 }
 
 async function streamBackupToDisk(
@@ -72,6 +85,7 @@ export async function SaveLocalBackup(){
         const fallbackName = `risu-backup-${Date.now()}.bin`
         const nativeFile = await pickNativeBackupFile(fallbackName)
         alertWait("Saving local backup...")
+        await persistCurrentStateForBackup()
         await withSaverScope('export', async () => {
             const response = await forageStorage.exportBackup()
             await streamBackupToDisk(response, fallbackName, nativeFile)
@@ -105,6 +119,7 @@ export async function SaveSettingsOnlyBackup(){
     let includeModuleAssets = true
     try {
         alertWait(language.backupSettingsOnlyEstimating)
+        await persistCurrentStateForBackup()
         const estimate = await forageStorage.settingsBackupEstimate()
         alertClear()
 
@@ -160,6 +175,7 @@ export async function SaveSettingsOnlyBackup(){
 export async function SaveLocalBackupForUpstream(){
     try {
         alertWait("Saving local backup...")
+        await persistCurrentStateForBackup()
         const response = await forageStorage.exportBackup({ target: 'upstream' })
         await streamBackupToDisk(response, `risu-backup-${Date.now()}-upstream.bin`)
         notifySuccess('Success')
@@ -384,6 +400,10 @@ export function LoadLocalBackup(){
             input.remove();
             alertWait(`Loading local Backup... (Uploading ${file.name})`);
             const result = await withSaverScope('import', () => forageStorage.importBackup(file, (loaded, total, phase) => {
+                if (phase === 'processing') {
+                    alertWait('Loading local Backup... (Processing backup entries)')
+                    return
+                }
                 if (phase === 'validating') {
                     alertWait('Loading local Backup... (Validating backup)')
                     return
@@ -490,6 +510,7 @@ export async function CleanupMigratedFiles() {
 export async function SaveServerBackup() {
     try {
         alertWait(language.serverBackupSaving)
+        await persistCurrentStateForBackup()
         // Same scope the download path uses. The server builds this backup from
         // SQL, so anything the client is still holding dirty would be missing
         // from it -- and a server backup is the one you restore from, which

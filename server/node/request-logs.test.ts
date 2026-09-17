@@ -99,6 +99,11 @@ describe('insert and query', () => {
         expect(logs.queryRequestLogs({})[0].source).toBe('wiki-admin')
     })
 
+    it('preserves the Grimoire analysis request purpose', () => {
+        logs.addRequestLogBatch([entry({ source: 'other', purpose: 'bard-lore-analysis' })])
+        expect(logs.queryRequestLogs({})[0].purpose).toBe('bard-lore-analysis')
+    })
+
     it('persists body-free chat evidence metadata in list rows', () => {
         logs.addRequestLogBatch([entry({
             sessionChatId: 'chat-evidence',

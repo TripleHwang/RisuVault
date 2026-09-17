@@ -3,7 +3,15 @@ import type {
     NarrativeMemoryState,
 } from '../../packages/risubard-core/src/memoryDelta'
 import { get_encoding, type Tiktoken } from '@dqbd/tiktoken'
-import { ModelOutputError, modelOutputRepairInstruction, readModelResponseText, runValidatedModelRequest, type ModelResponse } from '../../packages/risubard-core/src/modelResponse'
+import {
+    ModelOutputError,
+    modelOutputRepairInstruction,
+    readModelResponseText,
+    runStructuredModelRequest,
+    runValidatedModelRequest,
+    type ModelResponse,
+    type StructuredOutputMode,
+} from '../../packages/risubard-core/src/modelResponse'
 import {
     validateMemoryDelta,
 } from '../../packages/risubard-core/src/memoryDelta'
@@ -32,11 +40,13 @@ import {
     buildCanonicalBatchSchema,
     hasMemoryWriterContent,
     parseCanonicalBatch,
+    parseCanonicalSingle,
     buildRebootBatchDraftSchema,
     parseMemoryWriterDraft,
     parseRebootBatchDraft,
     rebootBatchToMemoryDraft,
     serializeMemoryWriterDraft,
+    type CanonicalSectionPatch,
     type MemoryWriterDraft,
 } from './risubard-memory-writer'
 
@@ -53,7 +63,12 @@ import {
     RISUBARD_CANONICAL_CONCURRENCY_LIMIT_DEFAULT,
     type RisuBardCanonicalWritingStyle,
 } from '../../src/ts/risubard/risuBardSettings'
-import { normalizeWikiWritingLanguage, type WikiWritingLanguage } from '../../src/ts/risubard/wikiWritingLanguage'
+import {
+    isWikiHeadingLabel,
+    normalizeWikiWritingLanguage,
+    wikiWritingHeadings,
+    type WikiWritingLanguage,
+} from '../../src/ts/risubard/wikiWritingLanguage'
 import {
     normalizeArcPlotterRuntimeSettings,
     type ArcPlotterRuntimeSettings,
@@ -64,7 +79,7 @@ import {
 } from './risubard-markdown-excerpt'
 import {
     applyCanonicalSectionPatches,
-    hasCanonicalSection,
+    parseCanonicalSectionPatchMarkdown,
 } from './risubard-markdown-section-patch'
 import {
     STORY_ARC_EVENT_EXCERPT_CHARACTERS,
@@ -73,15 +88,54 @@ import {
     isStoryArcCandidate,
     stampStoryArcCheckpoint,
     storyArcRewriteInstruction,
+    validateStoryArcCheckpointEventLink,
     type StoryArcUpdatePlan,
 } from './risubard-story-arc-writer'
 
 let analysisTokenizer: Tiktoken | undefined
 
-const CHARACTER_CURRENT_STATE_HEADINGS = ['현재 상태', 'Current State'] as const
+const CHARACTER_OVERVIEW_HEADINGS = new Set([
+    '개요', 'overview', '프로필', 'profile', '인물 정보', 'character profile',
+])
 
-function hasCharacterCurrentState(markdown: string): boolean {
-    return hasCanonicalSection(markdown, CHARACTER_CURRENT_STATE_HEADINGS)
+function normalizeNewCharacterCurrentState(
+    patches: CanonicalSectionPatch[],
+    language: WikiWritingLanguage | undefined,
+): CanonicalSectionPatch[] {
+    if (patches.some((patch) => patch.operation === 'upsert'
+        && isWikiHeadingLabel('currentState', patch.heading))) {
+        return patches
+    }
+    const overviewIndex = patches.findIndex((patch) =>
+        patch.operation === 'upsert'
+        && patch.content.trim().length > 0
+        && CHARACTER_OVERVIEW_HEADINGS.has(
+            patch.heading.normalize('NFKC').toLocaleLowerCase().trim()
+        ))
+    if (overviewIndex < 0) return patches
+    return patches.map((patch, index) => index === overviewIndex ? {
+        ...patch,
+        heading: wikiWritingHeadings[
+            normalizeWikiWritingLanguage(language)
+        ].currentState,
+    } : patch)
+}
+
+function preserveHistoricalCharacterCurrentState(
+    patches: CanonicalSectionPatch[],
+    target: LoadedCanonicalDocument | undefined,
+    historicalReanalysis: boolean | undefined,
+): { patches: CanonicalSectionPatch[]; preserved: boolean } {
+    if (!historicalReanalysis || !target || target.type !== 'character') {
+        return { patches, preserved: false }
+    }
+    const filtered = patches.filter((patch) =>
+        !isWikiHeadingLabel('currentState', patch.heading)
+    )
+    return {
+        patches: filtered,
+        preserved: filtered.length !== patches.length,
+    }
 }
 
 function countAnalysisTokens(value: string): number {
@@ -164,6 +218,8 @@ export interface MemoryAnalysisInput {
     canonicalConcurrencyLimit?: number
     inquiryTokenBudget?: {
         target: number
+        events?: number
+        perSource?: number
         maximum: number
     }
     canonicalWritingStyle?: RisuBardCanonicalWritingStyle
@@ -175,6 +231,7 @@ export interface MemoryAnalysisInput {
         canonicalRewrite: string
     }
     additionalAnalysis?: boolean
+    historicalReanalysis?: boolean
     excludeCanonicalDocumentIds?: readonly string[]
     rebootTurns?: readonly {
         assistantMessageId: string
@@ -188,6 +245,7 @@ export interface MemoryAnalysisModelRequest {
     schemaVersion?: 1 | 2
     format?: 'markdown' | 'memory-draft' | 'reboot-batch' | 'canonical-batch'
     responseSchema?: string
+    structuredOutputMode?: StructuredOutputMode
     inputTokenLimit?: number
     /** Stable owning chat for body-free request evidence. */
     sessionChatId?: string
@@ -200,26 +258,30 @@ export interface MemoryAnalysisRunResult extends NarrativeMemoryState {
 export interface NarrativeMemoryService {
     loadState(
         characterId: string,
-        chatId: string
+        chatId: string,
+        signal?: AbortSignal
     ): Promise<NarrativeMemoryState>
     applyDelta(
-        input: ApplyNarrativeMemoryDeltaInput
+        input: ApplyNarrativeMemoryDeltaInput,
+        signal?: AbortSignal
     ): Promise<NarrativeMemoryState>
 }
 
 export interface NarrativeGraphWriteService {
     applyDelta(
-        input: ApplyNarrativeGraphDeltaInput
+        input: ApplyNarrativeGraphDeltaInput,
+        signal?: AbortSignal
     ): Promise<unknown>
     reconcileV1?(
         characterId: string,
-        chatId: string
+        chatId: string,
+        signal?: AbortSignal
     ): Promise<unknown>
     inquire?(input: {
         characterId: string
         chatId: string
         currentInput: string
-    }): Promise<{
+    }, signal?: AbortSignal): Promise<{
         graphRevision: number
         sources: readonly {
             id: string
@@ -236,7 +298,8 @@ export interface NarrativeGraphWriteService {
         result: {
             status: 'success' | 'failed'
             appliedCount: number
-        }
+        },
+        signal?: AbortSignal
     ): void | Promise<void>
 }
 
@@ -247,9 +310,10 @@ export interface NarrativeMarkdownWikiWriteService {
         currentInput: string
         tokenBudget?: {
             target: number
+            events?: number
             maximum: number
         }
-    }): Promise<{
+    }, signal?: AbortSignal): Promise<{
         graphRevision: number
         sources: readonly { id: string; content: string }[]
         entityCandidates?: readonly { id: string; title: string }[]
@@ -261,21 +325,22 @@ export interface NarrativeMarkdownWikiWriteService {
         markdown: string
         append?: boolean
         writingLanguage?: WikiWritingLanguage
-    }): Promise<MarkdownWikiDocument>
+    }, signal?: AbortSignal): Promise<MarkdownWikiDocument>
     recordRebootBatchReceipt?(input: {
         characterId: string
         chatId: string
         receipt: CanonicalTurnReceipt
-    }): Promise<unknown>
+    }, signal?: AbortSignal): Promise<unknown>
     beginRebootBatch?(input: {
         characterId: string
         chatId: string
         sourceMessageIds: string[]
         eventSourceGroups: string[][]
-    }): Promise<{ canonicalCount: number }>
+    }, signal?: AbortSignal): Promise<{ canonicalCount: number }>
     loadDocuments?(
         characterId: string,
-        chatId: string
+        chatId: string,
+        signal?: AbortSignal
     ): Promise<Array<AutomaticWikiDocumentDescriptor & {
         relativePath: string
         content: string
@@ -294,7 +359,7 @@ export interface NarrativeMarkdownWikiWriteService {
         expectedContentHash?: string
         reviewStatus?: 'unreviewed' | 'reviewed'
         writingLanguage?: WikiWritingLanguage
-    }): Promise<MarkdownWikiDocument>
+    }, signal?: AbortSignal): Promise<MarkdownWikiDocument>
 }
 
 export interface MemoryAnalysisRunnerOptions {
@@ -307,6 +372,10 @@ export interface MemoryAnalysisRunnerOptions {
         signal?: AbortSignal
     ): Promise<string | ModelResponse>
     onError(error: unknown): void | Promise<void>
+}
+
+function optionalSignalArgument(signal?: AbortSignal): [] | [AbortSignal] {
+    return signal ? [signal] : []
 }
 
 const analysisSystemPrompt = [
@@ -432,6 +501,9 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         ...(value.additionalAnalysis === undefined
             ? []
             : ['additionalAnalysis']),
+        ...(value.historicalReanalysis === undefined
+            ? []
+            : ['historicalReanalysis']),
         ...(value.excludeCanonicalDocumentIds === undefined
             ? []
             : ['excludeCanonicalDocumentIds']),
@@ -542,6 +614,10 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         && typeof value.additionalAnalysis !== 'boolean') {
         throw new Error('Analysis additionalAnalysis must be boolean')
     }
+    if (value.historicalReanalysis !== undefined
+        && typeof value.historicalReanalysis !== 'boolean') {
+        throw new Error('Analysis historicalReanalysis must be boolean')
+    }
     let excludeCanonicalDocumentIds: string[] | undefined
     if (value.excludeCanonicalDocumentIds !== undefined) {
         if (!Array.isArray(value.excludeCanonicalDocumentIds)) {
@@ -627,7 +703,9 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         ...(value.inquiryTokenBudget === undefined ? {} : {
             inquiryTokenBudget: normalizeRisuBardInquiryTokenBudget(
                 value.inquiryTokenBudget.target,
-                value.inquiryTokenBudget.maximum
+                value.inquiryTokenBudget.maximum,
+                value.inquiryTokenBudget.events,
+                value.inquiryTokenBudget.perSource,
             ),
         }),
         canonicalWritingStyle: normalizeRisuBardCanonicalWritingStyle(
@@ -643,6 +721,9 @@ function snapshotInput(value: MemoryAnalysisInput): MemoryAnalysisInput {
         ...(wikiPromptGuide ? { wikiPromptGuide } : {}),
         ...(value.additionalAnalysis === undefined ? {} : {
             additionalAnalysis: value.additionalAnalysis,
+        }),
+        ...(value.historicalReanalysis === undefined ? {} : {
+            historicalReanalysis: value.historicalReanalysis,
         }),
         ...(excludeCanonicalDocumentIds ? {
             excludeCanonicalDocumentIds,
@@ -895,13 +976,15 @@ export function createMemoryAnalysisRunner(
         characterId: string,
         chatId: string,
         status: 'success' | 'failed',
-        appliedCount: number
+        appliedCount: number,
+        signal?: AbortSignal
     ): Promise<void> => {
         try {
             await options.graphService?.recordAnalysis?.(
                 characterId,
                 chatId,
-                { status, appliedCount }
+                { status, appliedCount },
+                ...optionalSignalArgument(signal)
             )
         }
         catch (error) {
@@ -924,7 +1007,7 @@ export function createMemoryAnalysisRunner(
             return options.analyze({
                 ...request,
                 sessionChatId: snapshot.modelSessionChatId ?? snapshot.chatId,
-            }, requestSignal)
+            }, ...optionalSignalArgument(requestSignal))
         }
         const analyzeResponse = async (
             request: MemoryAnalysisModelRequest,
@@ -958,9 +1041,9 @@ export function createMemoryAnalysisRunner(
             })
         )
         if (options.nativeV2Analysis && options.markdownWikiService) {
-            const sourceMessageIds = snapshot.messages.map(
-                (message) => message.messageId
-            )
+            const sourceMessageIds = snapshot.rebootTurns
+                ? snapshot.rebootTurns.flatMap((turn) => turn.sourceMessageIds)
+                : snapshot.messages.map((message) => message.messageId)
             const contextMessages = snapshot.contextMessages
                 ?? snapshot.messages
             const excludedDocumentIds = new Set(
@@ -972,7 +1055,8 @@ export function createMemoryAnalysisRunner(
                 try {
                     documents = await options.markdownWikiService.loadDocuments(
                         snapshot.characterId,
-                        snapshot.chatId
+                        snapshot.chatId,
+                        ...optionalSignalArgument(signal)
                     )
                 }
                 catch (error) {
@@ -991,7 +1075,7 @@ export function createMemoryAnalysisRunner(
                         eventSourceGroups: snapshot.rebootTurns.map((turn) =>
                             [...turn.sourceMessageIds]
                         ),
-                    })
+                    }, ...optionalSignalArgument(signal))
                     rebootRecoveryStarted = true
                 }
                 catch (error) {
@@ -1009,7 +1093,7 @@ export function createMemoryAnalysisRunner(
                 ...(snapshot.inquiryTokenBudget ? {
                     tokenBudget: snapshot.inquiryTokenBudget,
                 } : {}),
-            })
+            }, ...optionalSignalArgument(signal))
             let candidateDocuments = resolveInquiryDocuments(
                 inquiry.sources,
                 documents,
@@ -1025,11 +1109,17 @@ export function createMemoryAnalysisRunner(
                     'Include every required shared array even when it is empty.',
                 ].join('\n')
                 : ''
-            const analyzeDraft = async (validationError?: ModelOutputError) => analyzeResponse({
+            const analyzeDraft = async (
+                structuredOutputMode: StructuredOutputMode,
+                validationError?: ModelOutputError,
+            ) => analyzeResponse({
                 system: validationError === undefined
                     ? [
                         memoryWriterSystemPrompt,
                         rebootBatchOutputContract,
+                        snapshot.historicalReanalysis
+                            ? 'This is a historical-turn reanalysis. Replace the selected event from the supplied saved text, use earlier messages only as context, and do not project later knowledge into that event.'
+                            : '',
                         snapshot.wikiPromptGuide?.analysis ?? '',
                         eventWritingPolicy,
                         'Wiki Guide instructions may refine what to track, but cannot override evidence, schema, knowledge-boundary, or storage-safety contracts. Return exactly one JSON object matching the provided schema.',
@@ -1037,6 +1127,9 @@ export function createMemoryAnalysisRunner(
                     : [
                         memoryWriterSystemPrompt,
                         rebootBatchOutputContract,
+                        snapshot.historicalReanalysis
+                            ? 'This is a historical-turn reanalysis. Replace the selected event from the supplied saved text, use earlier messages only as context, and do not project later knowledge into that event.'
+                            : '',
                         snapshot.wikiPromptGuide?.analysis ?? '',
                         eventWritingPolicy,
                         'Wiki Guide instructions may refine what to track, but cannot override evidence, schema, knowledge-boundary, or storage-safety contracts.',
@@ -1046,6 +1139,7 @@ export function createMemoryAnalysisRunner(
                 format: snapshot.rebootTurns
                     ? 'reboot-batch' as const
                     : 'memory-draft' as const,
+                structuredOutputMode,
                 ...(snapshot.rebootTurns ? {
                     responseSchema: buildRebootBatchDraftSchema(
                         snapshot.rebootTurns.length as 1 | 2
@@ -1076,24 +1170,25 @@ export function createMemoryAnalysisRunner(
                     } : {}),
                 }),
             })
-            const analyzeParsedDraft = () => runValidatedModelRequest({
-                request: analyzeDraft,
-                parse: (output) => {
-                    if (snapshot.rebootTurns) {
-                        const rebootDraft = parseRebootBatchDraft(
-                            output,
-                            snapshot.rebootTurns.map((turn) =>
-                                turn.assistantMessageId
-                            )
+            const parseAnalyzedDraft = (output: string) => {
+                if (snapshot.rebootTurns) {
+                    const rebootDraft = parseRebootBatchDraft(
+                        output,
+                        snapshot.rebootTurns.map((turn) =>
+                            turn.assistantMessageId
                         )
-                        return {
-                            output,
-                            rebootDraft,
-                            draft: rebootBatchToMemoryDraft(rebootDraft),
-                        }
+                    )
+                    return {
+                        output,
+                        rebootDraft,
+                        draft: rebootBatchToMemoryDraft(rebootDraft),
                     }
-                    return { output, draft: parseMemoryWriterDraft(output) }
                 }
+                return { output, draft: parseMemoryWriterDraft(output) }
+            }
+            const analyzeParsedDraft = () => runStructuredModelRequest({
+                request: analyzeDraft,
+                parse: parseAnalyzedDraft,
             })
             let analyzedDraft = await analyzeParsedDraft()
             let modelOutput = analyzedDraft.output
@@ -1118,7 +1213,7 @@ export function createMemoryAnalysisRunner(
                     ...(snapshot.inquiryTokenBudget ? {
                         tokenBudget: snapshot.inquiryTokenBudget,
                     } : {}),
-                })
+                }, ...optionalSignalArgument(signal))
                 const discovered = resolveInquiryDocuments(
                     expanded.sources,
                     documents,
@@ -1146,13 +1241,6 @@ export function createMemoryAnalysisRunner(
                     ],
                 }
             }
-            const characterStructureRepairs = snapshot.additionalAnalysis
-                ? documents.filter((document) => document.type === 'character'
-                    && !hasCharacterCurrentState(document.content))
-                : []
-            for (const document of characterStructureRepairs) {
-                excludedDocumentIds.delete(document.id)
-            }
             draft = {
                 ...draft,
                 // The runtime owns the reserved map and its checkpoint cadence.
@@ -1160,28 +1248,6 @@ export function createMemoryAnalysisRunner(
                 // on every confirmed turn.
                 canonicalUpdateCandidates: draft.canonicalUpdateCandidates
                     .filter((candidate) => !isStoryArcCandidate(candidate)),
-            }
-            if (characterStructureRepairs.length > 0) {
-                const existingTargets = new Set(draft.canonicalUpdateCandidates
-                    .map((candidate) => candidate.targetDocumentId)
-                    .filter((id): id is string => id !== null))
-                draft = {
-                    ...draft,
-                    canonicalUpdateCandidates: [
-                        ...characterStructureRepairs
-                            .filter((document) => !existingTargets.has(document.id))
-                            .map((document) => ({
-                                type: 'character' as const,
-                                title: document.title,
-                                aliases: document.aliases ?? [],
-                                reason: '필수 현재 상태 절이 없는 기존 캐릭터 정본의 구조를 보완한다.',
-                                action: 'update' as const,
-                                targetDocumentId: document.id,
-                                confidence: 1,
-                            })),
-                        ...draft.canonicalUpdateCandidates,
-                    ],
-                }
             }
             if (!hasMemoryWriterContent(draft)) {
                 if (!snapshot.rebootTurns) return emptyNativeState()
@@ -1205,7 +1271,7 @@ export function createMemoryAnalysisRunner(
                             characterId: snapshot.characterId,
                             chatId: snapshot.chatId,
                             receipt: canonicalReceipt,
-                        })
+                        }, ...optionalSignalArgument(signal))
                     }
                     catch (error) {
                         await reportError(error)
@@ -1239,7 +1305,7 @@ export function createMemoryAnalysisRunner(
                     markdown: serializeMemoryWriterDraft(event.draft, snapshot.wikiWritingLanguage),
                     writingLanguage: snapshot.wikiWritingLanguage,
                     ...(snapshot.additionalAnalysis ? { append: true } : {}),
-                    })
+                    }, ...optionalSignalArgument(signal))
                 if (savedEvent && typeof savedEvent.id === 'string') {
                     savedEvents.push(savedEvent)
                 }
@@ -1349,14 +1415,16 @@ export function createMemoryAnalysisRunner(
                                 'Use an empty heading only to replace or delete legacy text between the document title and the first H3 section.',
                                 'For a new document, return every initial section needed to assemble it. Do not return an H1 or H2 title.',
                                 'If an existing target has no verified change after checking the evidence, return an empty sections array so the program skips persistence. A new document must contain at least one section.',
+                                'There is no fixed 4,000-character limit per section. Return every changed section complete, never stop at an artificial character boundary, and stay concise enough to finish within the overall output token limit.',
                                 'Use semanticUpdate as a structured coverage checklist, but verify every item against confirmedMessages before applying it.',
-                                snapshot.wikiWritingLanguage === 'en'
-                                    ? 'Every character document requires a self-contained `### Current State` section near the top, using only verified current facts. A structure repair may reorganize existing canon without a new fact.'
-                                    : '모든 캐릭터 정본은 문서 상단에 자족적인 `### 현재 상태` 절을 두고, 확인된 현재 사실만 사용한다. 구조 보완은 새 사실 없이 기존 정본을 재구성할 수 있다.',
+                                `Prefer a compact self-contained \`### ${wikiWritingHeadings[normalizeWikiWritingLanguage(snapshot.wikiWritingLanguage)].currentState}\` section near the top of character documents when verified current facts benefit from a snapshot. Its absence is not a persistence error and never justifies a structure-only rewrite.`,
                                 'Remove superseded facts from current-state sections; retain an old state only as a clearly historical transition when it remains narratively useful.',
                                 'Preserve unrelated established identity facts, relationships, knowledge, goals, possessions, constraints, and unresolved continuity unless confirmedMessages explicitly change them.',
                                 'Apply the stateChanges.after values and relevant persistentFacts, characterKnowledge, and openContinuity to the correct subject document. Do not copy another character\'s facts into this target.',
                                 'Apply only changes supported by the confirmed messages and event.',
+                                snapshot.historicalReanalysis
+                                    ? `This is a historical correction. Correct history sections, but preserve an existing character ${wikiWritingHeadings[normalizeWikiWritingLanguage(snapshot.wikiWritingLanguage)].currentState} section because it may represent later events.`
+                                    : '',
                                 hasStoryArcTarget
                                     ? storyArcRewriteInstruction(
                                         snapshot.wikiWritingLanguage ?? 'ko',
@@ -1441,38 +1509,89 @@ export function createMemoryAnalysisRunner(
                             maxAttempts: 1 | 2,
                         ) => runValidatedModelRequest({
                                 maxAttempts,
-                                request: (feedback) => analyzeResponse({
-                                format: 'canonical-batch',
-                                responseSchema: buildCanonicalBatchSchema(
-                                    targets.length
-                                ),
-                                inputTokenLimit: snapshot.analysisTokenLimit,
-                                system: [
-                                    canonicalSystem,
-                                    ...(feedback ? [modelOutputRepairInstruction(feedback)] : []),
-                                ].join('\n'),
-                                input: canonicalInput(targets),
-                                }, batchAbort.signal),
+                                request: (feedback) => {
+                                    const markdownFallback = targets.length === 1
+                                        && feedback?.reason === 'invalid-structure'
+                                    return analyzeResponse({
+                                        format: markdownFallback
+                                            ? 'markdown'
+                                            : 'canonical-batch',
+                                        ...(!markdownFallback ? {
+                                            responseSchema: buildCanonicalBatchSchema(targets.length),
+                                        } : {}),
+                                        inputTokenLimit: snapshot.analysisTokenLimit,
+                                        system: [
+                                            canonicalSystem,
+                                            ...(feedback ? [modelOutputRepairInstruction(feedback)] : []),
+                                            ...(markdownFallback ? [
+                                                'This retry has exactly one canonical target. Return Markdown only: one or more direct `### section` headings followed by each complete replacement body. Do not return JSON, a document title, preamble, commentary, or code fences.',
+                                            ] : []),
+                                        ].join('\n'),
+                                        input: canonicalInput(targets),
+                                    }, batchAbort.signal)
+                                },
                                 parse: (text) => {
-                                    const parsed = parseCanonicalBatch(text, targets.length)
+                                    let parsed: ReturnType<typeof parseCanonicalBatch>
+                                    try {
+                                        parsed = parseCanonicalBatch(text, targets.length)
+                                    }
+                                    catch (batchError) {
+                                        if (targets.length !== 1) throw batchError
+                                        try {
+                                            parsed = {
+                                                schemaVersion: 1,
+                                                documents: [parseCanonicalSingle(text)],
+                                            }
+                                        }
+                                        catch {
+                                            try {
+                                                parsed = {
+                                                    schemaVersion: 1,
+                                                    documents: [{
+                                                        candidateIndex: 0,
+                                                        sections: parseCanonicalSectionPatchMarkdown(text),
+                                                    }],
+                                                }
+                                            }
+                                            catch {
+                                                throw batchError
+                                            }
+                                        }
+                                    }
                                     if (parsed.documents.length !== targets.length) {
                                         throw new Error('Return exactly one changed-section set for every candidateIndex; no targets may be omitted.')
                                     }
                                     for (const document of parsed.documents) {
                                         const target = targets[document.candidateIndex]
-                                        if (target?.candidate.type !== 'character') continue
-                                        const rewritten = applyCanonicalSectionPatches({
-                                            ...(target.target ? {
-                                                markdown: target.target.content,
-                                            } : {}),
-                                            title: target.target?.title
-                                                ?? target.candidate.title,
-                                            patches: document.sections,
-                                        })
-                                        if (!hasCharacterCurrentState(rewritten)) {
-                                            throw new Error(snapshot.wikiWritingLanguage === 'en'
-                                                ? 'Every character document must include a direct `### Current State` section.'
-                                                : '모든 캐릭터 정본에는 직접 자식 `### 현재 상태` 절이 필요합니다.')
+                                        if (target?.candidate.type === 'character') {
+                                            if (!target.target) {
+                                                document.sections = normalizeNewCharacterCurrentState(
+                                                    document.sections,
+                                                    snapshot.wikiWritingLanguage,
+                                                )
+                                            }
+                                            applyCanonicalSectionPatches({
+                                                ...(target.target ? {
+                                                    markdown: target.target.content,
+                                                } : {}),
+                                                title: target.target?.title
+                                                    ?? target.candidate.title,
+                                                patches: document.sections,
+                                            })
+                                        }
+                                        else if (target?.storyArcPlan) {
+                                            const rewritten = applyCanonicalSectionPatches({
+                                                ...(target.target ? {
+                                                    markdown: target.target.content,
+                                                } : {}),
+                                                title: target.target?.title
+                                                    ?? target.candidate.title,
+                                                patches: document.sections,
+                                            })
+                                            validateStoryArcCheckpointEventLink(
+                                                rewritten,
+                                                target.storyArcPlan.events
+                                            )
                                         }
                                     }
                                     return parsed
@@ -1572,12 +1691,23 @@ export function createMemoryAnalysisRunner(
                             ))
                             for (const [candidateIndex, entry]
                                 of canonicalTargets.entries()) {
-                            const patches = patchesByIndex.get(candidateIndex)
+                            let patches = patchesByIndex.get(candidateIndex)
                             if (!patches) {
                                 receiptWarnings.push(
                                     `정본 배치 결과 누락: ${entry.candidate.title}`
                                 )
                                 continue
+                            }
+                            const historical = preserveHistoricalCharacterCurrentState(
+                                patches,
+                                entry.target,
+                                snapshot.historicalReanalysis,
+                            )
+                            patches = historical.patches
+                            if (historical.preserved) {
+                                receiptWarnings.push(
+                                    `과거 턴 재분석에서 최신 캐릭터 현재 상태를 보존했습니다: ${entry.candidate.title}`
+                                )
                             }
                             if (patches.length === 0) {
                                 if (!entry.target) {
@@ -1659,7 +1789,7 @@ export function createMemoryAnalysisRunner(
                                             entry.target.contentHash,
                                     } : {}),
                                     reviewStatus: 'reviewed',
-                                    })
+                                    }, ...optionalSignalArgument(signal))
                                 receiptChanges.push({
                                     documentId: saved.id,
                                     type: saved.type as Exclude<
@@ -1675,8 +1805,9 @@ export function createMemoryAnalysisRunner(
                                 })
                             }
                             catch (error) {
-                                receiptWarnings.push(`정본 문서 저장 실패: ${entry.candidate.title}`)
                                 await reportError(error)
+                                if (rebootRecoveryStarted) throw error
+                                receiptWarnings.push(`정본 문서 저장 실패: ${entry.candidate.title}`)
                             }
                         }
                                 startBatch(batchIndex + concurrencyLimit)
@@ -1718,7 +1849,7 @@ export function createMemoryAnalysisRunner(
                             characterId: snapshot.characterId,
                             chatId: snapshot.chatId,
                             receipt: canonicalReceipt,
-                        })
+                        }, ...optionalSignalArgument(signal))
                 }
                 catch (error) {
                     await reportError(error)
@@ -1794,7 +1925,8 @@ export function createMemoryAnalysisRunner(
                     snapshot.characterId,
                     snapshot.chatId,
                     'failed',
-                    0
+                    0,
+                    signal
                 )
                 throw analysisError
             }
@@ -1805,14 +1937,15 @@ export function createMemoryAnalysisRunner(
                     chatId: snapshot.chatId,
                     delta: parsedOutput,
                     availableEvidence,
-                    })
+                    }, ...optionalSignalArgument(signal))
                 }
                 if (parsedOutput.operations.length === 0) {
                     await recordNativeAnalysis(
                         snapshot.characterId,
                         snapshot.chatId,
                         'success',
-                        0
+                        0,
+                        signal
                     )
                 }
                 return emptyNativeState()
@@ -1822,7 +1955,8 @@ export function createMemoryAnalysisRunner(
                     snapshot.characterId,
                     snapshot.chatId,
                     'failed',
-                    0
+                    0,
+                    signal
                 )
                 throw error
             }
@@ -1854,7 +1988,8 @@ export function createMemoryAnalysisRunner(
         }
         const memoryState = await options.memoryService.loadState(
             snapshot.characterId,
-            snapshot.chatId
+            snapshot.chatId,
+            ...optionalSignalArgument(signal)
         )
         const delta = validateMemoryDelta(
             parsedOutput,
@@ -1866,7 +2001,7 @@ export function createMemoryAnalysisRunner(
             chatId: snapshot.chatId,
             delta,
             availableEvidence,
-        })
+        }, ...optionalSignalArgument(signal))
         if (options.graphService && delta.operations.length > 0) {
             try {
                 await options.graphService.applyDelta({
@@ -1878,7 +2013,7 @@ export function createMemoryAnalysisRunner(
                         snapshot.chatId
                     ),
                     availableEvidence,
-                })
+                }, ...optionalSignalArgument(signal))
             }
             catch (error) {
                 await reportError(error)
@@ -1886,7 +2021,8 @@ export function createMemoryAnalysisRunner(
                     try {
                         await options.graphService.reconcileV1(
                             snapshot.characterId,
-                            snapshot.chatId
+                            snapshot.chatId,
+                            ...optionalSignalArgument(signal)
                         )
                     }
                     catch (reconciliationError) {

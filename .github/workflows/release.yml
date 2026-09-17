@@ -1,12 +1,23 @@
 name: Create GitHub Release with Portable Packages
 
+# Releases are cut from main by hand: bump package.json, push, then run this
+# workflow with the same version. The tag is created only after every portable
+# archive has been built and verified, so a failed release never leaves a tag
+# behind that the updater or the Docker build could pick up.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer version to release without the v prefix (a -suffix marks a prerelease on the beta channel)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
 
 env:
@@ -16,9 +27,55 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
+      notes: ${{ steps.release-version.outputs.notes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      # The tag v<version> is created by the release job once the archives are
+      # verified; this step makes sure that tag will match package.json and
+      # does not exist yet. scripts/check-standalone-release.mjs looks for this
+      # step by name.
+      - name: Verify tag matches package version
+        id: release-version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Releases must run from main, got $GITHUB_REF" >&2
+            exit 1
+          fi
+          if [[ ! "$REQUESTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must use X.Y.Z or X.Y.Z-prerelease format: $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PACKAGE_VERSION" != "$REQUESTED_VERSION" ]; then
+            echo "package.json is $PACKAGE_VERSION, requested $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v${PACKAGE_VERSION}" >/dev/null 2>&1; then
+            echo "Tag already exists: v${PACKAGE_VERSION}" >&2
+            exit 1
+          fi
+          # patchnote/<version>.md becomes the release body when it exists;
+          # GitHub's generated notes are appended either way. A note that is
+          # present but headed for another version is a stale copy, so fail.
+          NOTES="patchnote/${PACKAGE_VERSION}.md"
+          if [ -s "$NOTES" ]; then
+            if ! grep -Eqx "# ${RELEASE_DISPLAY_NAME} v?${PACKAGE_VERSION}" "$NOTES"; then
+              echo "Release notes do not name this version: $NOTES" >&2
+              exit 1
+            fi
+            echo "notes=${NOTES}" >> "$GITHUB_OUTPUT"
+          else
+            echo "No ${NOTES}; the release body will be generated from merged pull requests."
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -32,21 +89,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
-          test "$GITHUB_REF_NAME" = "v$PACKAGE_VERSION"
-
       - name: Verify standalone release contract
         run: pnpm check:standalone-release
 
-      - name: Run compatibility tests
-        run: pnpm test:compat
-
-      - name: Build
-        run: pnpm build
+      - name: Verify release
+        run: pnpm verify:release
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
@@ -117,10 +164,12 @@ jobs:
       - name: Install server production dependencies
         shell: bash
         run: |
-          # updater.cjs is a scan entry point, so it has to be in place before
-          # the manifest is regenerated from the shipped tree.
+          # updater.cjs is a scan entry point, so it and the sibling it
+          # requires have to be in place before the manifest is regenerated
+          # from the shipped tree.
           mkdir -p portable/scripts
           cp scripts/updater.cjs portable/scripts/updater.cjs
+          cp scripts/updater-recovery.cjs portable/scripts/updater-recovery.cjs
           node scripts/portable/gen-server-deps.cjs portable server-deps-check
           # --strip-trailing-cr: the Windows runner checks the committed file out with CRLF
           if ! diff -q --strip-trailing-cr server-deps-check/package.json scripts/portable/server-deps/package.json >/dev/null; then
@@ -139,13 +188,24 @@ jobs:
           # root project into ../node_modules, and leaves this directory empty.
           pnpm install --prod --frozen-lockfile --ignore-workspace
           mv node_modules ../portable/node_modules
+          # validatePackage (server/node/portable-update.cjs) checks node_modules
+          # against this closure manifest, not the app package.json, because the
+          # package deliberately contains only the closure. It ships as a flat
+          # file directly under scripts/, never in a subdirectory: Phase 3 of
+          # scripts/updater.cjs in every released portable copies scripts/ with
+          # fs.copyFileSync over each directory entry, which throws on a
+          # directory after server/, dist/ and node_modules/ have already been
+          # swapped and outside the backup-restoring try/catch. Nothing may
+          # create a directory under portable/scripts/.
+          cp package.json ../portable/scripts/server-deps.json
 
       - name: Smoke test portable server
         shell: bash
         run: |
           cd portable
           LOG_FILE="$(mktemp)"
-          PORT=0 RISU_UPDATE_CHECK=false node server/node/server.cjs >"$LOG_FILE" 2>&1 &
+          SMOKE_DATA="$(mktemp -d)"
+          PORT=0 RISU_UPDATE_CHECK=false RISUBARD_DATA_ROOT="$SMOKE_DATA" node server/node/server.cjs >"$LOG_FILE" 2>&1 &
           SERVER_PID=$!
           cleanup() {
             kill "$SERVER_PID" 2>/dev/null || true
@@ -165,16 +225,6 @@ jobs:
           done
           cat "$LOG_FILE"
           exit 1
-
-      - name: Extract version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_NAME" == v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-          else
-            echo "version=$(node -p 'require("./portable/package.json").version')" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Download Node.js binary (Windows)
         if: matrix.platform == 'win'
@@ -213,25 +263,28 @@ jobs:
         if: matrix.platform == 'win'
         shell: bash
         run: |
-          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o portable/bin/cloudflared.exe
+          CLOUDFLARED_VERSION="2026.9.0"
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe" -o portable/bin/cloudflared.exe
 
       - name: Download cloudflared (Linux)
         if: matrix.platform == 'linux'
         shell: bash
         run: |
+          CLOUDFLARED_VERSION="2026.9.0"
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             CLOUDFLARED_ARCH="arm64"
           else
             CLOUDFLARED_ARCH="amd64"
           fi
-          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CLOUDFLARED_ARCH}" -o portable/bin/cloudflared
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${CLOUDFLARED_ARCH}" -o portable/bin/cloudflared
           chmod +x portable/bin/cloudflared
 
       - name: Download cloudflared (macOS)
         if: matrix.platform == 'macos'
         shell: bash
         run: |
-          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz" -o cloudflared.tgz
+          CLOUDFLARED_VERSION="2026.9.0"
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-darwin-arm64.tgz" -o cloudflared.tgz
           tar -xzf cloudflared.tgz
           mv cloudflared portable/bin/cloudflared
           chmod +x portable/bin/cloudflared
@@ -255,7 +308,7 @@ jobs:
         if: matrix.platform == 'macos'
         shell: bash
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.build.outputs.version }}"
           APP="portable/RisuVault.app"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           ICONSET="$(mktemp -d)/AppIcon.iconset"
@@ -297,7 +350,7 @@ jobs:
           #!/bin/bash
           PORTABLE_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
           cd "$PORTABLE_DIR"
-          PORT="${PORT:-6001}"
+          PORT="${PORT:-7777}"
           if [ ! -f "bin/node" ]; then
               osascript -e 'display dialog "RisuVault.app must remain inside the standalone portable folder." buttons {"OK"} default button 1 with icon stop'
               exit 1
@@ -312,11 +365,16 @@ jobs:
           LAUNCHER
           chmod +x "$APP/Contents/MacOS/RisuVault"
 
+      # update.bat runs the updater, finalizes the staged bin/ and version
+      # marker, validates the result with the scripts/ copy of
+      # portable-update.cjs, and rolls back through `updater.cjs --rollback`
+      # when any of that fails.
       - name: Add update script (Windows)
         if: matrix.platform == 'win'
         shell: bash
         run: |
-          printf '@echo off\r\n"%%~dp0bin\\node.exe" "%%~dp0scripts\\updater.cjs"\r\nif errorlevel 1 goto :fail\r\nif exist "%%~dp0.update-tmp" (\r\nif exist "%%~dp0.update-tmp\\new-bin\\" (\r\nxcopy /E /I /Y "%%~dp0.update-tmp\\new-bin\\*" "%%~dp0bin\\" >nul\r\nif errorlevel 1 goto :fail\r\n) else (\r\nif not exist "%%~dp0.update-tmp\\skip-bin-update" goto :fail\r\n)\r\nif not exist "%%~dp0.update-tmp\\latest-version" goto :fail\r\ncopy /Y "%%~dp0.update-tmp\\latest-version" "%%~dp0.installed-version" >nul\r\nif errorlevel 1 goto :fail\r\nrmdir /s /q "%%~dp0.update-tmp" 2>nul\r\n)\r\necho Update complete.\r\npause\r\nexit /b 0\r\n:fail\r\necho Update finalization failed. Existing installation was left in place where possible.\r\npause\r\nexit /b 1\r\n' > portable/update.bat
+          cp scripts/portable/V2-to-V1.bat portable/V2-to-V1.bat
+          cp scripts/portable/update.bat portable/update.bat
 
       - name: Add launcher scripts (Unix)
         if: matrix.platform != 'win'
@@ -326,7 +384,7 @@ jobs:
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
           cd "$SCRIPT_DIR"
-          PORT="${PORT:-6001}"
+          export PORT="${PORT:-7777}"
           if command -v xdg-open >/dev/null 2>&1; then
               xdg-open "http://localhost:$PORT" 2>/dev/null &
           elif command -v open >/dev/null 2>&1; then
@@ -334,28 +392,48 @@ jobs:
           fi
           bin/node server/node/server.cjs
           EOF
+          # The updater removes .update-tmp itself on success; on failure it
+          # holds the previous installation, so the script must not delete it.
           cat > portable/update.sh << 'EOF'
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
           cd "$SCRIPT_DIR"
           bin/node scripts/updater.cjs
-          rm -rf .update-tmp 2>/dev/null
+          exit $?
           EOF
-          chmod +x portable/start.sh portable/update.sh
+          cp scripts/portable/V2-to-V1.sh portable/V2-to-V1.sh
+          chmod +x portable/start.sh portable/update.sh portable/V2-to-V1.sh
 
-      - name: Add portable marker
+      - name: Add updater scripts and portable marker
         shell: bash
         run: |
-          # scripts/updater.cjs is already staged by the dependency install step,
-          # which needs it in place to regenerate the manifest.
+          # scripts/updater.cjs and updater-recovery.cjs were staged by the
+          # dependency install step, which needs them in place to regenerate
+          # the manifest.
           test -f portable/scripts/updater.cjs
+          test -f portable/scripts/updater-recovery.cjs
+          test -f portable/scripts/server-deps.json
+          # Phase 3 of the standalone updater copies each scripts/ entry with
+          # fs.copyFileSync, which throws on a directory (EPERM on Windows,
+          # EISDIR on Linux) after the installation is already half-swapped, so
+          # a subdirectory here would break update.bat / update.sh for every
+          # existing installation.
+          if find portable/scripts -mindepth 1 -type d | grep -q .; then
+            echo "portable/scripts/ must contain only files; the standalone updater cannot copy a directory:"
+            find portable/scripts -mindepth 1 -type d
+            exit 1
+          fi
+          # scripts/ survives every update phase while server/ is swapped out,
+          # so update.bat validates through this copy of the helper.
+          cp portable/server/node/portable-update.cjs portable/scripts/portable-update.cjs
+          cp scripts/convert-v2-to-v0925.cjs portable/scripts/convert-v2-to-v0925.cjs
           touch portable/.portable
 
       - name: Package portable (Windows)
         if: matrix.platform == 'win'
         shell: bash
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.build.outputs.version }}"
           NAME="${RELEASE_ARTIFACT_PREFIX}-v${VERSION}-win-x64"
           cd portable
           7z a -tzip "../${NAME}.zip" .
@@ -364,11 +442,31 @@ jobs:
         if: matrix.platform != 'win'
         shell: bash
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.build.outputs.version }}"
           NAME="${RELEASE_ARTIFACT_PREFIX}-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
           mv portable "$NAME"
           tar -czf "${NAME}.tar.gz" "$NAME"
           rm -rf "$NAME"
+
+      # Unpack the final archive into a fresh directory and check it with the
+      # bundled Node: dependency closure, express loading, and an isolated
+      # server start. This is what an end user's updater will run.
+      - name: Verify the extracted release archive
+        shell: bash
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          NAME="${RELEASE_ARTIFACT_PREFIX}-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
+          VERIFY_DIR="$(mktemp -d)"
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            7z x -y "${NAME}.zip" "-o${VERIFY_DIR}"
+            ROOT="$VERIFY_DIR"
+            NODE="$ROOT/bin/node.exe"
+          else
+            tar -xzf "${NAME}.tar.gz" -C "$VERIFY_DIR"
+            ROOT="$VERIFY_DIR/$NAME"
+            NODE="$ROOT/bin/node"
+          fi
+          "$NODE" scripts/portable-smoke.cjs "$ROOT" "$VERSION"
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v7
@@ -378,12 +476,17 @@ jobs:
           retention-days: 1
 
   release:
-    needs: portable
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build
+      - portable
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout release tooling
+      - name: Checkout release tooling and notes
         uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            scripts
+            patchnote
 
       - name: Download all portable artifacts
         uses: actions/download-artifact@v8
@@ -392,16 +495,37 @@ jobs:
           merge-multiple: true
 
       - name: Generate verified update manifest
-        run: node scripts/generate-update-manifest.mjs . "${{ github.ref_name }}" "${{ github.repository }}"
+        run: node scripts/generate-update-manifest.mjs . "v${{ needs.build.outputs.version }}" "${{ github.repository }}"
+
+      - name: Create release tag
+        shell: bash
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" "$GITHUB_SHA" -m "${RELEASE_DISPLAY_NAME} v${VERSION}"
+          git push origin "v${VERSION}"
+
+      # A tag pushed with the workflow token does not fire docker-build.yml's
+      # tag trigger, so dispatch it explicitly.
+      - name: Publish Docker image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: gh workflow run docker-build.yml --ref "v${VERSION}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "${{ env.RELEASE_DISPLAY_NAME }} ${{ github.ref_name }}"
+          tag_name: v${{ needs.build.outputs.version }}
+          name: "${{ env.RELEASE_DISPLAY_NAME }} v${{ needs.build.outputs.version }}"
+          target_commitish: ${{ github.sha }}
+          body_path: ${{ needs.build.outputs.notes }}
           generate_release_notes: true
           draft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
           files: |
             ${{ env.RELEASE_ARTIFACT_PREFIX }}-*
             update-manifest.json

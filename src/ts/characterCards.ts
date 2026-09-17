@@ -7,7 +7,7 @@ import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from 
 import { language } from "src/lang"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { characterFormatUpdate } from "./characters"
-import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, saveAsset, VirtualWriter } from "./globalApi.svelte"
+import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
 import { selectedCharID } from "./stores.svelte"
 import { openSettings, SettingsRoute } from "./routing"
@@ -16,17 +16,72 @@ import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
 import type { OnnxModelFiles } from "./process/transformers"
-import { CharXImporter, CharXSkippableChecker, CharXWriter } from "./process/processzip"
+import { CharXImporter, CharXSkippableChecker, CharXWriter, type CharXImportProgress } from "./process/processzip"
 import { exportModuleLegacy, readModule, type RisuModule } from "./process/modules"
 import { pinCharacterVaultQuickAccess } from './characterVault'
 import { normalizeFirstMessageStudioProject, type FirstMessageStudioProject } from './firstMessageStudio'
 import { isNodeServer } from './platform'
 import { withSaverScope } from './performance/saverMode'
+import { normalizeBardLoreOwnerState, type BardLoreState } from './lorebook/bardLore'
 
 
 const EXTERNAL_HUB_URL = 'https://sv.risuai.xyz';
 const NIGHTLY_HUB_URL = 'https://nightly.sv.risuai.xyz'
 export const hubURL = '/hub-proxy';
+const MAX_EMBEDDED_ASSET_BASE64_LENGTH = Math.ceil(100 * 1024 * 1024 * 4 / 3)
+
+async function persistImportedData() {
+    await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
+}
+
+function formatImportBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function showCharacterImportProgress(progress: CharXImportProgress) {
+    let msg: string
+    switch (progress.phase) {
+        case 'reading':
+            msg = progress.total
+                ? language.characterImportReadingBytes(
+                    formatImportBytes(progress.completed),
+                    formatImportBytes(progress.total),
+                )
+                : language.characterImportReading
+            break
+        case 'scanning':
+            msg = language.characterImportScanning(progress.completed)
+            break
+        case 'extracting':
+            msg = language.characterImportExtracting(
+                progress.completed, progress.total ?? progress.completed,
+            )
+            break
+        case 'preparing-assets':
+            msg = language.characterImportPreparingAssets(
+                progress.completed, progress.total ?? progress.completed,
+            )
+            break
+        case 'saving-assets':
+            msg = language.characterImportSavingAssets(
+                progress.completed, progress.total ?? progress.completed,
+            )
+            break
+        case 'finalizing':
+            msg = language.characterPackageProgressFinalizing
+            break
+    }
+    const determinate = progress.total && progress.total > 0
+        ? Math.min(100, progress.completed / progress.total * 100)
+        : undefined
+    alertStore.set({
+        type: determinate === undefined ? 'wait' : 'progress',
+        msg,
+        ...(determinate === undefined ? {} : { submsg: determinate.toFixed(0) }),
+    })
+}
 
 function isReadableStreamLike(data: unknown): data is ReadableStream<Uint8Array> {
     return !!data && typeof data === 'object' && typeof (data as { getReader?: unknown }).getReader === 'function'
@@ -41,6 +96,10 @@ function isUint8Array(data: unknown): data is Uint8Array {
 export function readFirstMessageStudioExtension(data: { extensions?: { risuai?: { firstMessageStudio?: unknown } } }): FirstMessageStudioProject | undefined {
     const project = data?.extensions?.risuai?.firstMessageStudio
     return project ? normalizeFirstMessageStudioProject(safeStructuredClone(project)) : undefined
+}
+
+function exportableBardLoreOwner(char: Pick<character, 'bardLore' | 'globalLore'>) {
+    return normalizeBardLoreOwnerState(char.bardLore, char.globalLore ?? [], uuidv4)
 }
 
 export async function importCharacter() {
@@ -83,6 +142,7 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
             let db = getDatabase()
             db.characters.push(convertOffSpecCards(da))
             setDatabaseLite(db)
+            await persistImportedData()
             notifySuccess(language.importedCharacter)
             return
         }
@@ -120,18 +180,14 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
             serverWarnings = [...result.excludedFiles, ...result.warnings]
         }
         else{
-            alertStore.set({
-                type: 'wait',
-                msg: 'Loading... (Reading)'
-            })
-            const importer = new CharXImporter()
-            importer.alertInfo = true
+            const importer = new CharXImporter(showCharacterImportProgress)
             await importer.parse(f.data)
             await importer.done()
             cardData = importer.cardData
             moduleData = importer.moduleData
             assets = importer.assets
         }
+        alertWait(language.characterImportReadingMetadata)
         if(!cardData){
             alertError(language.errors.noData)
             return
@@ -143,6 +199,7 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
         }
         let lorebook:loreBook[] = null
         if(moduleData){
+            alertWait(language.characterImportReadingModule)
             const md = await readModule(Buffer.from(moduleData))
             card.data.extensions ??= {}
             card.data.extensions.risuai ??= {}
@@ -179,10 +236,7 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
     }
     
 
-    alertStore.set({
-        type: 'wait',
-        msg: 'Loading... (Reading)'
-    })
+    alertWait(language.characterImportReading)
     await sleep(10)
     
     // const readed = PngChunk.read(img, ['chara'])?.['chara']
@@ -214,6 +268,7 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
             }
             if(chunk.key.startsWith('chara-ext-asset_')){
                 pngChunks++
+                alertWait(language.characterImportScanning(pngChunks))
             }
         }
     }
@@ -251,13 +306,13 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
             const assetIndex = chunk.key.replace('chara-ext-asset_:', '').replace('chara-ext-asset_', '')
             const assetData = Buffer.from(chunk.value, 'base64')
             if(pngChunks === 0){
-                alertWait('Loading... (Loaded ' + readedPngChunks + ' Assets)')
+                alertWait(language.characterImportAssets(readedPngChunks + 1, readedPngChunks + 1))
             }
             else{
                 alertStore.set({
                     type: 'progress',
-                    msg: 'Loading... (Loading Assets)',
-                    submsg: (readedPngChunks / pngChunks * 100).toFixed(2)
+                    msg: language.characterImportAssets(readedPngChunks + 1, pngChunks),
+                    submsg: ((readedPngChunks + 1) / pngChunks * 100).toFixed(0)
                 })
             }
 
@@ -388,6 +443,7 @@ async function importCharacterProcessInner<T extends boolean = false>(f:{
         const imgp = await saveAsset(img)
         db.characters.push(convertOffSpecCards(charaData, imgp))
         setDatabaseLite(db)
+        await persistImportedData()
         notifySuccess(language.importedCharacter)
         return db.characters.length - 1
     }
@@ -438,7 +494,7 @@ export async function characterURLImport() {
     const charPath = (new URLSearchParams(location.search)).get('charahub')
     try {
         if(charPath){
-            alertWait('Loading from Chub...')
+            alertWait(language.characterImportDownloading)
             const url = new URL(location.href);
             url.searchParams.delete('charahub');
             window.history.pushState(null, '', url.toString());
@@ -494,6 +550,7 @@ export async function characterURLImport() {
             }
         }
         db.modules.push(importData)
+        await persistImportedData()
         notifySuccess(language.successImport)
         openSettings(SettingsRoute.Module)
         return
@@ -529,6 +586,7 @@ export async function characterURLImport() {
         md.id = v4()
         const db = getDatabase()
         db.modules.push(md)
+        await persistImportedData()
         notifySuccess(language.successImport)
         openSettings(SettingsRoute.Module)
     }
@@ -583,6 +641,7 @@ export async function characterURLImport() {
             md.id = v4()
             const db = getDatabase()
             db.modules.push(md)
+            await persistImportedData()
             notifySuccess(language.successImport)
             openSettings(SettingsRoute.Module)
             return
@@ -710,12 +769,14 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     }
 
     console.log(`Importing ${card.spec}, mode is ${mode}`)
+    alertWait(language.characterImportApplying)
 
     const data = card.data
     let im = img ? await saveAsset(img) : undefined
     let db = getDatabase()
 
     const risuext = data.extensions?.risuai ? safeStructuredClone(data.extensions.risuai) : undefined
+    const bardLoreSource = (data.extensions as Record<string, any> | undefined)?.risubard?.bardLore
     let emotions:[string, string][] = []
     let bias:[string, number][] = []
     let viewScreen: "none" | "emotion" | "imggen" = 'none'
@@ -736,15 +797,15 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             for(let i=0;i<risuext.emotions.length;i++){
                 alertStore.set({
                     type: 'progress',
-                    msg: `Loading... (Loading Emotions)`,
-                    submsg: (i / risuext.emotions.length * 100).toFixed(2)
+                    msg: language.characterImportEmotions(i + 1, risuext.emotions.length),
+                    submsg: ((i + 1) / risuext.emotions.length * 100).toFixed(0)
                 })
                 await sleep(10)
                 if(risuext.emotions[i][1].startsWith('__asset:')){
                     const key = risuext.emotions[i][1].replace('__asset:', '')
                     const imgp = assetDict[key]
                     if(!imgp){
-                        throw new Error('Error while importing, asset ' + key + ' not found')
+                        throw new Error(language.characterImportMissingAsset(key))
                     }
                     emotions.push([risuext.emotions[i][0],imgp])
                     continue
@@ -757,8 +818,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             for(let i=0;i<risuext.additionalAssets.length;i++){
                 alertStore.set({
                     type: 'progress',
-                    msg: `Loading... (Loading Assets)`,
-                    submsg: (i / risuext.additionalAssets.length * 100).toFixed(2)
+                    msg: language.characterImportAssets(i + 1, risuext.additionalAssets.length),
+                    submsg: ((i + 1) / risuext.additionalAssets.length * 100).toFixed(0)
                 })
 
                 if(i % 100 === 0){
@@ -771,7 +832,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                     const key = risuext.additionalAssets[i][1].replace('__asset:', '')
                     const imgp = assetDict[key]
                     if(!imgp){
-                        throw new Error('Error while importing, asset ' + key + ' not found')
+                        throw new Error(language.characterImportMissingAsset(key))
                     }
                     extAssets.push([risuext.additionalAssets[i][0],imgp,fileName])
                     continue
@@ -785,8 +846,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             for(let i=0;i<keys.length;i++){
                 alertStore.set({
                     type: 'progress',
-                    msg: `Loading... (Loading VITS)`,
-                    submsg: (i / keys.length * 100).toFixed(2)
+                    msg: language.characterImportVoiceFiles(i + 1, keys.length),
+                    submsg: ((i + 1) / keys.length * 100).toFixed(0)
                 })
                 await sleep(10)
                 const key = keys[i]
@@ -794,7 +855,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                     const rkey = risuext.vits[key].replace('__asset:', '')
                     const imgp = assetDict[rkey]
                     if(!imgp){
-                        throw new Error('Error while importing, asset ' + rkey + ' not found')
+                        throw new Error(language.characterImportMissingAsset(rkey))
                     }
                     risuext.vits[key] = imgp
                     continue
@@ -828,8 +889,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
             for(let i=0;i<data.assets.length;i++){
                 alertStore.set({
                     type: 'progress',
-                    msg: `Loading... (Assets)`,
-                    submsg: (i / data.assets.length * 100).toFixed(2)
+                    msg: language.characterImportAssets(i + 1, data.assets.length),
+                    submsg: ((i + 1) / data.assets.length * 100).toFixed(0)
                 })
                 if(i % 100 === 0){
                     await sleep(10)
@@ -843,7 +904,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                     const key = data.assets[i].uri.replace('__asset:', '')
                     imgp = assetDict[key]
                     if(!imgp){
-                        throw new Error('Error while importing, asset ' + key + ' not found')
+                        throw new Error(language.characterImportMissingAsset(key))
                     }
                 }
                 else if(data.assets[i].uri === 'ccdefault:'){
@@ -853,17 +914,17 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
                     const key = data.assets[i].uri.replace('embeded://', '')
                     imgp = assetDict[key]
                     if(!imgp){
-                        throw new Error('Error while importing, asset ' + key + ' not found')
+                        throw new Error(language.characterImportMissingAsset(key))
                     }
                 }
                 else if(data.assets[i].uri.startsWith('data:')){
                     //data uri
                     const b64 = data.assets[i].uri.split(',')[1]
-                    if(b64.length < 50 * 1024 * 1024){
+                    if(b64.length < MAX_EMBEDDED_ASSET_BASE64_LENGTH){
                         imgp = await saveAsset(Buffer.from(b64, 'base64'))
                     }
                     else{
-                        alertError('Data URI too large')
+                        alertError(language.characterImportDataUriTooLarge)
                         continue
                     }
                 }
@@ -927,7 +988,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     let ext = safeStructuredClone(data?.extensions ?? {})
 
     for(const key in ext){
-        if(key === 'risuai'){
+        if(key === 'risuai' || key === 'risubard'){
             delete ext[key]
         }
         if(key === 'depth_prompt'){
@@ -953,6 +1014,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         emotionImages: emotions,
         bias: bias,
         globalLore: lorebook, //lorebook
+        bardLore: undefined,
         viewScreen: viewScreen,
         chaId: uuidv4(),
         sdData: sdData,
@@ -1015,11 +1077,18 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         char.modification_date = card.data.modification_date ?? 0
     }
 
+    const migratedBardLore = normalizeBardLoreOwnerState(bardLoreSource, char.globalLore, uuidv4)
+    if (migratedBardLore) {
+        char.globalLore = migratedBardLore.legacyEntries
+        char.bardLore = migratedBardLore.state
+    }
+
     if(returnValue){
         return char as any
     }
 
     db.characters.push(char)
+    await persistImportedData()
     notifySuccess(language.importedCharacter)
     return true as any
 
@@ -1147,9 +1216,10 @@ export function convertCharbook(arg:{
 
 
 export function createBaseV2(char:character) {
-    
+    const bardLoreOwner = exportableBardLoreOwner(char)
+    const exportGlobalLore = bardLoreOwner?.legacyEntries ?? char.globalLore
     let charBook:charBookEntry[] = []
-    for(const lore of char.globalLore){
+    for(const lore of exportGlobalLore){
         let ext:{
             risu_case_sensitive?: boolean;
             risu_activationPercent?: number
@@ -1254,6 +1324,7 @@ export function createBaseV2(char:character) {
                     moduleNamespace: char.moduleNamespace ?? '',
                     defaultVariables: char.defaultVariables ?? ''
                 },
+                risubard: bardLoreOwner ? { bardLore: bardLoreOwner.state } : undefined,
                 depth_prompt: char.depth_prompt
             }
         }
@@ -1261,7 +1332,7 @@ export function createBaseV2(char:character) {
 
     if(char.extentions){
         for(const key in char.extentions){
-            if(key === 'risuai' || key === 'depth_prompt'){
+            if(key === 'risuai' || key === 'risubard' || key === 'depth_prompt'){
                 continue
             }
             card.data.extensions[key] = char.extentions[key]
@@ -1554,7 +1625,8 @@ type RisuLorebookEntry = LorebookEntry & {
 }
 
 export function createBaseV3(char:character){
-    
+    const bardLoreOwner = exportableBardLoreOwner(char)
+    const exportGlobalLore = bardLoreOwner?.legacyEntries ?? char.globalLore
     let charBook:RisuLorebookEntry[] = []
     let assets:Array<{
         type: string
@@ -1592,7 +1664,7 @@ export function createBaseV3(char:character){
         })
     }
 
-    for(const lore of char.globalLore){
+    for(const lore of exportGlobalLore){
         let ext:{
             risu_case_sensitive?: boolean;
             risu_activationPercent?: number
@@ -1703,6 +1775,7 @@ export function createBaseV3(char:character){
                     prebuiltAssetStyle: char.prebuiltAssetStyle ?? '',
                     toggles: char.customModuleToggle ?? '',
                 },
+                risubard: bardLoreOwner ? { bardLore: bardLoreOwner.state } : undefined,
                 depth_prompt: char.depth_prompt
             },
             group_only_greetings: char.group_only_greetings ?? [],
@@ -1716,7 +1789,7 @@ export function createBaseV3(char:character){
 
     if(char.extentions){
         for(const key in char.extentions){
-            if(key === 'risuai' || key === 'depth_prompt'){
+            if(key === 'risuai' || key === 'risubard' || key === 'depth_prompt'){
                 continue
             }
             card.data.extensions[key] = char.extentions[key]
@@ -1813,7 +1886,7 @@ export async function downloadRisuHub(id:string, arg:{
             }
             alertStore.set({
                 type: "wait",
-                msg: "Downloading..."
+                msg: language.characterImportDownloading
             })
         }
         const res = await fetch("https://realm.risuai.net/api/v1/download/dynamic/" + id + '?cors=true', {
@@ -1873,7 +1946,7 @@ export async function downloadRisuHub(id:string, arg:{
     } catch (error) {
         console.error(error)
         console.log(error.stack)
-        alertError("Error while importing")
+        alertError(language.characterImportFailed)
     }
 }
 
@@ -1949,6 +2022,9 @@ type CharacterCardV2Risu = {
                 hideChatIcon?:boolean
                 moduleNamespace?:string
                 defaultVariables?: string
+            }
+            risubard?: {
+                bardLore?: BardLoreState
             }
             depth_prompt?: { depth: number, prompt: string }
         }

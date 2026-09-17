@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
 const source = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8')
+const optionalSource = (path: string): string => existsSync(resolve(process.cwd(), path)) ? source(path) : ''
 
 describe('persona builder UI connections', () => {
     test('matches character lore for each send using the captured input and draft before generating', () => {
@@ -38,6 +39,7 @@ describe('persona builder UI connections', () => {
     })
 
     test('provides reusable preset selection and mutation controls', () => {
+        const builder = source('src/lib/Others/PersonaBuilder.svelte')
         const editor = source('src/lib/Others/PersonaPromptPresetEditor.svelte')
 
         expect(editor).toContain('<ShAccordion')
@@ -50,6 +52,9 @@ describe('persona builder UI connections', () => {
         expect(editor).toContain('data-persona-prompt-preset-save')
         expect(editor).toContain('data-persona-prompt-preset-overwrite')
         expect(editor).toContain('data-persona-prompt-preset-delete')
+        expect(builder).toContain('DBState.db.personaBuilderStylePromptPresetId')
+        expect(builder).toContain('resolvePersonaBuilderPromptPreset')
+        expect(editor).toContain('DBState.db.personaBuilderStylePromptPresetId = id || undefined')
     })
 
     test('keeps the result editable and exposes send, reset, and copy actions', () => {
@@ -81,23 +86,37 @@ describe('persona builder UI connections', () => {
         expect(builder).not.toMatch(/<SendIcon[^>]*\/?>\s*\{copy\.send\}/s)
     })
 
-    test('stores the previous draft and exposes undo in the draft heading', () => {
+    test('keeps an editable original history with previous and next controls', () => {
         const builder = source('src/lib/Others/PersonaBuilder.svelte')
 
-        expect(builder).toContain("let previousDraft = $state('')")
-        expect(builder).toContain('let canUndoDraft = $state(false)')
-        expect(builder).toContain('previousDraft = draft')
-        expect(builder).toContain('function undoDraft()')
-        expect(builder).toContain('data-persona-builder-undo')
-        expect(builder).toMatch(/draft-heading[\s\S]*data-persona-builder-undo/)
+        expect(builder).toContain("let originalHistory = $state<string[]>([])")
+        expect(builder).toContain('let originalHistoryIndex = $state(0)')
+        expect(builder).toContain('recordOriginalDraft')
+        expect(builder).toContain('navigateOriginalHistory(-1)')
+        expect(builder).toContain('navigateOriginalHistory(1)')
+        expect(builder).toContain('data-persona-builder-original-previous')
+        expect(builder).toContain('data-persona-builder-original-next')
+        expect(builder).toContain('bind:value={originalDraft}')
+        expect(builder).not.toMatch(/data-persona-builder-original[\s\S]*?readonly/)
+        expect(builder).toMatch(/data-draft-pane="original"[\s\S]*data-persona-builder-original-previous/)
     })
 
-    test('uses a 90vh dialog and shared semantic surface layers', () => {
+    test('places the copy action in the revision heading and syncs the original after copying', () => {
+        const builder = source('src/lib/Others/PersonaBuilder.svelte')
+
+        expect(builder).toContain('data-persona-builder-copy')
+        expect(builder).toMatch(/data-draft-pane="revision"[\s\S]*data-persona-builder-copy/)
+        expect(builder).toContain('originalDraft = copiedDraft')
+        expect(builder).toContain('recordOriginalDraft(copiedDraft)')
+        expect(builder).not.toMatch(/<div class="flex justify-end border-t border-darkborderc pt-3">[\s\S]*copyDraft/)
+    })
+
+    test('uses a viewport-bounded dialog and shared semantic surface layers', () => {
         const builder = source('src/lib/Others/PersonaBuilder.svelte')
         const personas = source('src/lib/Setting/Pages/PersonaSettings.svelte')
         const styles = source('src/styles.css')
 
-        expect(builder).toContain('height: 90vh')
+        expect(builder).toContain('var(--manager-height, 90dvh)')
         expect(styles).toContain('--color-surface-base:')
         expect(styles).toContain('--color-surface-raised:')
         expect(styles).toContain('--color-surface-inset:')
@@ -109,12 +128,14 @@ describe('persona builder UI connections', () => {
 
     test('places the builder between the persona manager and nested confirmation dialogs', () => {
         const builder = source('src/lib/Others/PersonaBuilder.svelte')
+        const manager = source('src/lib/Others/PersonaManager.svelte')
         const alerts = source('src/lib/Others/AlertComp.svelte')
         const confirmStart = alerts.indexOf("open={$alertStore.type === 'ask'}")
         const confirmEnd = alerts.indexOf('</ShAlertDialog>', confirmStart)
         const confirmDialog = alerts.slice(confirmStart, confirmEnd)
 
         expect(builder).toContain('tier="base"')
+        expect(manager).not.toContain('data-risu-modal-tier')
         expect(builder).toContain('overlayClass="z-[45]"')
         expect(builder).toContain('contentClass="persona-builder-dialog z-[45]"')
         expect(confirmStart).toBeGreaterThan(-1)
@@ -131,5 +152,63 @@ describe('persona builder UI connections', () => {
         const builder = source('src/lib/Others/PersonaBuilder.svelte')
 
         expect(builder.match(/copy\.contextUnavailable/g)).toHaveLength(4)
+    })
+
+    test('supports viewport-bounded resizing and responsive draft comparison', () => {
+        const builder = source('src/lib/Others/PersonaBuilder.svelte')
+        const splitter = optionalSource('src/lib/UI/GUI/DraftSplitHandle.svelte')
+
+        expect(builder).toContain("import ManagerResizeHandles from 'src/lib/UI/GUI/ManagerResizeHandles.svelte'")
+        expect(builder).toContain('let dialogElement = $state<HTMLElement | null>(null)')
+        expect(builder).toContain('bind:contentElement={dialogElement}')
+        expect(builder).toContain('<ManagerResizeHandles target={dialogElement} centered')
+        expect(builder).toContain('closeOnOutsideClick={true}')
+        expect(builder).toContain('var(--manager-width, 56rem)')
+        expect(builder).toContain('calc(100vw - 2rem)')
+        expect(builder).toContain('calc(100dvh - 2rem)')
+
+        expect(builder).toContain('class="context-options"')
+        expect(builder).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+        expect(builder).toMatch(/\.context-panel label span \{[^}]*font-size: \.75rem/)
+        expect(builder).not.toContain('font-size: .65rem')
+        expect(builder).not.toContain('sm:grid-cols-2')
+
+        expect(builder).toContain("let originalDraft = $state('')")
+        expect(builder).toContain('originalDraft = currentDescription')
+        expect(builder).toContain('data-persona-builder-draft-comparison')
+        expect(builder).toContain("import DraftSplitHandle from 'src/lib/UI/GUI/DraftSplitHandle.svelte'")
+        expect(builder).toContain('<DraftSplitHandle target={draftComparisonElement}')
+        expect(builder).toContain('grid-template-rows: 2rem minmax(14rem, 1fr)')
+        expect(builder).toContain('var(--draft-left-width, 1fr)')
+        expect(builder).toContain('var(--draft-right-width, 1fr)')
+        expect(builder).toContain('data-persona-builder-original')
+        expect(builder).toContain('bind:value={originalDraft}')
+        expect(builder).toContain('data-persona-builder-draft')
+        expect(builder).toContain('overflow-y: scroll')
+        expect(builder).toMatch(/@media \(max-width: 700px\)[\s\S]*?grid-template-columns: 1fr/)
+
+        expect(splitter).toContain('use:resizeHandle')
+        expect(splitter).toContain('data-draft-split-resize')
+        expect(builder).toContain('resizeStorageKey="persona-builder-dialog"')
+        expect(builder).toContain('resizeStorageKey="persona-builder-draft-split"')
+        expect(builder).toContain("use:persistElementHeight={'persona-builder-instruction'}")
+        expect(builder).toContain("use:persistElementHeight={'persona-builder-original'}")
+        expect(builder).toContain("use:persistElementHeight={'persona-builder-revision'}")
+        expect(builder).toMatch(/\.draft-pane \.builder-textarea \{[^}]*resize: vertical;[^}]*overflow-y: scroll;/)
+    })
+
+    test('starts with an empty revision while sending the original as the first draft context', () => {
+        const builder = source('src/lib/Others/PersonaBuilder.svelte')
+
+        expect(builder).toContain("async function initializeBuilder(initialDraft = '')")
+        expect(builder).toContain('draft: draft.trim() ? draft : originalDraft')
+    })
+
+    test('dismisses only the persona manager backdrop layer', () => {
+        const manager = source('src/lib/Others/PersonaManager.svelte')
+
+        expect(manager).toContain('function closeFromBackdrop(event: MouseEvent)')
+        expect(manager).toContain('if (event.target === event.currentTarget) close()')
+        expect(manager).toContain('class="risu-modal-overlay persona-manager-backdrop" onclick={closeFromBackdrop}')
     })
 })

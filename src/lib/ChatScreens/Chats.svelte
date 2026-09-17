@@ -9,6 +9,7 @@
     import { estimateSpacerHeight, getChatWindow, stepChatWindowCenter, type ChatWindow } from 'src/ts/chatWindow';
     import { publishMountedMessageIds, releaseMountedMessageIds } from 'src/ts/chatMountRegistry';
     import { recordRuntimeDuration, updateRuntimeResources } from 'src/ts/performance/performanceReport';
+    import { buildChatTurnNavigation, type ChatTurnNavigation } from 'src/ts/chatTurnNavigation';
 
     /**
      * Wall clock for the forced-layout measurement below. Falls back to
@@ -38,6 +39,7 @@
         unReroll,
         onDeleteSwipe = () => {},
         onConfirmMemory = async () => false,
+        onReanalyzeMemory = async () => false,
         currentUsername,
         userIcon,
         /**
@@ -48,6 +50,13 @@
         onReachOldestMounted = () => {},
         /** Which ends of the resident history the mounted window now covers. */
         onWindowChange = () => {},
+        /**
+         * `messages[0]` is the first message of the conversation, so anything
+         * counted from it -- the response turn numbers -- is counted from the
+         * start. `false` while storage holds older messages; only the screen
+         * that owns the storage window knows, and it says so.
+         */
+        historyStartResident = true,
         // Task 8's SaverModeCoordinator owns the reactive source and will pass
         // this hook; no saver store exists yet, so normal mode is the default.
         saverMode = false,
@@ -61,10 +70,12 @@
         unReroll: () => void
         onDeleteSwipe?: () => void
         onConfirmMemory?: (messageId: string) => Promise<boolean>
+        onReanalyzeMemory?: (messageId: string) => Promise<boolean>
         currentUsername: string
         userIcon: string
         onReachOldestMounted?: () => void
         onWindowChange?: (state: { atOldestEnd: boolean, atNewestEnd: boolean }) => void
+        historyStartResident?: boolean
         saverMode?: boolean
         userIconPortrait?: boolean
         hasNewUnreadMessage?: boolean
@@ -385,6 +396,20 @@
          * change in a spacer count, and that re-measures.
          */
         let mountedRowSetChanged = false;
+        /**
+         * Response turn numbers, counted from the first message of the
+         * conversation -- which is only `messages[0]` when the resident array
+         * begins there. While storage still holds older messages the count
+         * would start part-way through the chat and label the first resident
+         * reply "Turn 1", so no numbers are produced at all until the start of
+         * history is resident. Numbering from that point is exact whatever the
+         * newest end does: residency trimming releases the tail, and a count
+         * from the start does not move when the tail goes.
+         */
+        const turnNavigation: ChatTurnNavigation | null = historyStartResident
+            ? buildChatTurnNavigation(messages)
+            : null
+
         // Find the last real (non-comment, non-disabled) char message index
         // Only show reroll if it's the actual last non-disabled message
         let lastRealCharIdx = -1;
@@ -409,8 +434,9 @@
             const reloadPointer = reloadPointerMap[messageId] ?? 0;
             const isRerollTarget = i === lastRealCharIdx;
             const activeStreamingMessage = i === activeStreamingIndex && message.role === 'char';
+            const turnNumber = turnNavigation?.turnByMessageIndex.get(i)
             const hashMessageData = activeStreamingMessage ? '' : message.data;
-            const signature = `${hashMessageData}|${messageLargePortrait}|${message.disabled}|${reloadPointer}|${message.swipeId ?? 0}|${message.swipes?.length ?? 0}|${isRerollTarget}|${message.risubardMemoryConfirmed ?? false}|${JSON.stringify(message.risubardCanonicalReceipt ?? null)}`;
+            const signature = `${hashMessageData}|${messageLargePortrait}|${message.disabled}|${reloadPointer}|${message.swipeId ?? 0}|${message.swipes?.length ?? 0}|${isRerollTarget}|${turnNumber ?? 0}|${message.risubardMemoryConfirmed ?? false}|${JSON.stringify(message.risubardCanonicalReceipt ?? null)}`;
             currentIds.add(messageId);
             const mounted = mountInstances.get(messageId);
             if (!mounted || mounted.signature !== signature) {
@@ -439,6 +465,7 @@
                         unReroll: unReroll,
                         onDeleteSwipe: i === lastRealCharIdx ? onDeleteSwipe : () => {},
                         onConfirmMemory,
+                        onReanalyzeMemory,
                         memoryConfirmed:
                             message.risubardMemoryConfirmed === true,
                         canonicalReceipt: message.risubardCanonicalReceipt,
@@ -447,6 +474,7 @@
                         largePortrait: message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false),
                         messageGenerationInfo: message.generationInfo,
                         role: message.role,
+                        turnNumber,
                         name: message.role === 'user' ? currentUsername : currentCharacter.name,
                         isComment: message.isComment ?? false,
                         disabled: message.disabled ?? false,

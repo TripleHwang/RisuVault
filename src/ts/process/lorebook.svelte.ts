@@ -20,6 +20,9 @@ import {
     resolveLorebookMatchingMode,
     type LorebookMatchingMode,
 } from './lorebookMatching';
+import { BardLoreBudgetError, selectBardLoreEntries } from '../lorebook/bardLoreRetrieval';
+import { createBardLoreSettings, materializeBardLoreEntries, type BardLoreEntry } from '../lorebook/bardLore';
+import type { RequestInjectionKind } from '../status/requestStatus';
 
 export function addLorebook(type:number) {
     const selectedID = get(selectedCharID)
@@ -85,9 +88,97 @@ export function addLorebookFolder(type:number) {
 export async function loadLoreBookV3Prompt(search?: { character: character; text: string }){
     const char = search?.character ?? DBState.db.characters[get(selectedCharID)]
     const page = char.chatPage
+    const currentChatState = char.chats[page]
+    const currentChat: Message[] = search ? [{ role: 'user', data: search.text }] : currentChatState.message
+    const loreDepth = search ? 1 : (char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth)
+    const characterScopeId = `character:${char.chaId}`
+    const bardSelectedIds = new Set<string>()
+    const bardMatchLog:{
+        prompt: string,
+        source: string
+        activated: string
+    }[] = []
+    let characterLore = char.globalLore ?? []
+    const bardState = char.bardLore?.mode === 'bard' ? char.bardLore : undefined
+    const bardSettings = bardState ? createBardLoreSettings(bardState.settings) : undefined
+    const bardEntries = bardState ? materializeBardLoreEntries(bardState, characterLore) : []
+
+    if(bardState && bardSettings){
+        const tokenCounts: Record<string, number> = {}
+        await Promise.all(bardEntries.filter((entry) => entry.bard.injection !== 'index-only').map(async (entry) => {
+            tokenCounts[entry.id] = await tokenize(risuChatParser(entry.content, {chara: char}))
+        }))
+        const disabledThrough = currentChat.findLastIndex((message) => message.disabled === 'allBefore')
+        const activeMessages = currentChat.slice(disabledThrough + 1)
+            .filter((message) => !message.disabled && !message.isComment)
+        const recentMessages = activeMessages
+            .slice(Math.max(0, activeMessages.length - bardSettings.contextMessages))
+            .map((message) => message.data)
+        const selectedGreeting = !search
+            && disabledThrough < 0
+            && bardSettings.contextMessages > 0
+            && activeMessages.length <= bardSettings.contextMessages
+            && !currentChatState.firstMessageDisabled
+            ? (currentChatState.fmIndex ?? -1) === -1
+                ? char.firstMessage
+                : char.alternateGreetings?.[currentChatState.fmIndex ?? 0] ?? ''
+            : ''
+        const firstMessageEvidence = selectedGreeting
+            ? risuChatParser(selectedGreeting, { chara: char })
+            : ''
+        const query = [firstMessageEvidence, ...recentMessages].filter(Boolean).join('\n')
+        let priorityQuery = ''
+        for (let index = activeMessages.length - 1; index >= 0; index -= 1) {
+            const message = activeMessages[index]
+            if (message.role === 'user') {
+                priorityQuery = message.data
+                break
+            }
+        }
+        const selection = selectBardLoreEntries({
+            query,
+            priorityQuery,
+            routingEvidence: firstMessageEvidence,
+            entries: bardEntries,
+            tokenCounts,
+            settings: bardSettings,
+            scopeAliases: [char.name],
+        })
+        bardMatchLog.push({
+            prompt: selection.plan.query,
+            source: 'Grimoire query plan',
+            activated: [
+                `intent=${selection.plan.intent}`,
+                selection.plan.targetKinds.length > 0 ? `kinds=${selection.plan.targetKinds.join(',')}` : '',
+                selection.plan.requestedCount !== undefined ? `count=${selection.plan.requestedCount}` : '',
+                ...selection.plan.constraints.map((item) => `${item.key}=${item.value}`),
+            ].filter(Boolean).join(' · '),
+        })
+        characterLore = selection.selected.map(({ entry, reason, path, lane }) => {
+            bardSelectedIds.add(entry.id)
+            bardMatchLog.push({
+                prompt: query,
+                source: path ? `Grimoire link ${path.join(' -> ')}` : 'Grimoire retrieval',
+                activated: `${entry.comment || entry.id} (${lane} · ${reason})`,
+            })
+            return {
+                ...entry,
+                alwaysActive: true,
+            }
+        })
+        for (const { entry, reason } of selection.excluded) {
+            if (reason === 'no-match' || reason === 'ineligible') continue
+            bardMatchLog.push({
+                prompt: selection.plan.query,
+                source: 'Grimoire excluded',
+                activated: `${entry.comment || entry.id} (${reason})`,
+            })
+        }
+    }
+
     const loreSources = [
-        ...(char.globalLore ?? []).map((entry) => ({
-            scopeId: `character:${char.chaId}`,
+        ...characterLore.map((entry) => ({
+            scopeId: characterScopeId,
             entry,
         })),
         ...(search ? [] : (char.chats[page].localLore ?? []).map((entry) => ({
@@ -99,8 +190,6 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
         && (!search || (source.entry.mode !== 'folder' && source.entry.content.trim().length > 0)))
     const fullLore = safeStructuredClone(loreSources.map((source) => source.entry))
     const loreScopes = loreSources.map((source) => source.scopeId)
-    const currentChat: Message[] = search ? [{ role: 'user', data: search.text }] : char.chats[page].message
-    const loreDepth = search ? 1 : (char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth)
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const matchingModeSetting = resolveLorebookMatchingMode(
         char.loreSettings?.matchingMode,
@@ -134,7 +223,7 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
         prompt: string,
         source: string
         activated: string
-    }[] = []
+    }[] = bardMatchLog
 
     const searchMatch = (messages:Message[],arg:{
         keys:string[],
@@ -256,6 +345,7 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
         tokens:number
         priority:number
         source:string
+        requestStatusKind:RequestInjectionKind
         inject:{
             operation:'append'|'prepend'|'replace',
             location:string,
@@ -320,7 +410,10 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
                     }
                 }
             }
-            let itemRecursive:'global'|true|false = 'global'
+            let itemRecursive:'global'|true|false =
+                loreScopes[i] === characterScopeId && bardSelectedIds.has(fullLore[i].id ?? '')
+                    ? false
+                    : 'global'
             const content = CCardLib.decorator.parse(fullLore[i].content, (name, arg) => {
                 switch(name){
                     case 'end':{
@@ -592,6 +685,14 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
             }
 
             if(activated){
+                const sourceEntry = fullLore[i]
+                const bardEntry = loreScopes[i] === characterScopeId
+                    && 'bard' in sourceEntry
+                    ? sourceEntry as BardLoreEntry
+                    : undefined
+                const requestStatusKind: RequestInjectionKind = bardEntry
+                    ? (bardEntry.bard.activation === 'required' ? 'grimoireRequired' : 'grimoire')
+                    : 'lorebook'
                 actives.push({
                     depth: depth,
                     pos: pos,
@@ -605,6 +706,7 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
                     tokens: await tokenize(risuChatParser(content, {chara: char})),
                     priority: priority,
                     source: fullLore[i].comment || `lorebook ${i}`,
+                    requestStatusKind,
                     inject: inject ?? null,
                     sourceIdentity: {
                         scopeId: loreScopes[i],
@@ -643,8 +745,18 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
     })
 
     let usedTokens = 0
+    let bardUsedTokens = 0
 
     const activesFiltered = activesSorted.filter((act) => {
+        const isBardCharacterLore = act.sourceIdentity.scopeId === characterScopeId
+            && 'bard' in act.sourceIdentity.entry
+        if(isBardCharacterLore && bardSettings){
+            if(bardUsedTokens + act.tokens > bardSettings.maximumTokens){
+                throw new BardLoreBudgetError('Selected Grimoire entries exceed the configured hard limit after prompt rendering.')
+            }
+            bardUsedTokens += act.tokens
+            return true
+        }
         if(usedTokens + act.tokens <= loreToken){
             usedTokens += act.tokens
             return true
@@ -667,6 +779,32 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
     const activeSources = activesFiltered.map((active) => ({
         sourceIdentity: active.sourceIdentity,
     }))
+    const bardWikiEntityHints = activesFiltered.flatMap((active) => {
+        if (active.sourceIdentity.scopeId !== characterScopeId) return []
+        const entry = active.sourceIdentity.entry
+        const bardEntry = 'bard' in entry ? entry as BardLoreEntry : undefined
+        if (bardEntry && bardEntry.bard.kind !== 'character') return []
+        const rawNames = bardEntry
+            ? [entry.comment, ...bardEntry.bard.aliases]
+            : [
+                entry.comment,
+                ...(typeof entry.key === 'string' ? entry.key.split(',') : []),
+                ...(typeof entry.secondkey === 'string' ? entry.secondkey.split(',') : []),
+            ]
+        const seen = new Set<string>()
+        const names = rawNames.flatMap((value) => {
+            if (typeof value !== 'string') return []
+            const name = value.trim().slice(0, 128)
+            const key = name.normalize('NFKC').toLocaleLowerCase()
+            if (!name || seen.has(key)) return []
+            seen.add(key)
+            return [name]
+        }).slice(0, 16)
+        return names.length > 0 ? [{
+            kind: 'character' as const,
+            names,
+        }] : []
+    }).slice(0, 12)
 
     //I know this will make token count wrong, but performance is more important here
 
@@ -697,6 +835,7 @@ export async function loadLoreBookV3Prompt(search?: { character: character; text
     return {
         actives: activesResorted.reverse(),
         activeSources,
+        bardWikiEntityHints,
         matchLog: matchLog,
     }
 

@@ -13,7 +13,10 @@ import {
     collectPersonaBuilderSources,
     createPersonaBuilderUserPreset,
     deletePersonaBuilderUserPreset,
+    movePersonaBuilderOriginalHistory,
     overwritePersonaBuilderUserPreset,
+    recordPersonaBuilderOriginalHistory,
+    resolvePersonaBuilderPromptPreset,
 } from './personaBuilder'
 
 const lore = (overrides: Partial<loreBook> = {}): loreBook => ({
@@ -64,6 +67,53 @@ describe('persona builder source compiler', () => {
 
         expect(sources.systemPrompt).toBe('Main A\n\nMain B')
         expect(sources.systemPrompt).not.toMatch(/Legacy|Jailbreak|CoT|Global note|override/)
+    })
+
+    test('resolves main prompt blocks with the current chat toggle values', () => {
+        const sources = collectPersonaBuilderSources({
+            database: database({
+                promptTemplate: [{
+                    type: 'plain', type2: 'main', role: 'system',
+                    text: 'Always\n{{#when::toggle::detail}}Chat detail{{/}}',
+                }],
+                globalChatVariables: { toggle_detail: '0' },
+            }),
+            character: currentCharacter(),
+            moduleLorebooks: [],
+            parsePrompt: (text) => text.replace('{{#when::toggle::detail}}', '').replace('{{/}}', ''),
+        })
+
+        expect(sources.systemPrompt).toContain('Chat detail')
+        expect(sources.systemPrompt).not.toContain('{{#when')
+    })
+
+    test('does not fall back to the legacy prompt when toggles hide every main block', () => {
+        const sources = collectPersonaBuilderSources({
+            database: database({
+                mainPrompt: 'Legacy prompt',
+                promptTemplate: [{
+                    type: 'plain', type2: 'main', role: 'system',
+                    text: '{{#when::toggle::detail}}Chat detail{{/}}',
+                }],
+            }),
+            character: currentCharacter(),
+            moduleLorebooks: [],
+            parsePrompt: (text) => text === 'Legacy prompt' ? text : '',
+        })
+
+        expect(sources.systemPrompt).toBe('')
+    })
+
+    test('makes system prompt unavailable when no character is active', () => {
+        const sources = collectPersonaBuilderSources({
+            database: database({
+                promptTemplate: [{ type: 'plain', type2: 'main', role: 'system', text: 'Main' }],
+            }),
+            character: undefined,
+            moduleLorebooks: [],
+        })
+
+        expect(sources.systemPrompt).toBe('')
     })
 
     test('applies the legacy character system-prompt override', () => {
@@ -284,6 +334,21 @@ describe('persona builder request compiler', () => {
 })
 
 describe('persona builder prompt presets', () => {
+    test('resolves a persisted style preset from built-ins or user presets', () => {
+        const userPreset: PersonaBuilderPromptPreset = {
+            id: 'saved-style',
+            kind: 'style',
+            name: 'Saved style',
+            content: 'Keep this style',
+        }
+
+        expect(resolvePersonaBuilderPromptPreset([], 'style', 'builtin:style-en')?.content)
+            .toContain('provide the revised profile in English.')
+        expect(resolvePersonaBuilderPromptPreset([userPreset], 'style', 'saved-style')).toEqual(userPreset)
+        expect(resolvePersonaBuilderPromptPreset([userPreset], 'style', 'missing')).toBeUndefined()
+        expect(resolvePersonaBuilderPromptPreset([userPreset], 'task', 'saved-style')).toBeUndefined()
+    })
+
     test('ships the requested Korean and English style presets without usage tips', () => {
         const korean = PERSONA_BUILDER_BUILTIN_PRESETS.find((preset) => preset.id === 'builtin:style-ko')
         const english = PERSONA_BUILDER_BUILTIN_PRESETS.find((preset) => preset.id === 'builtin:style-en')
@@ -344,5 +409,32 @@ describe('persona builder prompt presets', () => {
         expect(deletePersonaBuilderUserPreset(existing, 'task-id')).toEqual([existing[1]])
         expect(() => overwritePersonaBuilderUserPreset(existing, 'builtin:style-ko', 'No')).toThrow('persona-builder-preset-readonly')
         expect(() => deletePersonaBuilderUserPreset(existing, 'missing')).toThrow('persona-builder-preset-not-found')
+    })
+})
+
+describe('persona builder original history', () => {
+    test('records a new original after the current entry and drops abandoned newer entries', () => {
+        expect(recordPersonaBuilderOriginalHistory(['first', 'second', 'third'], 1, 'replacement')).toEqual({
+            entries: ['first', 'second', 'replacement'],
+            index: 2,
+        })
+        expect(recordPersonaBuilderOriginalHistory(['first'], 0, 'first')).toEqual({
+            entries: ['first'],
+            index: 0,
+        })
+    })
+
+    test('moves between original revisions without leaving the available history', () => {
+        expect(movePersonaBuilderOriginalHistory(['first', 'second'], 1, -1)).toEqual({
+            entries: ['first', 'second'],
+            index: 0,
+            value: 'first',
+        })
+        expect(movePersonaBuilderOriginalHistory(['first', 'second'], 0, 1)).toEqual({
+            entries: ['first', 'second'],
+            index: 1,
+            value: 'second',
+        })
+        expect(movePersonaBuilderOriginalHistory(['first'], 0, -1)).toBeUndefined()
     })
 })

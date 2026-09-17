@@ -1,30 +1,29 @@
 ---
 name: bardwiki-memory-writer
-description: Extract validated, durable narrative memory from an accepted manuscript change or confirmed story turn. Use when BardWiki records an immutable event note, state transition, character knowledge boundary, persistent fact, unresolved continuity, or canonical-page update candidate.
+description: Extract durable narrative memory and canonical update candidates from confirmed story text.
 ---
 
 # BardWiki Memory Writer
 
 ## 목표
 
-확정된 원고 범위나 확정된 대화 턴에서 직접 성립한 서사 사실만 구조화된 기억 초안으로 반환하라. 프로그램이 ID, 경로, 근거 메타데이터, frontmatter와 Markdown 파일을 생성한다.
+확정 원고·대화에서 직접 성립한 사실만 반환하라. ID·경로·근거 메타데이터·frontmatter·파일은 프로그램 소유다.
 
 ## 절차
 
-1. 입력에서 `acceptedText` 또는 `confirmedMessages`를 기록 대상 근거로 한정하라.
-2. `priorContext`와 `existingNotes`는 의미 해석과 변화 비교에만 사용하라. 그 내용만으로 새 사건을 만들지 마라.
-3. 확정된 사건, 상태 변화, 인물별 지식, 지속 사실, 미해결 연속성을 분리하라.
-   `establishedEvents`는 위에서 아래로 그대로 읽어도 흐름이 이어지는 독립적인 이야기 요약으로 작성하고, 상태 관리 제안이나 정본 갱신 제안을 섞지 마라.
-4. 최초 등록할 대상과 기존 정본에 반영할 변화를 구분해 `canonicalUpdateCandidates`에 제안하라.
-5. 제공된 JSON Schema와 정확히 일치하는 JSON 객체 하나만 반환하라.
+1. `acceptedText`·`confirmedMessages`만 근거로 쓰고 `priorContext`·`existingNotes`는 해석·변화 비교에만 사용하라.
+2. 사건·상태 변화·인물별 지식·지속 사실·미해결 연속성을 분리하라. `establishedEvents`는 상태·정본 제안이 없는 독립적인 이야기 요약이다.
+3. 최초 등록과 기존 정본 변화를 `canonicalUpdateCandidates`로 구분하라.
+4. 제공된 JSON Schema와 정확히 일치하는 JSON 객체 하나만 반환하라.
 
 ## 정본 후보 판단
 
 ### 최초 등록 (`create`)
 
-- 개별 정본이 없는 주요 인물은 상태 변화가 없어도 확정 본문에 지속 역할·관계·능력·목표·지식이 있으면 등록하라. 실제 참여한 지휘자·동료·대립자·관계 상대도 포함하며 완성된 프로필이나 여러 턴을 기다리지 마라.
+- 개별 정본이 없는 주요 인물은 상태 변화가 없어도 지속 역할·관계·능력·목표·지식이 확정되면 등록하라. 참여한 지휘자·동료·대립자·관계 상대도 포함한다.
 - 사건 문서나 다른 인물의 정본에 이름이 등장하는 것은 개별 정본을 대신하지 않는다. 별칭 중복 금지.
-- 일회성 인물·이름만 언급된 대상은 제외하라. 지속 장소·조직·물건·개념도 같은 기준을 적용하며 로어북 전체나 원작 설정으로 빈칸을 채우지 마라.
+- 일회성 인물·이름만 언급된 대상은 제외하라. 지속 장소·조직·종족·생물·물건·개념도 같은 기준을 적용하며 로어북 전체나 원작 설정으로 빈칸을 채우지 마라.
+- 반복 조회할 종족·생물은 `creature`, 독립 상태나 재등장 무대인 이름 있는 하위 장소는 `location`, 사건을 넘는 미해결 조사 줄기는 단서별이 아닌 하나의 `other`로 등록하라. 개별 조우·외형 차이와 단일 단서는 제외하고 상세는 사건 문서에 남기고 링크하라.
 
 ### 기존 정본 갱신 (`update`)
 
@@ -33,8 +32,8 @@ description: Extract validated, durable narrative memory from an accepted manusc
 
 ### 누락 점검과 우선순위
 
-- 주요 인물별로 개별 정본 또는 후보가 향후 서사에 필요한 사실을 보존하는지 점검하라. `characterKnowledge`·`stateChanges`·`persistentFacts`·`openContinuity`를 실제 주체별로 대조하며 주인공 정본 하나로 동료들의 기억을 대체하지 마라.
-- 누락 비용이 큰 중요한 변화와 주요 대상의 최초 등록을 사소한 행적 갱신보다 우선하라. 동일 대상의 후보는 합치고 근거 없는 추론으로 수를 채우지 마라. 등록·갱신 모두 불필요할 때만 빈 배열을 반환하며 출력 필드는 추가하지 마라.
+- 주요 인물별로 `characterKnowledge`·`stateChanges`·`persistentFacts`·`openContinuity`와 개별 정본을 대조하라. 주인공 정본 하나로 동료들의 기억을 대신하지 마라.
+- 향후 서사의 누락 비용이 큰 변화와 최초 등록을 우선하고 동일 대상 후보는 합쳐라. 근거 없는 추론으로 수를 채우지 말고 불필요할 때만 빈 배열을 반환하며 출력 필드는 추가하지 마라.
 
 - 아크 플롯 후보는 만들지 마라. 프로그램이 사용자가 설정한 확정 사건 체크포인트마다 공급한다.
 

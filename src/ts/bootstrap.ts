@@ -120,7 +120,7 @@ async function activateCanonicalDatabase(decoded: Database, source: Uint8Array) 
         stopProgress()
         stopFailure()
     }
-    setPatchSyncBaseline(safeStructuredClone(canonical.database))
+    setPatchSyncBaseline(canonical.database)
     setDatabase(canonical.database)
     // The fallback to the legacy database keeps the app working, so nothing
     // else here will ever mention that it happened. Every launch pays the full
@@ -151,13 +151,13 @@ export async function loadData() {
                 if (existingSql?.usingSql) {
                     // The baseline exists for `saveDb`'s binary patch encoder,
                     // which is the one thing metadata-first startup never runs.
-                    // Taking it there bought nothing and cost two full deep
-                    // clones of the whole database on the startup critical path
-                    // -- `setPatchSyncBaseline` clones what it is handed -- and
-                    // then pinned one of them in module scope for the rest of
-                    // the session, because `saveDb` is also its only clearer.
+                    // Taking it there bought nothing and cost a full deep clone
+                    // of the whole database on the startup critical path --
+                    // `setPatchSyncBaseline` clones what it is handed -- and
+                    // then pinned it in module scope for the rest of the
+                    // session, because `saveDb` is also its only clearer.
                     if (startupMode !== 'metadata-first') {
-                        setPatchSyncBaseline(safeStructuredClone(existingSql.database))
+                        setPatchSyncBaseline(existingSql.database)
                     }
                     markStartupPhase('patch-baseline-clone')
                     setDatabase(existingSql.database)
@@ -168,16 +168,16 @@ export async function loadData() {
                     if (recovery?.status !== 'ready' || !recovery.database) {
                         throw existingSql?.error ?? new Error('SQL recovery snapshot unavailable')
                     }
-                    setPatchSyncBaseline(safeStructuredClone(recovery.database))
+                    setPatchSyncBaseline(recovery.database)
                     setDatabase(recovery.database)
                     activateRecoveredSqlStorage(existingSql.recoveryStorage!, recovery.database)
                     alertError('Started in degraded compatibility mode. Update the server to restore fast startup.')
                 } else if (startupMode === 'unsupported') {
                     throw new Error('This server does not support fast startup. Update the server to use this version.')
                 } else {
-                    LoadingStatusState.text = "Loading Local Save File..."
+                    LoadingStatusState.text = language.startupLoading.localSave
                     let gotStorage: Uint8Array = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
-                    LoadingStatusState.text = "Decoding Local Save File..."
+                    LoadingStatusState.text = language.startupLoading.decodingLocalSave
                     if (checkNullish(gotStorage)) {
                         createdFreshDatabase = true
                         gotStorage = encodeRisuSaveLegacy({})
@@ -185,7 +185,6 @@ export async function loadData() {
                     }
                     try {
                         const decoded = await decodeRisuSave(gotStorage)
-                        console.log(decoded)
                         await activateCanonicalDatabase(decoded, gotStorage)
                     } catch (error) {
                         console.error(error)
@@ -193,7 +192,7 @@ export async function loadData() {
                         let backupLoaded = false
                         for (const backup of backups) {
                             try {
-                                LoadingStatusState.text = `Reading Backup File ${backup}...`
+                                LoadingStatusState.text = language.startupLoading.readingBackup.replace('{0}', String(backup))
                                 const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
                                 const backupDecoded = await decodeRisuSave(backupData)
                                 await activateCanonicalDatabase(backupDecoded, backupData)
@@ -246,7 +245,7 @@ export async function loadData() {
             }
             markStartupPhase('database-activate')
             if (startupMode !== 'metadata-first') {
-                LoadingStatusState.text = "Checking For Format Update..."
+                LoadingStatusState.text = language.startupLoading.checkingFormat
                 await checkNewFormat()
                 markStartupPhase('format-check')
 
@@ -262,7 +261,7 @@ export async function loadData() {
 
             const db = getDatabase();
 
-            LoadingStatusState.text = "Updating States..."
+            LoadingStatusState.text = language.startupLoading.updatingState
             updateColorScheme()
             updateTextThemeAndCSS()
             updateAnimationSpeed()
@@ -593,8 +592,19 @@ async function checkNewFormat(): Promise<void> {
  */
 async function cleanChunks() {
     const db = getDatabase()
-    const indexes = await forageStorage.keys()
     const assetCleanupRequested = isAutoAssetCleanupEnabled(db)
+    // Only the prefixes this sweep acts on are listed. A full key listing
+    // walks every chat page and message row the SQL runtime stores, which is
+    // the bulk of a long-conversation store and none of it is deletable here.
+    const remoteKeysPromise = forageStorage.keys('remotes/')
+    const [remoteKeys, assetKeys, pluginStorageKeys] = assetCleanupRequested
+        ? await Promise.all([
+            remoteKeysPromise,
+            forageStorage.keys('assets/'),
+            forageStorage.keys('cache/plugin-storage/')
+        ])
+        : [await remoteKeysPromise, [], []]
+    const indexes = [...remoteKeys, ...assetKeys]
     // `getUncleanables` walks db.pluginCustomStorage for asset references. A
     // deferred map contributes none, and "no reference found" would then be
     // read as "this asset is unreferenced" — deleting files a plugin still
@@ -614,8 +624,8 @@ async function cleanChunks() {
     const uncleanable = assetCleanupRequested ? new Set(getUncleanables(db)) : new Set<string>()
     let pluginStorageScanSucceeded = pluginStorageAssetReferencesComplete(db)
     if (assetCleanupRequested) {
-        for (const key of indexes) {
-            if (!key.startsWith('cache/plugin-storage/') || !key.endsWith('.json')) continue
+        for (const key of pluginStorageKeys) {
+            if (!key.endsWith('.json')) continue
             try {
                 const data = await forageStorage.getItem(key) as unknown as Uint8Array
                 for (const asset of collectNestedAssetReferences(JSON.parse(new TextDecoder().decode(data)))) {
@@ -633,7 +643,7 @@ async function cleanChunks() {
     // ones, so this gates deletion exactly like a failed plugin-storage scan.
     const referencesComplete = pluginStorageScanSucceeded && characterAssetReferencesComplete(db.characters)
     const cleanAssets = canDeleteAssetsAfterPluginStorageScan(assetCleanupRequested, referencesComplete)
-    const allKeys = new Set(indexes)
+    const allKeys = new Set(remoteKeys)
     const characterIds = new Set<string>(
         db.characters.map((v) => v.chaId)
     )

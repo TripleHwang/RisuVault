@@ -1,7 +1,7 @@
 <script lang="ts">
     import { getCustomBackground, getEmotion } from "../../ts/util";
     
-    import { DBState } from 'src/ts/stores.svelte';
+    import { DBState, risuBardGalleryOpen } from 'src/ts/stores.svelte';
     import { CharEmotion, selectedCharID, openModuleListStore } from "../../ts/stores.svelte";
     import { v4 } from 'uuid';
     import ResizeBox from './ResizeBox.svelte'
@@ -13,6 +13,7 @@
     import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import RisuBardSaveSlotsDialog from '../SideBars/RisuBardSaveSlotsDialog.svelte';
+    import RisuBardGallery from '../SideBars/RisuBardGallery.svelte';
     import { ensureChatHydrated, isChatHistoryIncomplete } from 'src/ts/storage/chatStorage';
     import { alertConfirm, notifyInfo, notifySuccess } from 'src/ts/alert';
     import { pluginStateStore } from 'src/ts/plugins/plugins.svelte';
@@ -30,6 +31,9 @@
     let savingSlot = $state(false)
     let currentCharacter = $derived(
         $selectedCharID >= 0 ? DBState.db.characters[$selectedCharID] : undefined
+    )
+    let galleryCharacter = $derived(
+        currentCharacter?.type === 'character' ? currentCharacter : undefined
     )
 
     function openSaveSlots(mode: 'save' | 'load'): void {
@@ -300,6 +304,23 @@
     <SideBarArrow />
 {/snippet}
 
+{#snippet chatViewport(customStyle: string)}
+    {#if $risuBardGalleryOpen && galleryCharacter}
+        <div
+            data-gallery-scroll
+            class="h-full w-full overflow-y-auto overscroll-y-contain relative default-chat-screen"
+        >
+            <RisuBardGallery
+                chara={galleryCharacter}
+                {customStyle}
+                onClose={() => risuBardGalleryOpen.set(false)}
+            />
+        </div>
+    {:else}
+        <DefaultChatScreen {customStyle} bind:openChatList bind:openModuleList onSaveChat={() => openSaveSlots('save')} onOpenChatLoad={() => openSaveSlots('load')} onQuickSave={quickSaveCurrentChat} onQuickLoad={quickLoadCurrentChat} {savingSlot}/>
+    {/if}
+{/snippet}
+
 {#if DBState.db.theme === 'waifu'}
     <div class="grow h-full min-h-0 flex justify-center relative overflow-hidden" style="{bgImg.length < 4 ? wallPaper : bgImg}">
         {@render chatChrome()}
@@ -312,7 +333,7 @@
             {/if}
         {/if}
         <div class="h-full w-2xl" style:width="{42 * (DBState.db.waifuWidth / 100)}rem" class:halfwp={$selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none'}>
-            <DefaultChatScreen customStyle={`${externalStyles}backdrop-filter: blur(4px);`} bind:openChatList bind:openModuleList onSaveChat={() => openSaveSlots('save')} onOpenChatLoad={() => openSaveSlots('load')} onQuickSave={quickSaveCurrentChat} onQuickLoad={quickLoadCurrentChat} {savingSlot}/>
+            {@render chatViewport(`${externalStyles}backdrop-filter: blur(4px);`)}
         </div>
     </div>
 {:else if DBState.db.theme === 'waifuMobile'}
@@ -323,7 +344,7 @@
             class:per33={$selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
             class:h-full={!($selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none')}
         >
-            <DefaultChatScreen customStyle={`${externalStyles}backdrop-filter: blur(4px);`} bind:openChatList bind:openModuleList onSaveChat={() => openSaveSlots('save')} onOpenChatLoad={() => openSaveSlots('load')} onQuickSave={quickSaveCurrentChat} onQuickLoad={quickLoadCurrentChat} {savingSlot}/>
+            {@render chatViewport(`${externalStyles}backdrop-filter: blur(4px);`)}
         </div>
         {#if $selectedCharID >= 0}
             {#if DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
@@ -343,7 +364,7 @@
                     <ResizeBox />
                 {/if}
             {/if}
-            <DefaultChatScreen customStyle={externalStyles} bind:openChatList bind:openModuleList onSaveChat={() => openSaveSlots('save')} onOpenChatLoad={() => openSaveSlots('load')} onQuickSave={quickSaveCurrentChat} onQuickLoad={quickLoadCurrentChat} {savingSlot}/>
+            {@render chatViewport(externalStyles)}
         </div>
     </div>
 {/if}

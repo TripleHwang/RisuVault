@@ -59,6 +59,9 @@ await (async function() {
             if (refId) {
                 return { __type: 'REMOTE_REF', id: refId };
             }
+            if (Array.isArray(arg)) {
+                return arg.map(serializeArg);
+            }
             if (arg.constructor === Object) {
                 let out = null;
                 for (const [key, val] of Object.entries(arg)) {
@@ -73,6 +76,12 @@ await (async function() {
                         }
 
                         out[key] = { __type: 'ABORT_SIGNAL_REF', abortId, aborted: val.aborted };
+                    } else {
+                        const serialized = serializeArg(val);
+                        if (serialized !== val) {
+                            if (!out) out = { ...arg };
+                            out[key] = serialized;
+                        }
                     }
                 }
                 if (out) return out;
@@ -433,7 +442,6 @@ await (async function() {
 
 export class SandboxHost {
     private iframe: HTMLIFrameElement;
-    private documentUrl: string | null = null;
     private apiFactory: any;
     private nonce = crypto.randomUUID();
     private csp = `connect-src 'none'; script-src 'nonce-${this.nonce}' 'wasm-unsafe-eval'; frame-src 'none'; object-src 'none'; style-src * 'unsafe-inline'; default-src 'none'; img-src * data: blob:; font-src * data: blob:; media-src * data: blob:; base-uri 'none';`;
@@ -550,7 +558,7 @@ export class SandboxHost {
 
 
     private deserializeArgs(args: any[], usedAbortIds?: string[]) {
-        return args.map(arg => {
+        const deserializeArg = (arg: any): any => {
             if (arg && arg.__type === 'CALLBACK_REF') {
                 const cbRef = arg as CallbackRef;
 
@@ -608,6 +616,9 @@ export class SandboxHost {
                     return instance;
                 }
             }
+            if (Array.isArray(arg)) {
+                return arg.map(deserializeArg);
+            }
             if (arg && typeof arg === 'object' && arg.constructor === Object) {
                 let out: any = null;
                 for (const [key, val] of Object.entries<any>(arg)) {
@@ -620,12 +631,20 @@ export class SandboxHost {
 
                         usedAbortIds?.push(abortRef.abortId);
                         out[key] = controller.signal;
+                    } else {
+                        const deserialized = deserializeArg(val);
+                        if (deserialized !== val) {
+                            if (!out) out = { ...arg };
+                            out[key] = deserialized;
+                        }
                     }
                 }
                 if (out) return out;
             }
             return arg;
-        });
+        };
+
+        return args.map(deserializeArg);
     }
 
     private replaceStreamsWithPorts(obj: any): { result: any, ports: MessagePort[], cleanups: (() => void)[] } {
@@ -765,14 +784,6 @@ export class SandboxHost {
             try { cleanup(); } catch(_) {}
         }
         this.activeStreamCleanups.clear();
-    }
-
-    private revokeDocumentUrl(expectedUrl?: string) {
-        if (!this.documentUrl) return;
-        if (expectedUrl && this.documentUrl !== expectedUrl) return;
-        const documentUrl = this.documentUrl;
-        this.documentUrl = null;
-        URL.revokeObjectURL(documentUrl);
     }
 
     public run(container: HTMLElement|HTMLIFrameElement, userCode: string) {
@@ -928,21 +939,8 @@ export class SandboxHost {
       </html>
     `;
 
-        this.revokeDocumentUrl();
-        const documentUrl = URL.createObjectURL(new Blob(
-            [html],
-            { type: 'text/html;charset=utf-8' }
-        ));
-        this.documentUrl = documentUrl;
-        const iframe = this.iframe;
-        const releaseDocumentUrl = () => {
-            iframe.removeEventListener('load', releaseDocumentUrl);
-            iframe.removeEventListener('error', releaseDocumentUrl);
-            this.revokeDocumentUrl(documentUrl);
-        };
-        iframe.addEventListener('load', releaseDocumentUrl);
-        iframe.addEventListener('error', releaseDocumentUrl);
-        iframe.src = documentUrl;
+        // Avoid blob navigation and its load/revocation timing across browsers.
+        this.iframe.srcdoc = html;
 
         return () => {
             this.terminate();
@@ -957,7 +955,6 @@ export class SandboxHost {
         if (this.iframe) {
             this.iframe.remove();
         }
-        this.revokeDocumentUrl();
         this.closeActiveStreams();
         this.instanceRegistry.clear();
         this.pendingCallbacks.clear();

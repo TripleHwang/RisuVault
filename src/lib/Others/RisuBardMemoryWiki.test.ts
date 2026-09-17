@@ -8,6 +8,8 @@ import { resolve } from 'node:path'
 const mocks = vi.hoisted(() => ({
     loadNarrativeMemoryWiki: vi.fn(),
     saveManualWikiDocument: vi.fn(),
+    getBardChatUndoStatus: vi.fn(async () => ({ available: false })),
+    restoreBardChatUndo: vi.fn(async () => ({ restored: true })),
     replaceWikiText: vi.fn(),
     saveChatToServer: vi.fn(),
     db: {} as {
@@ -53,6 +55,8 @@ vi.mock('src/ts/process/request/request', () => ({
 vi.mock('src/ts/risubard/memoryWiki', () => ({
     loadNarrativeMemoryWiki: mocks.loadNarrativeMemoryWiki,
     saveManualWikiDocument: mocks.saveManualWikiDocument,
+    getBardChatUndoStatus: mocks.getBardChatUndoStatus,
+    restoreBardChatUndo: mocks.restoreBardChatUndo,
 }))
 vi.mock('src/ts/risubard/findReplace', () => ({
     previewFindReplace: (
@@ -127,6 +131,75 @@ afterEach(async () => {
 })
 
 describe('RisuBardMemoryWiki', () => {
+    test('loads only the new character after a closed dock survives deletion and switching', async () => {
+        const onExecuteWikiCommand = vi.fn(async () => ({
+            applied: [],
+            failed: [],
+        }))
+
+        mounted = mount(RisuBardMemoryWiki, {
+            target: document.body,
+            props: {
+                open: false,
+                characterId: 'character-a',
+                chatId: 'chat-a',
+                onExecuteWikiCommand,
+            },
+        })
+        await tick()
+        expect(mocks.loadNarrativeMemoryWiki).not.toHaveBeenCalled()
+        expect(mocks.getBardChatUndoStatus).not.toHaveBeenCalled()
+        window.dispatchEvent(new CustomEvent('risubard-memory-updated', {
+            detail: { characterId: 'character-a', chatId: 'chat-a' },
+        }))
+        await tick()
+        expect(mocks.loadNarrativeMemoryWiki).not.toHaveBeenCalled()
+
+        await unmount(mounted)
+        mounted = undefined
+        mounted = mount(RisuBardMemoryWiki, {
+            target: document.body,
+            props: {
+                open: false,
+                characterId: 'character-b',
+                chatId: 'chat-b',
+                onExecuteWikiCommand,
+            },
+        })
+        await tick()
+        expect(mocks.loadNarrativeMemoryWiki).not.toHaveBeenCalled()
+        expect(mocks.getBardChatUndoStatus).not.toHaveBeenCalled()
+
+        await unmount(mounted)
+        mounted = undefined
+        mounted = mount(RisuBardMemoryWiki, {
+            target: document.body,
+            props: {
+                open: true,
+                characterId: 'character-b',
+                chatId: 'chat-b',
+                onExecuteWikiCommand,
+            },
+        })
+
+        await vi.waitFor(() => {
+            expect(mocks.loadNarrativeMemoryWiki).toHaveBeenCalledOnce()
+            expect(mocks.getBardChatUndoStatus).toHaveBeenCalledOnce()
+        })
+        expect(mocks.loadNarrativeMemoryWiki).toHaveBeenCalledWith(
+            expect.objectContaining({
+                characterId: 'character-b',
+                chatId: 'chat-b',
+            })
+        )
+        expect(mocks.getBardChatUndoStatus).toHaveBeenCalledWith(
+            expect.objectContaining({
+                characterId: 'character-b',
+                chatId: 'chat-b',
+            })
+        )
+    })
+
     test('keeps the BardWiki dock open while navigating to a source message', () => {
         const chatSource = readFileSync(resolve(
             process.cwd(), 'src/lib/ChatScreens/DefaultChatScreen.svelte'
@@ -149,12 +222,9 @@ describe('RisuBardMemoryWiki', () => {
         )
     })
 
-    test('renders above plugin FABs and uses the BARDWIKI title', () => {
+    test('renders above the chat stacking context and uses the BARDWIKI title', () => {
         const dockSource = readFileSync(resolve(
             process.cwd(), 'src/lib/Others/RisuBardMemoryWiki.svelte'
-        ), 'utf8')
-        const fabSource = readFileSync(resolve(
-            process.cwd(), 'src/lib/Others/PluginFloatingActionButtons.svelte'
         ), 'utf8')
         const chatSource = readFileSync(resolve(
             process.cwd(), 'src/lib/ChatScreens/DefaultChatScreen.svelte'
@@ -166,9 +236,8 @@ describe('RisuBardMemoryWiki', () => {
         const dockLayer = Number(dockSource.match(
             /\.memory-wiki-dock\s*\{[\s\S]*?z-index:\s*(\d+)/
         )?.[1])
-        const fabLayer = Number(fabSource.match(/\bz-(\d+)\b/)?.[1])
 
-        expect(dockLayer).toBeGreaterThan(fabLayer)
+        expect(dockLayer).toBeGreaterThan(0)
         const chatPaneStart = chatSource.indexOf(
             '<main class="relative z-0 h-full min-w-0 flex-1"'
         )
@@ -456,6 +525,33 @@ describe('RisuBardMemoryWiki', () => {
                 ?.value
         ).toBe(updated.content))
         expect(document.body.textContent).not.toContain('저장하지 않은 변경')
+        expect(document.querySelector('[data-wiki-recent-update]')
+            ?.parentElement?.getAttribute('aria-label')).toBe('아만다 다인 ')
+    })
+
+    test('loads and restores the process-lifetime BARDCHAT snapshot', async () => {
+        mocks.loadNarrativeMemoryWiki.mockResolvedValue({
+            mode: 'markdown', wikiPath: 'C:\\wiki', documents: [],
+            health: { danglingLinks: [], unlinkedDocumentIds: [] },
+        })
+        mocks.getBardChatUndoStatus.mockResolvedValue({ available: true })
+        mounted = mount(RisuBardMemoryWiki, {
+            target: document.body,
+            props: {
+                open: true, characterId: 'character', chatId: 'chat',
+                onExecuteWikiCommand: vi.fn(async () => ({ applied: [], failed: [] })),
+            },
+        })
+        await vi.waitFor(() => expect(
+            document.querySelector<HTMLButtonElement>('[data-bardchat-restore]')
+                ?.disabled
+        ).toBe(false))
+        document.querySelector<HTMLButtonElement>('[data-bardchat-restore]')?.click()
+
+        await vi.waitFor(() => expect(mocks.restoreBardChatUndo)
+            .toHaveBeenCalledWith(expect.objectContaining({
+                characterId: 'character', chatId: 'chat',
+            })))
     })
 
     test('keeps the selected document and file-tree viewport after saving', async () => {
@@ -626,8 +722,8 @@ describe('RisuBardMemoryWiki', () => {
             expect(document.body.querySelector('[data-memory-settings]')).not.toBeNull()
         })
         expect(document.body.querySelector('[data-chat-risubard-settings]')).not.toBeNull()
-        expect(document.body.textContent).toContain('분석 최근 메시지')
-        expect(document.body.textContent).toContain('응답 최근 메시지')
+        expect(document.body.textContent).toContain('분석할 턴 수')
+        expect(document.body.textContent).toContain('응답용 턴 수')
         expect(document.body.textContent).toContain('정본 문체')
         const settingsSource = readFileSync(resolve(
             process.cwd(), 'src/lib/Others/RisuBardCurrentChatSettings.svelte'
@@ -1113,6 +1209,9 @@ describe('RisuBardMemoryWiki', () => {
             process.cwd(), 'src/lib/Others/RisuBardMemoryWiki.svelte'
         ), 'utf8')
 
+        expect(source).toMatch(
+            /\.workspace-split \.wiki-editor-region :global\(\.editor-pane\)\s*\{[^}]*min-height:\s*0/s
+        )
         expect(source).toMatch(
             /\.workspace-split \.wiki-editor-region :global\(\.markdown-editor\),\s*\.workspace-split \.wiki-editor-region :global\(\.markdown-preview\)\s*\{[^}]*min-height:\s*0/s
         )

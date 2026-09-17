@@ -45,7 +45,7 @@ Get the file for your OS from the [Releases page](https://github.com/TripleHwang
 
 **Windows**
 
-Extract the zip and double-click `RisuVault.exe`. A browser opens automatically at `http://localhost:6001`.
+Extract the zip and double-click `RisuVault.exe`. A browser opens automatically at `http://localhost:7777`.
 
 **macOS**
 
@@ -65,7 +65,7 @@ cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
-Open `http://localhost:6001` in your browser.
+Open `http://localhost:7777` in your browser.
 
 ### Headless Server (One-line Download)
 
@@ -125,7 +125,7 @@ curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-comp
 docker compose up -d
 ```
 
-Open `http://localhost:6001` in your browser.
+Open `http://localhost:7777` in your browser.
 
 ### Update
 
@@ -170,7 +170,7 @@ cd ~/risubard
 pnpm runserver
 ```
 
-Open `http://localhost:6001` in your browser.
+Open `http://localhost:7777` in your browser.
 
 ### Update
 
@@ -203,7 +203,7 @@ pnpm build
 pnpm runserver
 ```
 
-Open `http://localhost:6001` in your browser.
+Open `http://localhost:7777` in your browser.
 
 ### Update
 

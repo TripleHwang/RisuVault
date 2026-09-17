@@ -139,11 +139,68 @@ describe('CharacterVaultDialog', () => {
             'src/lib/SideBars/CharacterVaultDialog.svelte', 'utf8'
         )
 
+        expect(source).toMatch(/\.character-grid\s*\{[^}]*grid-auto-rows:\s*max-content/s)
         expect(source).toMatch(/\.character-card\s*\{[^}]*aspect-ratio:\s*1/s)
+        expect(source).toMatch(/\.character-card\s*\{[^}]*width:\s*100%/s)
         expect(source).toMatch(/\.portrait\s*\{[^}]*inset:\s*0/s)
         expect(source).toMatch(/\.character-caption\s*\{[^}]*position:\s*absolute[^}]*inset:\s*0[^}]*place-items:\s*center[^}]*opacity:\s*0/s)
         expect(source).toMatch(/\.character-card:hover \.character-caption[^}]*\{[^}]*opacity:\s*1/s)
         expect(source).toMatch(/\.character-caption strong\s*\{[^}]*font-size:\s*clamp\(/s)
+    })
+
+    test('uses the shared resizable manager pattern and keeps the selection dock in flow', () => {
+        const source = readFileSync(
+            'src/lib/SideBars/CharacterVaultDialog.svelte', 'utf8'
+        )
+
+        expect(source).toContain('ManagerResizeHandles')
+        expect(source).toContain('bind:contentElement')
+        expect(source).toContain('<ManagerResizeHandles target={contentElement} centered />')
+        expect(source).toMatch(/:global\(\.character-vault-dialog\)\s*\{[^}]*--manager-width/s)
+        expect(source).toContain('container-name: character-vault')
+        expect(source).toContain('@container character-vault (max-width: 50rem)')
+        expect(source).toMatch(/\.bulk-dock\s*\{(?![^}]*position:\s*absolute)[^}]*flex-wrap:\s*wrap/s)
+        expect(source).toContain('class="bulk-actions"')
+    })
+
+    test('opens and closes the folder sidebar from the mobile toolbar', async () => {
+        await render()
+        const toggle = document.body.querySelector<HTMLButtonElement>(
+            '[aria-label="캐릭터 폴더 열기"]'
+        )!
+        const close = document.body.querySelector<HTMLButtonElement>(
+            '.folder-sidebar-close'
+        )!
+
+        expect(toggle).not.toBeNull()
+        expect(close).not.toBeNull()
+        toggle.style.display = 'grid'
+        close.style.display = 'grid'
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+        toggle.click()
+        await tick()
+        expect(toggle.getAttribute('aria-expanded')).toBe('true')
+        expect(document.body.querySelector('.vault-rail')?.classList.contains('open')).toBe(true)
+
+        close.click()
+        await tick()
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+        toggle.click()
+        await tick()
+
+        click('Cast 폴더 열기')
+        await tick()
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+        expect(document.body.querySelector('.vault-rail')?.classList.contains('open')).toBe(false)
+
+        const source = readFileSync(
+            'src/lib/SideBars/CharacterVaultDialog.svelte', 'utf8'
+        )
+        expect(source).toMatch(/@container character-vault[^]*?\.vault-rail\s*\{[^}]*visibility:\s*hidden[^}]*pointer-events:\s*none/s)
+        expect(source).toMatch(/@container character-vault[^]*?\.vault-rail\.open\s*\{[^}]*visibility:\s*visible/s)
+        expect(source).toContain('if (open) folderSidebarClose?.focus()')
+        expect(source).toContain('else folderSidebarToggle?.focus()')
     })
 
     test('filters the full vault by character name', async () => {

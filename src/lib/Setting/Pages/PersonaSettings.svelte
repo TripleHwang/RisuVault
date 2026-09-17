@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy, onMount, tick } from 'svelte'
+    import { onDestroy, onMount, tick, untrack } from 'svelte'
     import Sortable from 'sortablejs/modular/sortable.core.esm.js'
     import { v4 } from 'uuid'
     import { Maximize2Icon, PlusIcon, SparklesIcon } from '@lucide/svelte'
@@ -44,12 +44,22 @@
     const MIN_DESCRIPTION_HEIGHT = 160
     const MAX_DESCRIPTION_HEIGHT = 720
 
-    let { embedded = false, onSelect }: {
+    let { embedded = false, initialSelection = null, onSelect }: {
         embedded?: boolean
+        initialSelection?: PersonaSelection | null
         onSelect?: (selection: PersonaSelection) => void
     } = $props()
-    let activeScope = $state<PersonaManagerScope>('global')
-    let characterSelectedIndex = $state(0)
+    let activeScope = $state<PersonaManagerScope>(
+        untrack(() => initialSelection?.scope ?? 'global'),
+    )
+    let globalSelectedIndex = $state(untrack(() =>
+        initialSelection?.scope === 'global' && onSelect
+            ? initialSelection.index
+            : DBState.db.selectedPersona,
+    ))
+    let characterSelectedIndex = $state(untrack(() =>
+        initialSelection?.scope === 'character' ? initialSelection.index : 0,
+    ))
     let editingPersona = $state<RisuPersona | null>(null)
     let gridElement = $state<HTMLDivElement>()
     let sortable: Sortable | null = null
@@ -104,7 +114,8 @@
     }
 
     function selectedIndex(): number {
-        return activeScope === 'global' ? DBState.db.selectedPersona : characterSelectedIndex
+        if (activeScope === 'character') return characterSelectedIndex
+        return onSelect ? globalSelectedIndex : DBState.db.selectedPersona
     }
 
     function syncGlobalLegacyFields(): void {
@@ -131,7 +142,8 @@
         }
         const safeIndex = Math.min(Math.max(index, 0), store.length - 1)
         if (activeScope === 'global') {
-            changeUserPersona(safeIndex, saveCurrent ? 'save' : 'noSave')
+            if (onSelect) globalSelectedIndex = safeIndex
+            else changeUserPersona(safeIndex, saveCurrent ? 'save' : 'noSave')
         } else {
             characterSelectedIndex = safeIndex
             if (bindToChat) bindCharacterPersona(store[safeIndex])
@@ -141,10 +153,8 @@
     }
 
     function choosePersona(index: number): void {
-        if (!onSelect) {
-            selectPersona(index)
-            return
-        }
+        selectPersona(index, !onSelect)
+        if (!onSelect) return
         const persona = activeStore()[index]
         if (!persona) return
         persona.id ??= v4()
@@ -412,7 +422,11 @@
         const storedHeight = Number(localStorage.getItem(PERSONA_DESCRIPTION_HEIGHT_KEY))
         if (storedGridHeight) personaGridHeight = normalizePersonaGridHeight(storedGridHeight)
         if (storedHeight) descriptionHeight = normalizeDescriptionHeight(storedHeight)
-        selectPersona(DBState.db.selectedPersona, false, false)
+        selectPersona(
+            activeScope === 'global' ? globalSelectedIndex : characterSelectedIndex,
+            false,
+            false,
+        )
         initializeSortable()
     })
     onDestroy(() => {

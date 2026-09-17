@@ -7,6 +7,7 @@ const chatUnpacker = new Unpackr({
     int64AsType: 'number',
     useRecords: false,
 })
+const MEMORY_SAVE_REQUEST_TIMEOUT_MS = 10 * 60_000
 
 export interface MemorySaveEventPreview {
     title: string
@@ -150,9 +151,11 @@ export function decodeMemorySaveChat(bytes: Uint8Array): unknown {
 }
 
 function applyMemorySavePromptSettings(chat: Chat, currentChat?: Chat): void {
-    // Save slots rewind story state, not the current prompt preferences.
+    // Save slots rewind story state, not the current sidebar preferences.
     for (const key of [
-        'bindedBotPreset', 'usePromptPresetParams', 'useLocallySetGlobalVariables',
+        'bindedPersona', 'bindedBotPreset', 'usePromptPresetParams',
+        'useModelPreset', 'modelBinding', 'useLocallySetGlobalVariables',
+        'togglePresetBaseline',
     ] as const) {
         delete chat[key]
         if (currentChat?.[key] !== undefined) {
@@ -180,6 +183,31 @@ function requestBody(bytes: Uint8Array): ArrayBuffer {
     return Uint8Array.from(bytes).buffer
 }
 
+async function withMemorySaveTimeout<T>(
+    operation: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+        controller.abort(new DOMException(
+            'Memory save request timed out',
+            'TimeoutError'
+        ))
+    }, MEMORY_SAVE_REQUEST_TIMEOUT_MS)
+    const running = operation(controller.signal)
+    try {
+        return await new Promise<T>((resolve, reject) => {
+            const onAbort = () => reject(controller.signal.reason)
+            controller.signal.addEventListener('abort', onAbort, { once: true })
+            void running.then(resolve, reject).finally(() => {
+                controller.signal.removeEventListener('abort', onAbort)
+            })
+        })
+    }
+    finally {
+        clearTimeout(timeout)
+    }
+}
+
 export async function createMemorySaveSlot(input: {
     characterId: string
     chat: Chat
@@ -202,29 +230,34 @@ export async function createMemorySaveSlot(input: {
     snapshot.isStreaming = false
     delete snapshot.activeStreamingDisplayOptimizationMode
     const latestMessageId = latestChatMessageId(snapshot.message)
-    const response = await invokeBrowserFetch(
-        input.fetchImpl,
-        '/api/risubard/memory/save-slot',
-        {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'content-type': 'application/octet-stream',
-                'risu-auth': await input.createAuth(),
-                'x-risubard-character-id': characterId,
-                'x-risubard-source-chat-id': sourceChatId,
-                'x-risubard-save-id': saveId,
-                ...(input.overwrite ? { 'x-risubard-save-overwrite': 'true' } : {}),
-                'x-risubard-chat-name': encodeBase64Url(snapshot.name),
-                'x-risubard-turn-count': String(
-                    countChatTurns(snapshot.message)
-                ),
-                ...(latestMessageId ? {
-                    'x-risubard-latest-message-id': latestMessageId,
-                } : {}),
-            },
-            body: requestBody(encodeMemorySaveChat(snapshot)),
-        }
+    const response = await withMemorySaveTimeout(async (signal) =>
+        invokeBrowserFetch(
+            input.fetchImpl,
+            '/api/risubard/memory/save-slot',
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'content-type': 'application/octet-stream',
+                    'risu-auth': await input.createAuth(),
+                    'x-risubard-character-id': characterId,
+                    'x-risubard-source-chat-id': sourceChatId,
+                    'x-risubard-save-id': saveId,
+                    ...(input.overwrite
+                        ? { 'x-risubard-save-overwrite': 'true' }
+                        : {}),
+                    'x-risubard-chat-name': encodeBase64Url(snapshot.name),
+                    'x-risubard-turn-count': String(
+                        countChatTurns(snapshot.message)
+                    ),
+                    ...(latestMessageId ? {
+                        'x-risubard-latest-message-id': latestMessageId,
+                    } : {}),
+                },
+                body: requestBody(encodeMemorySaveChat(snapshot)),
+                signal,
+            }
+        )
     )
     if (!response.ok) {
         throw new Error(

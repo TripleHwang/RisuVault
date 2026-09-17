@@ -1,7 +1,7 @@
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait, notifySuccess } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
-import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
+import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, requestImmediateSave, saveAsset, VirtualWriter } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleNativeFile, sleep } from "../util"
 import { v4 } from "uuid"
 import { convertExternalLorebook } from "./lorebook.svelte"
@@ -120,9 +120,9 @@ async function exportModuleLegacyInner(module:RisuModule, arg:{
             type: 'wait',
             msg: `Loading... (Adding Assets ${i} / ${assets.length})`
         })
-        let rData = await readImage(asset[1])
-        if(!rData){
-            rData = new Uint8Array(0) //blank buffer
+        const rData = await readImage(asset[1])
+        if (!rData?.length) {
+            throw new Error(`Missing module asset: ${asset[0]}`)
         }
         let encoded = await encodeRPack(Buffer.from(await compressImage(rData)))
         writeLength(encoded.length)
@@ -145,16 +145,19 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
     let pos = 0
 
     const readLength = () => {
+        if (pos + 4 > buf.length) throw new Error('Truncated module length')
         const len = buf.readUInt32LE(pos)
         pos += 4
         return len
     }
     const readByte = () => {
+        if (pos >= buf.length) throw new Error('Truncated module payload')
         const byte = buf.readUInt8(pos)
         pos += 1
         return byte
     }
     const readData = (len:number) => {
+        if (!Number.isSafeInteger(len) || len < 0 || pos + len > buf.length) throw new Error('Truncated module payload')
         const data = buf.subarray(pos, pos + len)
         pos += len
         return data
@@ -188,7 +191,8 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
 
     // Keep decoded results bounded to the worker-pool size so mobile browsers do
     // not retain dozens of expanded assets while waiting for one large batch.
-    const maxAssetBatchSize = 8
+    const maxAssetDecodeBatchSize = 8
+    const maxAssetPersistBatchSize = 200
     const maxAssetBatchBytes = 32 * 1024 * 1024
     const retryDelayMs = 5000
     const maxRetries = 3
@@ -223,7 +227,7 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
                 } catch {
                     failed.push(task)
                 } finally {
-                    alertWait(`Loading... (Adding Assets ${completed} / ${totalAssets})`)
+                    alertWait(language.fileDropImport.moduleAssets(completed, totalAssets))
                 }
                 return
             }
@@ -252,12 +256,22 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
             } catch {
                 failed.push(...batch.map(({ task }) => task))
             } finally {
-                alertWait(`Loading... (Adding Assets ${completed} / ${totalAssets})`)
+                alertWait(language.fileDropImport.moduleAssets(completed, totalAssets))
             }
         }
 
-        for (let offset = 0; offset < tasks.length; offset += maxAssetBatchSize) {
-            const decodeGroup = tasks.slice(offset, offset + maxAssetBatchSize)
+        let persistQueue: DecodedAssetTask[] = []
+        let persistQueueBytes = 0
+        const flushPersistQueue = async () => {
+            if (persistQueue.length === 0) return
+            const batch = persistQueue
+            persistQueue = []
+            persistQueueBytes = 0
+            await persistBatch(batch)
+        }
+
+        for (let offset = 0; offset < tasks.length; offset += maxAssetDecodeBatchSize) {
+            const decodeGroup = tasks.slice(offset, offset + maxAssetDecodeBatchSize)
             let decoded: DecodedAssetTask[]
             try {
                 const decodedData = await decodeRPackBatch(decodeGroup.map(task => task.data))
@@ -275,21 +289,20 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
                 continue
             }
 
-            let batch: DecodedAssetTask[] = []
-            let batchBytes = 0
             for (const decodedTask of decoded) {
-                if (batch.length > 0 && batchBytes + decodedTask.data.length > maxAssetBatchBytes) {
-                    await persistBatch(batch)
-                    batch = []
-                    batchBytes = 0
+                if (persistQueue.length > 0 && (
+                    persistQueue.length >= maxAssetPersistBatchSize
+                    || persistQueueBytes + decodedTask.data.length > maxAssetBatchBytes
+                )) {
+                    await flushPersistQueue()
                 }
-                batch.push(decodedTask)
-                batchBytes += decodedTask.data.length
-            }
-            if (batch.length > 0) {
-                await persistBatch(batch)
+                persistQueue.push(decodedTask)
+                persistQueueBytes += decodedTask.data.length
+                if (persistQueue.length >= maxAssetPersistBatchSize
+                    || persistQueueBytes >= maxAssetBatchBytes) await flushPersistQueue()
             }
         }
+        await flushPersistQueue()
         return failed
     }
 
@@ -313,6 +326,7 @@ async function readModuleScoped(buf:Buffer):Promise<RisuModule> {
         i++
     }
 
+    if (tasks.length !== totalAssets) throw new Error('Module asset count does not match metadata')
     try {
         let failed = await runAssetTasks(tasks)
         let retryCount = 0
@@ -398,11 +412,12 @@ export async function importModule(){
             }
             const module = convertCharacterToModule(char)
             db.modules.push(module)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
+            notifySuccess(language.successImport)
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
         }
-        notifySuccess(language.successImport)
         return
     }
     if(extension === 'risum'){
@@ -410,6 +425,7 @@ export async function importModule(){
             const buf = Buffer.from(fileData)
             const module = await readModule(buf)
             db.modules.push(module)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
         } catch (error) {
             console.error(error)
@@ -436,6 +452,7 @@ export async function importModule(){
                 }
             }
             db.modules.push(importData)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -450,6 +467,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -462,6 +480,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }
@@ -474,6 +493,7 @@ export async function importModule(){
                 id: v4()
             }
             db.modules.push(importModule)
+            await requestImmediateSave({ flushServer: true, rejectOnFailure: true })
             notifySuccess(language.successImport)
             return
         }

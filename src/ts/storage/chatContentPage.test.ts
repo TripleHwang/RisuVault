@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assembleChatContentPages, type ChatContentPageEnvelope } from './chatContentPage'
+import { assembleChatContentPages, getRemainingChatContentPageOffsets, type ChatContentPageEnvelope } from './chatContentPage'
 
 const page = (
     offset: number,
@@ -35,5 +35,17 @@ describe('assembleChatContentPages', () => {
             page(0, [{ data: 'a' }, { data: 'b' }]),
             page(2, [{ data: 'c' }, { data: 'd' }], 5),
         ])).toThrow(/total/i)
+    })
+})
+
+describe('getRemainingChatContentPageOffsets', () => {
+    it('returns deterministic offsets after the first page', () => {
+        expect(getRemainingChatContentPageOffsets(750, 200, 200)).toEqual([200, 400, 600])
+        expect(getRemainingChatContentPageOffsets(200, 200, 200)).toEqual([])
+        expect(getRemainingChatContentPageOffsets(0, 0, 200)).toEqual([])
+    })
+
+    it('rejects an invalid page size', () => {
+        expect(() => getRemainingChatContentPageOffsets(1, 0, 0)).toThrow(/page size/i)
     })
 })

@@ -373,7 +373,7 @@
         { label: language.usageTab, value: 4 },
         { label: language.pluginStorageTab, value: 5 },
         { label: language.systemUpdateTab, value: 6 },
-    ]} bind:selected={$SystemSubmenuIndex} />
+    ]} bind:selected={$SystemSubmenuIndex} variant="prominent" />
 
     {#if $SystemSubmenuIndex === 0}
     <SystemDashboard />

@@ -38,12 +38,15 @@ export function bindPluginRequestStatusStorage(
     } : bound
 }
 
-export function resolvePluginRequestStatus(options: PluginV2ProviderOptions | undefined): boolean {
+export async function resolvePluginRequestStatus(
+    options: PluginV2ProviderOptions | undefined,
+): Promise<boolean> {
     try {
         const override = options?.overrideRequestStatus
-        if (typeof override === 'function'
-            ? override() === true
-            : override === true) return false
+        const resolved = typeof override === 'function'
+            ? await override()
+            : override
+        if (resolved === true) return false
     } catch {
         return true
     }
@@ -51,7 +54,7 @@ export function resolvePluginRequestStatus(options: PluginV2ProviderOptions | un
     try {
         const preference = options?.hostRequestStatus
         return typeof preference === 'function'
-            ? preference() === true
+            ? await preference() === true
             : preference !== false
     } catch {
         return false

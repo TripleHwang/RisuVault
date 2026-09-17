@@ -148,6 +148,81 @@ describe('Markdown narrative wiki', () => {
         })).resolves.toEqual({ removed: false })
     })
 
+    test('recovers an unfinished legacy first-message checkpoint', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        await wiki.beginRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['first-message:chat:-1', 'u1', 'a1'],
+            eventSourceGroups: [['u1', 'a1']],
+        })
+
+        await expect(wiki.recoverRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['u1', 'a1'],
+            eventSourceGroups: [['u1', 'a1']],
+        })).resolves.toBeNull()
+    })
+
+    test('completes a recorded legacy first-message checkpoint', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const receipt = {
+            sourceMessageIds: ['first-message:chat:-1', 'u1', 'a1'],
+            eventIds: [], changes: [], warnings: [],
+            recordedAt: '2026-09-03T00:00:00.000Z',
+        }
+        await wiki.beginRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: receipt.sourceMessageIds,
+            eventSourceGroups: [['u1', 'a1']],
+        })
+        await wiki.recordRebootBatchReceipt({
+            characterId: 'character', chatId: 'chat', receipt,
+        })
+
+        await expect(wiki.recoverRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['u1', 'a1'],
+            eventSourceGroups: [['u1', 'a1']],
+        })).resolves.toEqual(receipt)
+        await expect(wiki.completeRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['u1', 'a1'],
+        })).resolves.toEqual({ removed: true })
+    })
+
+    test('cleans a completed checkpoint after the client advances batches', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const receipt = {
+            sourceMessageIds: ['first-message:chat:-1', 'u1', 'a1'],
+            eventIds: [], changes: [], warnings: [],
+            recordedAt: '2026-09-03T00:00:00.000Z',
+        }
+        await wiki.beginRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: receipt.sourceMessageIds,
+            eventSourceGroups: [['u1', 'a1']],
+        })
+        await wiki.recordRebootBatchReceipt({
+            characterId: 'character', chatId: 'chat', receipt,
+        })
+
+        await expect(wiki.recoverRebootBatch({
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['u2', 'a2'],
+            eventSourceGroups: [['u2', 'a2']],
+        })).resolves.toBeNull()
+        const workspace = resolveMarkdownWikiWorkspace(root, 'character', 'chat')
+        await expect(fs.access(join(
+            workspace.recoveryDirectory, 'reboot-batch'
+        ))).rejects.toMatchObject({ code: 'ENOENT' })
+    })
+
     test('cleans an unpublished reboot checkpoint before retrying begin', async () => {
         const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
         temporaryDirectories.push(root)
@@ -347,6 +422,29 @@ describe('Markdown narrative wiki', () => {
         expect(contents).toContain('created: "2026-08-08T06:07:08.000Z"')
     })
 
+    test('stores creature canon in the creature folder', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+
+        const created = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat',
+            type: 'creature' as any,
+            title: '기어다니는 좀비',
+            markdown: '## 기어다니는 좀비\n\n좀비의 지속 변종이다.',
+        })
+
+        expect(created).toEqual(expect.objectContaining({
+            type: 'creature',
+            relativePath: expect.stringMatching(/^creatures\//),
+            contextMode: 'auto',
+        }))
+        expect((await wiki.loadView('character', 'chat')).documents)
+            .toEqual(expect.arrayContaining([
+                expect.objectContaining({ id: created.id, type: 'creature' }),
+            ]))
+    })
+
     test('nests wiki document headings below the injected prompt-block heading', async () => {
         const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
         temporaryDirectories.push(root)
@@ -471,6 +569,41 @@ describe('Markdown narrative wiki', () => {
         expect(created.content.match(/\[\[첫 만남\]\]/g)).toHaveLength(1)
         expect(created.content).not.toContain('### 관련 문서')
         expect(created.links).toEqual(['첫 만남'])
+    })
+
+    test('merges related documents and labels the index in the Japanese locale', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const scope = {
+            characterId: 'character', chatId: 'chat',
+            sourceMessageIds: ['turn-ja'], writingLanguage: 'ja' as const,
+        }
+        await wiki.saveManualDocument({
+            ...scope, type: 'character', title: 'アリス',
+            markdown: '## アリス\n\n旅行者。',
+        })
+
+        const canon = await wiki.saveCanonicalDocument({
+            ...scope, type: 'location', title: '駅',
+            markdown: '## 駅\n\nアリスが到着した。',
+        })
+
+        expect(canon.content).toContain('### 関連文書')
+        expect(canon.content).toContain('- [[アリス]]')
+        expect(canon.content).not.toMatch(/[가-힣]/)
+
+        const updated = await wiki.saveCanonicalDocument({
+            ...scope, documentId: canon.id, type: 'location', title: '駅',
+            markdown: '## 駅\n\n### 関連文書\n\n- [[アリス]]\n\nアリスが再び到着した。',
+        })
+
+        expect(updated.content.match(/^### 関連文書$/gm)).toHaveLength(1)
+        expect(updated.content).toContain('- [[アリス]]')
+        expect(await fs.readFile(
+            resolveMarkdownWikiWorkspace(root, 'character', 'chat').indexFile,
+            'utf8'
+        )).toContain('## 物語ウィキ')
     })
 
     test('resolves only an existing document ID to its absolute wiki file', async () => {
@@ -1119,6 +1252,36 @@ describe('Markdown narrative wiki', () => {
         ]))
     })
 
+    test('reports exact normalized duplicate passages without changing documents', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const shared = '교회 지하 통로의 석벽에는 하얀 손 문양이 일정한 간격으로 반복되어 있었고, 문양 아래에는 아직 해독되지 않은 고대 문자가 길게 새겨져 있었다.'
+        const first = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'location',
+            title: '아르세존 교회',
+            markdown: `## 아르세존 교회\n\n${shared}\n\n${shared}`,
+        })
+        const second = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'other',
+            title: '사교도의 흔적',
+            markdown: `## 사교도의 흔적\n\n${shared.replace('일정한 간격으로', '일정한\n간격으로')}`,
+        })
+        await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'concept',
+            title: '문양 색인',
+            markdown: '## 문양 색인\n\n- [[아르세존 교회]] [[사교도의 흔적]] [[하얀 손 문양]] [[고대 문자]] [[지하 통로]]',
+        })
+
+        const view = await wiki.loadView('character', 'chat')
+
+        expect(view.health.duplicatePassages).toEqual([{
+            documentIds: [first.id, second.id].sort(),
+        }])
+        expect(view.documents.find((document) => document.id === first.id)?.content)
+            .toContain(shared)
+    })
+
     test('honors always and never context modes in bounded inquiry', async () => {
         const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
         temporaryDirectories.push(root)
@@ -1282,5 +1445,77 @@ describe('Markdown narrative wiki', () => {
         })
         expect((await wiki.loadView('character', 'chat')).documents
             .some((document) => document.id === created.id)).toBe(false)
+    })
+
+    test('restores the one BARDCHAT snapshot after updates, creates, and trash', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const original = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'character',
+            title: '라비안', markdown: '# 라비안\n\n처음 상태.',
+        })
+        const discarded = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'concept',
+            title: '보존 문서', markdown: '# 보존 문서\n\n지워지기 전.',
+        })
+        await wiki.beginBardChatUndo({ characterId: 'character', chatId: 'chat' })
+        const updated = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', documentId: original.id,
+            type: 'character', title: '라비안', markdown: '# 라비안\n\n변경 상태.',
+            expectedContentHash: original.contentHash,
+        })
+        await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'concept',
+            title: '추가 문서', markdown: '# 추가 문서\n\n새 내용.',
+        })
+        await wiki.trashDocument({
+            characterId: 'character', chatId: 'chat', documentId: discarded.id,
+        })
+        await wiki.finalizeBardChatUndo({ characterId: 'character', chatId: 'chat' })
+
+        await expect(wiki.getBardChatUndoStatus({
+            characterId: 'character', chatId: 'chat',
+        })).resolves.toEqual({ available: true })
+        await expect(wiki.restoreBardChatUndo({
+            characterId: 'character', chatId: 'chat',
+        })).resolves.toEqual({ restored: true })
+        const restored = await wiki.loadView('character', 'chat')
+        expect(restored.documents).toHaveLength(2)
+        expect(restored.documents.find((document) => document.id === original.id)).toMatchObject({
+            id: original.id, content: '## 라비안\n\n처음 상태.',
+        })
+        expect(restored.documents.find((document) => document.id === discarded.id))
+            .toMatchObject({ content: '## 보존 문서\n\n지워지기 전.' })
+        expect(updated.contentHash).not.toBe(original.contentHash)
+        await expect(wiki.getBardChatUndoStatus({
+            characterId: 'character', chatId: 'chat',
+        })).resolves.toEqual({ available: false })
+    })
+
+    test('refuses BARDCHAT restore after a later manual edit', async () => {
+        const root = await fs.mkdtemp(join(tmpdir(), 'risubard-md-wiki-'))
+        temporaryDirectories.push(root)
+        const wiki = createMarkdownNarrativeWiki(root)
+        const original = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', type: 'character',
+            title: '라비안', markdown: '# 라비안\n\n처음 상태.',
+        })
+        await wiki.beginBardChatUndo({ characterId: 'character', chatId: 'chat' })
+        const commandEdit = await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', documentId: original.id,
+            type: 'character', title: '라비안', markdown: '# 라비안\n\n명령 변경.',
+            expectedContentHash: original.contentHash,
+        })
+        await wiki.finalizeBardChatUndo({ characterId: 'character', chatId: 'chat' })
+        await wiki.saveManualDocument({
+            characterId: 'character', chatId: 'chat', documentId: original.id,
+            type: 'character', title: '라비안', markdown: '# 라비안\n\n후속 수동 변경.',
+            expectedContentHash: commandEdit.contentHash,
+        })
+
+        await expect(wiki.restoreBardChatUndo({
+            characterId: 'character', chatId: 'chat',
+        })).rejects.toThrow('changed after the BARDCHAT command')
     })
 })

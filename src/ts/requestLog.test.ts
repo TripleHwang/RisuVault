@@ -178,6 +178,47 @@ describe('createRequestLogScope', () => {
         expect(entry.status).toBe(429)
     })
 
+    it('records request metadata when an SDK calls fetch with a Request object', async () => {
+        const scope = createRequestLogScope({ category: 'llm', source: 'main' })
+        const wrapped = scope.wrap(async () => jsonResponse('{}'))
+        const request = new Request('https://api.example.com/v1/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-sdk': 'true' },
+            body: '{"messages":[{"role":"user","content":"hello"}]}',
+        })
+
+        await (await wrapped(request)).text()
+        await scope.close()
+
+        const [entry] = posted[0]
+        expect(entry.url).toBe('https://api.example.com/v1/chat')
+        expect(entry.method).toBe('POST')
+        expect(JSON.parse(entry.requestHeaders)).toMatchObject({
+            'content-type': 'application/json',
+            'x-sdk': 'true',
+        })
+        expect(entry.requestBody).toBe('{"messages":[{"role":"user","content":"hello"}]}')
+        expect(request.bodyUsed).toBe(false)
+    })
+
+    it('records a safe provider error summary for failed JSON responses', async () => {
+        const scope = createRequestLogScope({ category: 'llm', source: 'memory' })
+        const wrapped = scope.wrap(async () => jsonResponse(JSON.stringify({
+            error: {
+                code: 400,
+                status: 'INVALID_ARGUMENT',
+                message: 'Request contains an invalid argument.',
+            },
+        }), 400))
+        await (await wrapped('https://x.test/v1', { method: 'POST', body: '{}' })).text()
+        await scope.close()
+
+        const [entry] = posted[0]
+        expect(entry.errorMessage).toBe(
+            'INVALID_ARGUMENT: Request contains an invalid argument.'
+        )
+    })
+
     it('records a thrown transport error and rethrows it', async () => {
         const scope = createRequestLogScope({ category: 'llm', source: 'main' })
         const wrapped = scope.wrap(async () => { throw new TypeError('network down') })

@@ -144,6 +144,7 @@
             { label: language.settings, value: 1 },
         ]}
         bind:selected={subMenu}
+        variant="prominent"
     />
 {/if}
 {#if warns.length > 0 && subMenu === 0}

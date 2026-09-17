@@ -46,6 +46,7 @@
             { label: copy.tabs.experimental, value: 3 },
         ]}
         bind:selected={$AdvancedSubmenuIndex}
+        variant="prominent"
     />
 
     <div class="advanced-sections">

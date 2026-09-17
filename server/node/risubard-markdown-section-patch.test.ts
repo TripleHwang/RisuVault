@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { applyCanonicalSectionPatches } from './risubard-markdown-section-patch'
+import {
+    applyCanonicalSectionPatches,
+    parseCanonicalSectionPatchMarkdown,
+} from './risubard-markdown-section-patch'
 
 describe('canonical Markdown section patches', () => {
     test('replaces one H3 section while preserving untouched sections', () => {
@@ -140,6 +143,31 @@ describe('canonical Markdown section patches', () => {
             '',
             '- [[도착]]',
         ].join('\n'))
+    })
+
+    test('parses safe direct H3 sections from a Markdown model fallback', () => {
+        expect(parseCanonicalSectionPatchMarkdown([
+            '### 정체성 및 역할', '', '- 왕실 기록관이다.', '',
+            '### 큰 전환점', '', '- [[왕궁 화재]]에서 기록을 구했다.',
+        ].join('\n'))).toEqual([
+            { heading: '정체성 및 역할', operation: 'upsert', content: '- 왕실 기록관이다.' },
+            { heading: '큰 전환점', operation: 'upsert', content: '- [[왕궁 화재]]에서 기록을 구했다.' },
+        ])
+    })
+
+    test.each([4_000, 4_001])('allows fallback sections with %i characters', (length) => {
+        const content = 'A'.repeat(length)
+        expect(parseCanonicalSectionPatchMarkdown(
+            `### History\n\n${content}`
+        )[0].content).toBe(content)
+    })
+
+    test.each([
+        '설명문\n\n### 정체성\n\n- 기록관',
+        '## 문서 제목\n\n### 정체성\n\n- 기록관',
+        '### 정체성\n\n- 기록관\n\n### 정체성\n\n- 중복',
+    ])('rejects unsafe Markdown fallback output', (markdown) => {
+        expect(() => parseCanonicalSectionPatchMarkdown(markdown)).toThrow()
     })
 
     test('rejects unknown deletes and title-level content', () => {

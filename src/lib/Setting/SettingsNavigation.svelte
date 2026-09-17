@@ -56,8 +56,10 @@
 
     const icons = {
         'ai-settings': SparklesIcon,
+        'chat-prompt-presets': ScrollTextIcon,
         'risubard-common': SettingsIcon,
         'risubard-wiki-prompt': ScrollTextIcon,
+        'risubard-grimoire-prompt': ScrollTextIcon,
         prompt: SparklesIcon,
         'global-lorebook': ScrollTextIcon,
         'global-regex': BracesIcon,
@@ -72,6 +74,7 @@
         advanced: ActivityIcon,
         system: SettingsIcon,
         developer: FlaskConicalIcon,
+        'dev-panel': FlaskConicalIcon,
     }
 
     function sectionLabel(id: SettingsSectionId): string {
@@ -81,8 +84,10 @@
     function itemLabel(item: SettingsNavigationItem): string {
         const labels: Record<string, string> = {
             'ai-settings': language.settingsWorkspace.sections.ai,
+            'chat-prompt-presets': language.settingsWorkspace.aiWorkspace.sections['chat-prompt-presets'].title,
             'risubard-common': language.risuBardSettings.common.title,
             'risubard-wiki-prompt': language.risuBardWikiPrompt.title,
+            'risubard-grimoire-prompt': language.risuBardGrimoirePrompt.title,
             prompt: language.promptTemplate,
             'global-lorebook': language.loreBook,
             'global-regex': language.regexScript,
@@ -96,7 +101,8 @@
             'remote-access': language.remoteAccess,
             advanced: language.advancedSettings,
             system: language.system,
-            developer: 'Dev Panel',
+            developer: language.storageDiagnosticsTitle,
+            'dev-panel': 'Dev Panel',
         }
         return labels[item.id] ?? item.id
     }

@@ -5,7 +5,10 @@ import type {
     ContextSource,
 } from '../../../packages/risubard-core/src/contextCompiler'
 import { invokeBrowserFetch } from './browserFetch'
-import { normalizeRisuBardInquiryTokenBudget } from './risuBardSettings'
+import {
+    normalizeRisuBardInquiryTokenBudget,
+    RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT,
+} from './risuBardSettings'
 import type { HistoricalSourceMatch } from './historicalSourceRecall'
 
 export const NARRATIVE_CONTEXT_OPT_IN_KEY =
@@ -39,6 +42,8 @@ export interface NarrativeInquiryResponse {
     indexRevision: number
     cacheStatus: 'current' | 'missing-or-stale'
     sources: ContextSource[]
+    evidenceRequests: Array<{ messageId: string, eventTitle: string }>
+    rerankCandidates: NarrativeRerankCandidate[]
     entityCandidates: Array<{ id: string, title: string }>
     metrics: {
         candidateCount: number
@@ -46,20 +51,26 @@ export interface NarrativeInquiryResponse {
         inspectedEdgeCount: number
         selectedNodeCount: number
         selectedTokens: number
+        selectedEventTokens: number
         semanticCandidateCount?: number
         hopCount: number
-        auxiliaryModelCalls: 0
+        auxiliaryModelCalls: number
     }
 }
 
+export interface NarrativeRerankCandidate {
+    documentId: string
+    type: 'character' | 'location' | 'faction' | 'creature' | 'item'
+        | 'concept' | 'event' | 'scene' | 'other'
+    title: string
+    excerpt: string
+    score: number
+}
+
 const NARRATIVE_EVIDENCE_RULES = [
-    'Narrative evidence rules:',
-    '- Original historical chat excerpts are primary evidence for exact old details and outrank compressed summaries when they conflict.',
-    '- For past details, event documents are the detailed evidence; canonical summaries are compressed navigation and current-state context.',
-    '- Do not invent an omitted action target or location. Do not turn temporal order into causation or cross a character knowledge boundary.',
-    '- Current-state sections in canonical character documents outrank older historical descriptions and unsupported continuation assumptions.',
-    '- Do not replace an established identity, status, relationship, duration, location, or goal with an unsupported detail. If the sources do not establish a replacement, keep the canonical fact unchanged.',
-    '- If sources do not establish a detail, preserve uncertainty instead of completing it.',
+    'Narrative continuity:',
+    '- Treat retrieved sources as authoritative evidence. Preserve established facts, chronology, viewpoint knowledge, and unresolved uncertainty; never replace them with an unsupported continuation.',
+    '- Prefer direct historical chat evidence and event documents for exact past details, and current canonical state for present facts.',
 ].join('\n')
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -73,6 +84,17 @@ function hasExactKeys(
     const actual = Object.keys(value)
     return actual.length === keys.length
         && actual.every((key) => keys.includes(key))
+}
+
+function hasRequiredAndOnlyKeys(
+    value: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[],
+): boolean {
+    const actual = Object.keys(value)
+    return required.every((key) => actual.includes(key))
+        && actual.every((key) => required.includes(key)
+            || optional.includes(key))
 }
 
 function boundedMetric(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
@@ -90,25 +112,40 @@ export async function loadNarrativeInquiry(input: {
     characterId: string
     chatId: string
     currentInput: string
+    fallbackInput?: string
     tokenBudget?: {
         target: number
+        events?: number
+        perSource?: number
         maximum: number
     }
     semanticMatches?: readonly {
         documentId: string
         score: number
     }[]
+    entityHints?: readonly {
+        kind: 'character'
+        names: readonly string[]
+    }[]
     sourceMatches?: readonly HistoricalSourceMatch[]
+    sourceLimit?: number
+    resolveSourceMatches?: (
+        messageIds: readonly string[]
+    ) => readonly HistoricalSourceMatch[] | Promise<readonly HistoricalSourceMatch[]>
     fetchImpl: typeof fetch
     createAuth(): Promise<string>
     timeoutMs?: number
+    signal?: AbortSignal
 }): Promise<NarrativeInquiryResponse> {
-    const timeoutMs = input.timeoutMs ?? 5_000
+    const timeoutMs = input.timeoutMs ?? RISUBARD_INQUIRY_TIMEOUT_MS_DEFAULT
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
         || timeoutMs > 10_000) {
         throw new Error('Invalid RisuVault narrative inquiry timeout')
     }
     const controller = new AbortController()
+    const onAbort = () => controller.abort(input.signal?.reason)
+    if (input.signal?.aborted) onAbort()
+    else input.signal?.addEventListener('abort', onAbort, { once: true })
     const fetchImpl = input.fetchImpl
     let timeout: ReturnType<typeof setTimeout> | undefined
     let value: unknown
@@ -131,21 +168,42 @@ export async function loadNarrativeInquiry(input: {
                             characterId: input.characterId,
                             chatId: input.chatId,
                             currentInput: input.currentInput.slice(0, 4_096),
+                            ...(input.fallbackInput === undefined
+                                ? {}
+                                : { fallbackInput:
+                                    input.fallbackInput.slice(-4_096) }),
                             ...(input.tokenBudget === undefined
                                 ? {}
                                 : { tokenBudget:
                                     normalizeRisuBardInquiryTokenBudget(
                                         input.tokenBudget.target,
-                                        input.tokenBudget.maximum
+                                        input.tokenBudget.maximum,
+                                        input.tokenBudget.events,
+                                        input.tokenBudget.perSource,
                                     ) }),
                             ...(input.semanticMatches === undefined
                                 ? {}
                                 : { semanticMatches:
                                     input.semanticMatches.slice(0, 32) }),
+                            ...(input.entityHints === undefined
+                                ? {}
+                                : { entityHints: input.entityHints
+                                    .slice(0, 12)
+                                    .map((hint) => ({
+                                        kind: hint.kind,
+                                        names: hint.names.slice(0, 16)
+                                            .map((name) => name.slice(0, 128)),
+                                    })) }),
                             ...(input.sourceMatches === undefined
                                 ? {}
                                 : { sourceMatches:
-                                    input.sourceMatches.slice(0, 8) }),
+                                    input.sourceMatches.slice(0, 32) }),
+                            ...(input.sourceLimit === undefined
+                                ? {}
+                                : { sourceLimit: Math.max(0, Math.min(
+                                    32,
+                                    Math.trunc(input.sourceLimit)
+                                )) }),
                         }),
                     }
                 )
@@ -169,24 +227,21 @@ export async function loadNarrativeInquiry(input: {
     }
     finally {
         if (timeout !== undefined) clearTimeout(timeout)
+        input.signal?.removeEventListener('abort', onAbort)
     }
     if (!isRecord(value)
-        || !(hasExactKeys(value, [
+        || !hasRequiredAndOnlyKeys(value, [
             'mode',
             'graphRevision',
             'indexRevision',
             'cacheStatus',
             'sources',
             'metrics',
-        ]) || hasExactKeys(value, [
-            'mode',
-            'graphRevision',
-            'indexRevision',
-            'cacheStatus',
-            'sources',
+        ], [
+            'evidenceRequests',
             'entityCandidates',
-            'metrics',
-        ]))
+            'rerankCandidates',
+        ])
         || !['v2-current', 'bounded-v1-fallback'].includes(
             String(value.mode)
         )
@@ -194,7 +249,7 @@ export async function loadNarrativeInquiry(input: {
             String(value.cacheStatus)
         )
         || !Array.isArray(value.sources)
-        || value.sources.length > 16
+        || value.sources.length > 44
         || !isRecord(value.metrics)
         || !(hasExactKeys(value.metrics, [
                 'candidateCount',
@@ -210,6 +265,25 @@ export async function loadNarrativeInquiry(input: {
                 'inspectedEdgeCount',
                 'selectedNodeCount',
                 'selectedTokens',
+                'semanticCandidateCount',
+                'hopCount',
+                'auxiliaryModelCalls',
+            ]) || hasExactKeys(value.metrics, [
+                'candidateCount',
+                'inspectedNodeCount',
+                'inspectedEdgeCount',
+                'selectedNodeCount',
+                'selectedTokens',
+                'selectedEventTokens',
+                'hopCount',
+                'auxiliaryModelCalls',
+            ]) || hasExactKeys(value.metrics, [
+                'candidateCount',
+                'inspectedNodeCount',
+                'inspectedEdgeCount',
+                'selectedNodeCount',
+                'selectedTokens',
+                'selectedEventTokens',
                 'semanticCandidateCount',
                 'hopCount',
                 'auxiliaryModelCalls',
@@ -239,12 +313,33 @@ export async function loadNarrativeInquiry(input: {
                 'tokens',
                 'priority',
                 'occurredAt',
+            ]) || hasExactKeys(source, [
+                'id',
+                'kind',
+                'role',
+                'content',
+                'tokens',
+                'priority',
+                'displayName',
+            ]) || hasExactKeys(source, [
+                'id',
+                'kind',
+                'role',
+                'content',
+                'tokens',
+                'priority',
+                'occurredAt',
+                'displayName',
             ]))
             || typeof source.id !== 'string'
             || source.kind !== 'memory'
             || source.role !== 'system'
             || typeof source.content !== 'string'
-            || source.content.length > 4_096) {
+            || source.content.length > 4_096
+            || (source.displayName !== undefined
+                && (typeof source.displayName !== 'string'
+                    || source.displayName.trim().length === 0
+                    || source.displayName.length > 1_024))) {
             throw new Error('Invalid RisuVault narrative inquiry source')
         }
         return {
@@ -257,8 +352,67 @@ export async function loadNarrativeInquiry(input: {
             ...(source.occurredAt === undefined
                 ? {}
                 : { occurredAt: boundedMetric(source.occurredAt) }),
+            ...(source.displayName === undefined
+                ? {}
+                : { displayName: String(source.displayName).slice(0, 1_024) }),
         }
     })
+    const evidenceRequests = value.evidenceRequests === undefined
+        ? []
+        : Array.isArray(value.evidenceRequests)
+            ? value.evidenceRequests.slice(0, 32).map((request) => {
+                if (!isRecord(request)
+                    || !hasExactKeys(request, ['messageId', 'eventTitle'])
+                    || typeof request.messageId !== 'string'
+                    || request.messageId.trim().length === 0
+                    || request.messageId.length > 1_024
+                    || typeof request.eventTitle !== 'string'
+                    || request.eventTitle.trim().length === 0
+                    || request.eventTitle.length > 512) {
+                    throw new Error('Invalid RisuVault evidence request')
+                }
+                return {
+                    messageId: request.messageId,
+                    eventTitle: request.eventTitle,
+                }
+            })
+            : (() => {
+                throw new Error('Invalid RisuVault evidence requests')
+            })()
+    const rerankCandidates = value.rerankCandidates === undefined
+        ? []
+        : Array.isArray(value.rerankCandidates)
+            ? value.rerankCandidates.slice(0, 12).map((candidate) => {
+                if (!isRecord(candidate)
+                    || !hasExactKeys(candidate, [
+                        'documentId', 'type', 'title', 'excerpt', 'score',
+                    ])
+                    || typeof candidate.documentId !== 'string'
+                    || candidate.documentId.trim().length === 0
+                    || candidate.documentId.length > 256
+                    || !['character', 'location', 'faction', 'creature',
+                        'item', 'concept', 'event', 'scene', 'other']
+                        .includes(String(candidate.type))
+                    || typeof candidate.title !== 'string'
+                    || candidate.title.trim().length === 0
+                    || candidate.title.length > 160
+                    || typeof candidate.excerpt !== 'string'
+                    || candidate.excerpt.length > 320
+                    || typeof candidate.score !== 'number'
+                    || !Number.isFinite(candidate.score)) {
+                    throw new Error('Invalid Bard-chan rerank candidate')
+                }
+                return {
+                    documentId: candidate.documentId,
+                    type: candidate.type as NarrativeRerankCandidate['type'],
+                    title: candidate.title,
+                    excerpt: candidate.excerpt,
+                    score: candidate.score,
+                }
+            })
+            : (() => {
+                throw new Error('Invalid Bard-chan rerank candidates')
+            })()
     const entityCandidates = value.entityCandidates === undefined
         ? []
         : Array.isArray(value.entityCandidates)
@@ -280,12 +434,39 @@ export async function loadNarrativeInquiry(input: {
                     'Invalid RisuVault narrative entity candidates'
                 )
             })()
+    const suppliedSourceIds = new Set(
+        (input.sourceMatches ?? []).map((match) => match.messageId)
+    )
+    const missingSourceIds = evidenceRequests
+        .map((request) => request.messageId)
+        .filter((messageId) => !suppliedSourceIds.has(messageId))
+    if (input.resolveSourceMatches && missingSourceIds.length > 0) {
+        const resolved = await input.resolveSourceMatches(missingSourceIds)
+        const merged = [...resolved, ...(input.sourceMatches ?? [])]
+            .filter((match, index, matches) => matches.findIndex((candidate) =>
+                candidate.messageId === match.messageId) === index)
+            .slice(0, Math.max(0, Math.min(
+                32,
+                Number.isSafeInteger(input.sourceLimit)
+                    ? input.sourceLimit as number
+                    : 8
+            )))
+        if (merged.some((match) => !suppliedSourceIds.has(match.messageId))) {
+            return loadNarrativeInquiry({
+                ...input,
+                sourceMatches: merged,
+                resolveSourceMatches: undefined,
+            })
+        }
+    }
     return {
         mode: value.mode as NarrativeInquiryResponse['mode'],
         graphRevision: boundedMetric(value.graphRevision),
         indexRevision: boundedMetric(value.indexRevision),
         cacheStatus: value.cacheStatus as NarrativeInquiryResponse['cacheStatus'],
         sources,
+        evidenceRequests,
+        rerankCandidates,
         entityCandidates,
         metrics: {
             candidateCount: boundedMetric(value.metrics.candidateCount, 64),
@@ -299,10 +480,13 @@ export async function loadNarrativeInquiry(input: {
             ),
             selectedNodeCount: boundedMetric(
                 value.metrics.selectedNodeCount,
-                16
+                44
             ),
             selectedTokens: boundedMetric(
                 value.metrics.selectedTokens
+            ),
+            selectedEventTokens: boundedMetric(
+                value.metrics.selectedEventTokens ?? 0
             ),
             ...(value.metrics.semanticCandidateCount === undefined
                 ? {}
@@ -311,7 +495,10 @@ export async function loadNarrativeInquiry(input: {
                     32
                 ) }),
             hopCount: boundedMetric(value.metrics.hopCount, 2),
-            auxiliaryModelCalls: 0,
+            auxiliaryModelCalls: boundedMetric(
+                value.metrics.auxiliaryModelCalls,
+                1,
+            ),
         },
     }
 }
@@ -437,23 +624,49 @@ export function selectNarrativeWorkingMessages<T>(
     if (!Number.isSafeInteger(limit) || limit < 1) {
         throw new Error('Narrative working-message limit must be positive')
     }
-    if (includeHistoricalUserMessages) return messages.slice(-limit)
     const roleOf = (message: T): unknown =>
         typeof message === 'object'
         && message !== null
         && 'role' in message
             ? (message as { role?: unknown }).role
             : undefined
+    const isAssistant = (message: T) => {
+        const role = roleOf(message)
+        return role === 'char' || role === 'assistant'
+    }
+    const assistantIndices = messages.flatMap((message, index) =>
+        isAssistant(message) ? [index] : []
+    )
+    if (assistantIndices.length === 0) return messages.slice(-limit)
+    const firstAssistantIndex = assistantIndices[
+        Math.max(0, assistantIndices.length - limit)
+    ]
+    let startIndex = firstAssistantIndex
+    for (let index = firstAssistantIndex - 1; index >= 0; index -= 1) {
+        if (isAssistant(messages[index])) break
+        startIndex = index
+    }
+    const selected = messages.slice(startIndex)
+    if (includeHistoricalUserMessages) return selected
     let latestUserIndex = -1
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (roleOf(messages[index]) === 'user') {
+    for (let index = selected.length - 1; index >= 0; index -= 1) {
+        if (roleOf(selected[index]) === 'user') {
             latestUserIndex = index
             break
         }
     }
-    return messages.filter((message, index) =>
+    return selected.filter((message, index) =>
         roleOf(message) !== 'user' || index === latestUserIndex
-    ).slice(-limit)
+    )
+}
+
+export function countNarrativeTurns<T>(messages: readonly T[]): number {
+    return messages.filter((message) => {
+        if (typeof message !== 'object' || message === null
+            || !('role' in message)) return false
+        const role = (message as { role?: unknown }).role
+        return role === 'char' || role === 'assistant'
+    }).length
 }
 
 export function normalizeNarrativeWorkingMessageLimit(

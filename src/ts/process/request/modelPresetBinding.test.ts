@@ -302,6 +302,35 @@ describe('applyPromptPresetParams — per-chat prompt-preset sampling override',
         expect(out.userValues.frequency_penalty).toBe(0.5) // 50 hundredths -> 0.5
     })
 
+    test.each([-1000, -1, 201])('does not inject invalid stored temperature %i', (temperature) => {
+        mockDb.temperature = temperature
+        const preset = presetWith({
+            schema: SAMPLING_SCHEMA,
+            userValues: { temperature: 0.2 },
+        })
+
+        expect(applyPromptPresetParams(preset, onChat, 'model').userValues.temperature).toBe(0.2)
+    })
+
+    test('does not inject stored sampling values outside the target field schema', () => {
+        mockDb.top_k = 101
+        const preset = presetWith({
+            schema: [
+                {
+                    key: 'top_k',
+                    type: 'integer',
+                    min: 0,
+                    max: 100,
+                    mapsTo: { target: 'body', path: 'top_k' },
+                },
+            ],
+            userValues: { top_k: 40 },
+        })
+
+        expect(applyPromptPresetParams(preset, onChat, 'model').userValues.top_k).toBe(40)
+        expect(mockDb.top_k).toBe(101)
+    })
+
     test('wire-flavored alias keys map to the same classic values (Gemini camelCase)', () => {
         const preset = presetWith({
             schema: [

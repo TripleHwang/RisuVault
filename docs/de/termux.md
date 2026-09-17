@@ -6,7 +6,7 @@
 
 > 🌐 Diese Anleitung wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../en/termux.md) oder [koreanische](../ko/termux.md) Version.
 
-Diese Anleitung erklärt, wie RisuVault direkt auf einem Android-Telefon über Termux gebaut und ausgeführt wird. Das vorgesehene Nutzungsmuster ist das Öffnen von `http://localhost:6001` im Browser desselben Telefons.
+Diese Anleitung erklärt, wie RisuVault direkt auf einem Android-Telefon über Termux gebaut und ausgeführt wird. Das vorgesehene Nutzungsmuster ist das Öffnen von `http://localhost:7777` im Browser desselben Telefons.
 
 - [1. Voraussetzungen](#1-voraussetzungen) — F-Droid Termux und Systemanforderungen
 - [2. Installation und Build](#2-installation-und-build) — Einrichtung mit einem einzigen Befehl
@@ -73,7 +73,7 @@ Build OK. Start the server with:
   node server/node/server.cjs
 
 Then open this address in the phone's own browser:
-  http://localhost:6001
+  http://localhost:7777
 ```
 
 
@@ -90,7 +90,7 @@ node server/node/server.cjs
 Sobald das Server-Boot-Protokoll erscheint, öffnen Sie den Browser des Telefons (Chrome, Firefox usw.) und navigieren Sie zu:
 
 ```
-http://localhost:6001
+http://localhost:7777
 ```
 
 Die RisuVault-Benutzeroberfläche sollte geladen werden. `localhost` wird vom Browser automatisch als sicherer Kontext behandelt, sodass Zwischenablage, `crypto.subtle` und andere APIs, die einen sicheren Kontext erfordern, normal funktionieren.

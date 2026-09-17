@@ -348,6 +348,13 @@ function createFileKv(options = {}) {
         });
     }
 
+    async function kvSetManyAsync(entries) {
+        const prepared = await prepareEntriesAsync(entries);
+        if (prepared.length) mutateManifest(target => {
+            for (const [key, entry] of prepared) target.entries[key] = entry;
+        });
+    }
+
     function kvReplacePrefixes(entries, prefixes) {
         const prepared = prepareEntries(entries);
         mutateManifest(target => {
@@ -425,6 +432,30 @@ function createFileKv(options = {}) {
             && ![...inFlightManifests].some(target => key in target.entries)
             && pendingReplacementMutationJournals.size === 0) return;
         mutateManifest(target => { delete target.entries[key]; });
+    }
+
+    function kvDelMany(keys) {
+        let count = 0;
+        let bytes = 0;
+        const removable = [];
+        for (const key of new Set(keys)) {
+            const entry = manifest.entries[key];
+            if (entry) {
+                bytes += entry.size ?? 0;
+                count += 1;
+                removable.push(key);
+                continue;
+            }
+            // Same rule as kvDel: a key absent from the live manifest may still
+            // be present in an in-flight staged snapshot or arrive through a
+            // pending replacement journal, so the deletion must still be journaled.
+            if ([...inFlightManifests].some(target => key in target.entries)
+                || pendingReplacementMutationJournals.size > 0) removable.push(key);
+        }
+        if (removable.length) mutateManifest(target => {
+            for (const key of removable) delete target.entries[key];
+        });
+        return { count, bytes };
     }
 
     function kvSize(key) {
@@ -555,6 +586,7 @@ function createFileKv(options = {}) {
         kvSet,
         kvSetMany,
         kvSetManyFromFilesAsync,
+        kvSetManyAsync,
         kvReplacePrefixes,
         kvReplacePrefixesAsync,
         kvReplacePrefixesFromFilesAsync,
@@ -562,6 +594,7 @@ function createFileKv(options = {}) {
         kvReplaceAllAsync,
         kvReplaceAllFromFilesAsync,
         kvDel,
+        kvDelMany,
         kvSize,
         kvGetUpdatedAt,
         kvGetMetadata,

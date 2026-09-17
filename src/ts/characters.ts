@@ -3,6 +3,7 @@ import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, t
 import { ensureChatHydrated, touchHydratedChat } from "./storage/chatStorage";
 import { isSqlWindowPartial } from "./storage/sql/sqlRuntimeWindow";
 import { ensureCharacterHydrated } from "./storage/sql/sqlRuntimeHydration";
+import { loadingActivity } from './gui/loadingActivity';
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
@@ -24,6 +25,7 @@ import { completeMemoryWikiFork, forkMemoryWiki } from './risubard/memoryWikiFor
 import { withSaverScope } from './performance/saverMode'
 import { markSqlCharacterDirty, markSqlChatDirty, markSqlMessageDirty, markSqlMessageManifestDirty } from './storage/sql/sqlPersistenceRuntime';
 import { runtimeMetrics } from './performance/runtimeMetrics'
+import { needsCharacterRuntimeNormalization } from './characterRuntime'
 
 /** Assign identities before a chat becomes visible, then mark its parent before rows. */
 function markImportedChat(characterId: string, chat: Chat): void {
@@ -70,6 +72,7 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
         return null
     }
     const filesrc = await getFileSrc(loc)
+    loadingActivity.image(filesrc, loc.split(/[\\/]/).pop() || loc)
     if(type === 'plain'){
         return filesrc
     }
@@ -979,9 +982,16 @@ export async function changeChar(index: number, arg:{
     }
     reseter();
     chatDeselected.set(false)
-    characterFormatUpdate(index, {
-      updateInteraction: true,
-    });
+    // Hydration may have replaced the slot, so test the live character rather
+    // than the summary captured above: a summary would always look
+    // un-normalized, and a timestamp written to it would never be persisted.
+    if(needsCharacterRuntimeNormalization(selectedCharacter)){
+        characterFormatUpdate(index, {
+          updateInteraction: true,
+        });
+    } else {
+        selectedCharacter.lastInteraction = Date.now()
+    }
     selectedCharID.set(index);
     const chat = getCurrentChat()
     if(chat){

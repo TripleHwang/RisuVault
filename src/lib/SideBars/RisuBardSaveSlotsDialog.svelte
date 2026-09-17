@@ -132,11 +132,14 @@
     async function load(saveId: string): Promise<void> {
         if (loadingId) return
         const sequence = requestSequence
-        loadingId = saveId
         error = ''
         try {
-            if (!loadAsNewChat && shouldConfirmMemorySaveLoad(currentLatestMessageId, slots) && !await alertConfirm('저장하지 않은 채팅은 사라집니다. 불러올까요?')) return
+            if (!loadAsNewChat && shouldConfirmMemorySaveLoad(currentLatestMessageId, slots) && !await alertConfirm(
+                '저장하지 않은 채팅은 사라집니다. 불러올까요?',
+                { tier: 'top' },
+            )) return
             if (sequence !== requestSequence || !open) return
+            loadingId = saveId
             await onLoad(saveId, loadAsNewChat)
         } catch (cause) {
             error = cause instanceof Error ? cause.message : String(cause)
@@ -394,7 +397,9 @@
     .save-preview__message > span { color: var(--color-textcolor2); font-size: .56rem; letter-spacing: .08em; }
     .save-preview__message p { margin: .2rem 0 0; color: var(--color-textcolor); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
     @media (max-width: 767px) {
-        :global(.save-slot-dialog) { left: 0; top: 0; width: 100dvw; min-width: 100dvw; max-width: 100dvw; height: 100dvh; max-height: 100dvh; padding: .75rem; translate: none; transform: none; border: 0; border-radius: 0; }
+        :global(.save-slot-dialog) { left: 0; top: 0; width: 100dvw; min-width: 100dvw; max-width: 100dvw; height: 100dvh; max-height: 100dvh; padding: .75rem; transform: none; border: 0; border-radius: 0; }
+        /* Keep a distinct selector: Oxc incorrectly folds independent translate/transform properties. */
+        :global(.save-slot-dialog.save-slot-dialog) { translate: none; }
         .save-dialog-header { align-items: flex-start; flex-direction: column-reverse; gap: .55rem; }
         .save-dialog-header > strong { width: 100%; font-size: 1rem; }
         .manual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

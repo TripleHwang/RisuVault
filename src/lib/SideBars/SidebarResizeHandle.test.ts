@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mount, tick, unmount } from 'svelte'
 import { DBState } from 'src/ts/stores.svelte'
 import { requestImmediateSave } from 'src/ts/globalApi.svelte'
-import { normalizeChatListHeight, normalizeCharacterSidebarWidth } from 'src/ts/gui/sidebarLayout'
+import {
+    normalizeCharacterListSidebarWidth,
+    normalizeChatListHeight,
+    normalizeCharacterSidebarWidth,
+} from 'src/ts/gui/sidebarLayout'
 import SidebarResizeHandle from './SidebarResizeHandle.svelte'
 
 vi.mock('src/ts/stores.svelte', async () => {
@@ -18,10 +22,14 @@ afterEach(async () => {
     document.body.replaceChildren()
 })
 
-async function render(axis: 'height' | 'width', maxWidth = 720) {
+async function render(
+    axis: 'height' | 'width',
+    maxWidth = 720,
+    field?: 'characterSidebarWidth' | 'characterListSidebarWidth',
+) {
     const target = document.body.appendChild(document.createElement('div'))
     target.getBoundingClientRect = () => ({ width: 384, height: 320, left: 0, top: 0, right: 384, bottom: 320, x: 0, y: 0, toJSON() {} })
-    mounted = mount(SidebarResizeHandle, { target, props: { axis, target, maxWidth } })
+    mounted = mount(SidebarResizeHandle, { target, props: { axis, target, maxWidth, field } })
     await tick()
     const handle = target.querySelector<HTMLButtonElement>('button')!
     handle.setPointerCapture = vi.fn()
@@ -41,6 +49,9 @@ describe('sidebar layout sizes', () => {
         expect(normalizeCharacterSidebarWidth(10, 1000)).toBe(280)
         expect(normalizeCharacterSidebarWidth(900, 1000)).toBe(720)
         expect(normalizeCharacterSidebarWidth(600, 232)).toBe(232)
+        expect(normalizeCharacterListSidebarWidth(undefined, 240)).toBe(80)
+        expect(normalizeCharacterListSidebarWidth(10, 240)).toBe(80)
+        expect(normalizeCharacterListSidebarWidth(999, 240)).toBe(240)
     })
 
     test.each(['width', 'height'] as const)('persists %s keyboard resizing globally and restores the default with Home', async axis => {
@@ -79,5 +90,13 @@ describe('sidebar layout sizes', () => {
         expect(requestImmediateSave).toHaveBeenCalledOnce()
         window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 3, clientX: 100 }))
         expect(DBState.db.characterSidebarWidth).toBe(500)
+    })
+
+    test('persists the resizable character-list rail independently', async () => {
+        const { handle } = await render('width', 240, 'characterListSidebarWidth')
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+        expect(DBState.db.characterListSidebarWidth).toBe(240)
+        expect(DBState.db.characterSidebarWidth).toBeUndefined()
+        expect(handle.getAttribute('aria-label')).toContain('캐릭터 목록 사이드바 너비 조절')
     })
 })

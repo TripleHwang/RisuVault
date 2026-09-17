@@ -12,10 +12,11 @@
     interface Props {
         entry: loreBook
         size?: string
+        showActivation?: boolean
         onActivationClick?: () => void
     }
 
-    let { entry, size = '1.05rem', onActivationClick }: Props = $props()
+    let { entry, size = '1.05rem', showActivation = true, onActivationClick }: Props = $props()
     let status = $derived(loreBookVisualStatus(entry))
     let activationTitle = $derived(
         status.activation === 'always' ? language.lorebookWorkspace.alwaysActive
@@ -31,7 +32,7 @@
             <SolarIcon src={hiddenIcon} name="eye-closed-bold" {size} />
         </span>
     {/if}
-    {#if onActivationClick}
+    {#if showActivation && onActivationClick}
         <button
             type="button"
             class:unreachable={status.unreachable}
@@ -51,7 +52,7 @@
                 <SolarIcon src={linkIcon} name="link-minimalistic-2-bold" {size} />
             {/if}
         </button>
-    {:else}
+    {:else if showActivation}
         <span
             class:unreachable={status.unreachable}
             class="activation-status"

@@ -43,7 +43,7 @@ Xây dựng một mạng riêng (VPN) chỉ có thể truy cập từ các thi�
 Trong terminal trên PC đang chạy RisuVault, chạy một lần:
 
 ```bash
-tailscale serve --bg http://localhost:6001
+tailscale serve --bg http://localhost:7777
 ```
 
 ### Bước 4: Truy cập từ thiết bị khác

@@ -77,6 +77,22 @@ export function createChatContentAssembler<TMessage, TChat extends object>() {
     }
 }
 
+export function getRemainingChatContentPageOffsets(
+    totalValue: number,
+    loadedValue: number,
+    pageSizeValue: number,
+): number[] {
+    const total = requireNonNegativeInteger(totalValue, 'total')
+    const loaded = requireNonNegativeInteger(loadedValue, 'loaded count')
+    const pageSize = requireNonNegativeInteger(pageSizeValue, 'page size')
+    if (pageSize === 0) throw new Error('Chat content page has invalid page size')
+    if (loaded > total) throw new Error('Chat content page exceeds total')
+
+    const offsets: number[] = []
+    for (let offset = loaded; offset < total; offset += pageSize) offsets.push(offset)
+    return offsets
+}
+
 export function assembleChatContentPages<TMessage, TChat extends object>(
     inputPages: ChatContentPageEnvelope<TMessage, TChat>[],
 ): TChat & { message: TMessage[] } {

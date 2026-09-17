@@ -2,7 +2,7 @@ import { v4 } from 'uuid'
 import { forageStorage, saveAsset } from '../globalApi.svelte'
 import { hasher } from '../parser/parser.svelte'
 
-const DEFAULT_MAX_ITEMS = 50
+const DEFAULT_MAX_ITEMS = 200
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 const DEFAULT_HIGH_WATER_BYTES = 64 * 1024 * 1024
 

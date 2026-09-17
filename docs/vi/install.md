@@ -47,7 +47,7 @@ Lấy tệp cho OS của bạn từ [trang Releases](https://github.com/TripleHw
 
 **Windows**
 
-Giải nén tệp zip và nhấp đúp vào `RisuVault.exe`. Trình duyệt tự động mở tại `http://localhost:6001`.
+Giải nén tệp zip và nhấp đúp vào `RisuVault.exe`. Trình duyệt tự động mở tại `http://localhost:7777`.
 
 **macOS**
 
@@ -67,7 +67,7 @@ cd RisuVault-vX.X.X-linux-*
 ./start.sh
 ```
 
-Mở `http://localhost:6001` trong trình duyệt.
+Mở `http://localhost:7777` trong trình duyệt.
 
 ### Máy chủ không GUI (tải xuống một dòng)
 
@@ -127,7 +127,7 @@ curl -L https://raw.githubusercontent.com/TripleHwang/RisuVault/main/docker-comp
 docker compose up -d
 ```
 
-Mở `http://localhost:6001` trong trình duyệt.
+Mở `http://localhost:7777` trong trình duyệt.
 
 ### Cập nhật
 
@@ -172,7 +172,7 @@ cd ~/risubard
 pnpm runserver
 ```
 
-Mở `http://localhost:6001` trong trình duyệt.
+Mở `http://localhost:7777` trong trình duyệt.
 
 ### Cập nhật
 
@@ -205,7 +205,7 @@ pnpm build
 pnpm runserver
 ```
 
-Mở `http://localhost:6001` trong trình duyệt.
+Mở `http://localhost:7777` trong trình duyệt.
 
 ### Cập nhật
 

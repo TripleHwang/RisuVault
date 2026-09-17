@@ -2,12 +2,14 @@ import { describe, expect, test } from 'vitest'
 import {
     canonicalBatchSchema,
     buildCanonicalBatchSchema,
+    buildCanonicalSingleSchema,
     buildRebootBatchDraftSchema,
     memoryWriterDraftSchema,
     memoryWriterSystemPrompt,
     hasMemoryWriterContent,
     parseMemoryWriterDraft,
     parseCanonicalBatch,
+    parseCanonicalSingle,
     parseRebootBatchDraft,
     serializeMemoryWriterDraft,
     buildMemoryWriterSystemPrompt,
@@ -31,31 +33,71 @@ describe('BardWiki memory writer skill', () => {
         )
     })
 
-    test('loads the project-owned skill and its hard recording rules', () => {
+    test('uses one project-owned recording contract for every output locale', () => {
+        for (const locale of ['ko', 'en', 'ja', 'zh-Hans', 'zh-Hant'] as const) {
+            expect(buildMemoryWriterSystemPrompt(locale)).toBe(memoryWriterSystemPrompt)
+        }
         expect(memoryWriterSystemPrompt).toContain('bardwiki-memory-writer')
-        expect(memoryWriterSystemPrompt).toContain('사용자 지시문은 사건의 근거가 아니다')
-        expect(memoryWriterSystemPrompt).toContain('ID, 파일 경로, revision, hash')
-        expect(memoryWriterSystemPrompt).toContain('인물별 지식')
-        expect(memoryWriterSystemPrompt).toContain('독립적인 이야기 요약')
-        expect(memoryWriterSystemPrompt).toContain('아크 플롯 후보는 만들지 마라')
-        expect(memoryWriterSystemPrompt).toContain('설정한 확정 사건 체크포인트마다')
+        expect(memoryWriterSystemPrompt).toContain('User instructions are not event evidence')
+        expect(memoryWriterSystemPrompt).toContain('IDs, paths, evidence metadata')
+        expect(memoryWriterSystemPrompt).toContain('character knowledge')
+        expect(memoryWriterSystemPrompt).toContain('self-contained chronological story summary')
+        expect(memoryWriterSystemPrompt).toContain('Reserved story arc plot')
+        expect(memoryWriterSystemPrompt).toContain('configured confirmed-event checkpoint')
+        expect(memoryWriterSystemPrompt).toContain('species or monsters')
+        expect(memoryWriterSystemPrompt).toContain('named sublocations')
+        expect(memoryWriterSystemPrompt).toContain('unresolved investigations')
+        expect(memoryWriterSystemPrompt).toContain('event documents')
+    })
+
+    test('keeps schemaVersion out of model-owned writer contracts', () => {
+        const draftSchema = JSON.parse(memoryWriterDraftSchema)
+        const rebootSchema = JSON.parse(buildRebootBatchDraftSchema(1))
+        const canonicalSchema = JSON.parse(buildCanonicalBatchSchema(1))
+
+        for (const schema of [draftSchema, rebootSchema, canonicalSchema]) {
+            expect(schema.required).not.toContain('schemaVersion')
+            expect(schema.properties).not.toHaveProperty('schemaVersion')
+        }
+        expect(parseMemoryWriterDraft(JSON.stringify({
+            title: '도착', establishedEvents: ['도착했다.'],
+            stateChanges: [], characterKnowledge: [], persistentFacts: [],
+            openContinuity: [], canonicalUpdateCandidates: [],
+        }))).toMatchObject({ schemaVersion: 1, title: '도착' })
+        expect(parseCanonicalBatch(JSON.stringify({
+            documents: [{ candidateIndex: 0, sections: [] }],
+        }), 1)).toMatchObject({
+            schemaVersion: 1,
+            documents: [{ candidateIndex: 0, sections: [] }],
+        })
+    })
+
+    test('uses an OpenAI-compatible nullable type for stateChanges.before', () => {
+        const schema = JSON.parse(memoryWriterDraftSchema)
+        const before = schema.properties.stateChanges.items.properties.before
+
+        expect(before).toEqual({
+            type: ['string', 'null'],
+            minLength: 1,
+            maxLength: 500,
+        })
+        expect(JSON.stringify(before)).not.toContain('oneOf')
     })
 
     test('describes every required canonical candidate field without contradicting the schema', () => {
         const candidateContract = memoryWriterSystemPrompt
-            .split('- `canonicalUpdateCandidates`:')[1]
+            .split('- canonicalUpdateCandidates:')[1]
             ?.split('\n\n')[0] ?? ''
         for (const field of [
             'type', 'title', 'reason', 'action', 'targetDocumentId', 'confidence',
         ]) {
-            expect(candidateContract).toContain(`\`${field}\``)
+            expect(candidateContract).toContain(field)
         }
     })
 
     test('teaches general narrative value and omission-cost judgment', () => {
-        expect(memoryWriterSystemPrompt).toContain('향후 서사')
-        expect(memoryWriterSystemPrompt).toContain('누락 비용')
-        expect(memoryWriterSystemPrompt).toContain('대표되지 않은')
+        expect(memoryWriterSystemPrompt).toContain('costly omissions')
+        expect(memoryWriterSystemPrompt).toContain('not yet represented')
         expect(memoryWriterSystemPrompt).not.toContain(
             '명시적인 프로필이 나온 인물을 모두 포함'
         )
@@ -63,18 +105,18 @@ describe('BardWiki memory writer skill', () => {
 
     test('separates first registration from durable-change updates', () => {
         const creation = memoryWriterSystemPrompt
-            .split('### 최초 등록 (`create`)')[1]
-            ?.split('### 기존 정본 갱신 (`update`)')[0] ?? ''
+            .split('### First registration (create)')[1]
+            ?.split('### Existing updates (update)')[0] ?? ''
         const updates = memoryWriterSystemPrompt
-            .split('### 기존 정본 갱신 (`update`)')[1]
-            ?.split('### 누락 점검과 우선순위')[0] ?? ''
-        expect(creation).toContain('상태 변화가 없어도')
-        expect(creation).toContain('주요 인물')
-        expect(creation).toContain('사건 문서나 다른 인물의 정본에 이름이 등장하는 것')
-        expect(creation).toContain('일회성 인물')
-        expect(updates).toContain('대표되지 않은 지속 변화')
-        expect(updates).toContain('사건 문서만으로 충분한 행동')
-        expect(updates).toContain('정본 후보를 만들지 마라')
+            .split('### Existing updates (update)')[1]
+            ?.split('### Coverage and priority')[0] ?? ''
+        expect(creation).toContain('without waiting for a complete profile')
+        expect(creation).toContain('important participant')
+        expect(creation).toContain('mention in an event or another character')
+        expect(creation).toContain('one-off participants')
+        expect(updates).toContain('not yet represented')
+        expect(updates).toContain('actions sufficiently recorded in the event')
+        expect(updates).toContain('Do not propose updates')
         expect(memoryWriterSystemPrompt).not.toContain(
             '후보를 만들려면 확정 본문이 기존 정본에 아직 대표되지 않은'
         )
@@ -82,14 +124,14 @@ describe('BardWiki memory writer skill', () => {
 
     test('checks coverage per important participant without favoring the protagonist', () => {
         const coverage = memoryWriterSystemPrompt
-            .split('### 누락 점검과 우선순위')[1]
-            ?.split('## 기록 경계')[0] ?? ''
-        expect(coverage).toContain('주요 인물별로')
+            .split('### Coverage and priority')[1]
+            ?.split('### Reserved story arc plot')[0] ?? ''
+        expect(coverage).toContain('every important participant')
         expect(coverage).toContain('characterKnowledge')
-        expect(coverage).toContain('주인공 정본 하나')
-        expect(coverage).toContain('최초 등록')
-        expect(coverage).toContain('근거 없는 추론')
-        expect(coverage).toContain('출력 필드는 추가하지 마라')
+        expect(coverage).toContain("protagonist's document")
+        expect(coverage).toContain('first registration')
+        expect(coverage).toContain('Never fill the candidate budget with guesses')
+        expect(coverage).toContain('do not add output fields')
     })
 
     test('publishes a strict bounded JSON schema', () => {
@@ -98,7 +140,6 @@ describe('BardWiki memory writer skill', () => {
             type: 'object',
             additionalProperties: false,
             required: [
-                'schemaVersion',
                 'title',
                 'establishedEvents',
                 'stateChanges',
@@ -109,9 +150,9 @@ describe('BardWiki memory writer skill', () => {
             ],
         })
         expect(schema.properties.establishedEvents.maxItems).toBe(12)
-        expect(schema.properties.schemaVersion).toEqual({ const: 1 })
+        expect(schema.properties.schemaVersion).toBeUndefined()
         expect(JSON.parse(canonicalBatchSchema).properties.schemaVersion)
-            .toEqual({ const: 1 })
+            .toBeUndefined()
         expect(schema.properties.characterKnowledge.items.properties.stance)
             .toMatchObject({ type: 'string' })
         expect(schema.properties.canonicalUpdateCandidates.items.properties.type)
@@ -120,6 +161,22 @@ describe('BardWiki memory writer skill', () => {
             .toMatchObject({ type: 'string' })
         expect(schema.properties.canonicalUpdateCandidates.items.properties.aliases)
             .toMatchObject({ type: 'array', maxItems: 32 })
+    })
+
+    test('accepts creature canon candidates', () => {
+        const schema = JSON.parse(memoryWriterDraftSchema)
+        expect(schema.properties.canonicalUpdateCandidates.items.properties.type.enum)
+            .toContain('creature')
+        const draft = parseMemoryWriterDraft(JSON.stringify({
+            title: '좀비 출현', establishedEvents: ['좀비가 나타났다.'],
+            stateChanges: [], characterKnowledge: [], persistentFacts: [],
+            openContinuity: [], canonicalUpdateCandidates: [{
+                type: 'creature', title: '좀비', aliases: [],
+                reason: '반복해서 등장할 생물 종류의 규칙이 확정되었다.',
+                action: 'create', targetDocumentId: null, confidence: 0.95,
+            }],
+        }))
+        expect(draft.canonicalUpdateCandidates[0].type).toBe('creature')
     })
 
     test('supports canonical target budgets above eight while validating index membership', () => {
@@ -192,6 +249,70 @@ describe('BardWiki memory writer skill', () => {
             schemaVersion: 1,
             documents: [{ candidateIndex: 0, sections: [] }],
         }), 1).documents[0]?.sections).toEqual([])
+    })
+
+    test('allows canonical section content beyond the former 4,000-character cap', () => {
+        const content = 'A'.repeat(4_001)
+        const schema = JSON.parse(canonicalBatchSchema)
+        expect(schema.properties.documents.items.properties.sections.items
+            .properties.content).not.toHaveProperty('maxLength')
+        expect(parseCanonicalBatch(JSON.stringify({
+            documents: [{
+                candidateIndex: 0,
+                sections: [{ heading: 'History', operation: 'upsert', content }],
+            }],
+        }), 1).documents[0].sections[0].content).toBe(content)
+    })
+
+    test('accepts content ending exactly at the former 4,000-character boundary', () => {
+        const content = 'A'.repeat(4_000)
+        expect(parseCanonicalBatch(JSON.stringify({
+            documents: [{
+                candidateIndex: 0,
+                sections: [{
+                    heading: 'History', operation: 'upsert',
+                    content,
+                }],
+            }],
+        }), 1).documents[0].sections[0].content).toBe(content)
+    })
+
+    test('uses a compact single-document contract for protocol recovery', () => {
+        const schema = JSON.parse(buildCanonicalSingleSchema())
+        expect(schema).toMatchObject({
+            type: 'object',
+            additionalProperties: false,
+            required: ['sections'],
+        })
+        expect(schema.properties).not.toHaveProperty('documents')
+        expect(parseCanonicalSingle(JSON.stringify({
+            sections: [{
+                heading: '현재 상태',
+                operation: 'upsert',
+                content: '- 귀환했다.',
+            }],
+        }))).toEqual({
+            candidateIndex: 0,
+            sections: [{
+                heading: '현재 상태',
+                operation: 'upsert',
+                content: '- 귀환했다.',
+            }],
+        })
+    })
+
+    test('selects one canonical object when a provider adds unrelated JSON metadata', () => {
+        const output = [
+            JSON.stringify({ providerTrace: 'ignored' }),
+            JSON.stringify({
+                schemaVersion: 1,
+                documents: [{ candidateIndex: 0, sections: [] }],
+            }),
+        ].join('\n')
+        expect(parseCanonicalBatch(output, 1).documents).toEqual([{
+            candidateIndex: 0,
+            sections: [],
+        }])
     })
 
     test('validates a semantic draft and serializes deterministic Markdown', () => {

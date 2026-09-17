@@ -10,6 +10,7 @@
         onSelect: (value: number) => void
         ariaLabel?: string
         class?: string
+        variant?: 'default' | 'prominent'
     }
 
     let {
@@ -18,12 +19,14 @@
         onSelect,
         ariaLabel,
         class: className = '',
+        variant = 'default',
     }: Props = $props()
 </script>
 
 <div
     data-settings-section-tabs
     class="settings-section-tabs {className}"
+    class:prominent={variant === 'prominent'}
     role="tablist"
     aria-label={ariaLabel}
 >
@@ -87,6 +90,45 @@
         border-radius: 999px 999px 0 0;
         background: var(--risu-theme-primary);
         content: '';
+    }
+
+    .settings-section-tabs.prominent {
+        gap: .3rem;
+        padding: .35rem;
+        border: 1px solid color-mix(in srgb, var(--risu-theme-primary) 48%, var(--risu-theme-darkborderc));
+        border-radius: .9rem;
+        background: color-mix(in srgb, var(--risu-theme-primary) 24%, var(--risu-theme-bgcolor));
+    }
+
+    .prominent button {
+        min-height: 3rem;
+        padding: .72rem 1.15rem;
+        border-radius: .62rem;
+        color: var(--risu-theme-textcolor);
+        font-size: .96rem;
+        font-weight: 700;
+        letter-spacing: -.01em;
+        transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .prominent button:hover {
+        background: color-mix(in srgb, var(--risu-theme-primary) 42%, var(--risu-theme-bgcolor));
+    }
+
+    .prominent button.active {
+        background: color-mix(in srgb, var(--risu-theme-primary) 62%, var(--risu-theme-bgcolor));
+        box-shadow:
+            0 1px 2px color-mix(in srgb, var(--risu-theme-darkbg) 36%, transparent),
+            inset 0 0 0 1px color-mix(in srgb, var(--risu-theme-textcolor) 18%, transparent);
+    }
+
+    .prominent button:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--risu-theme-textcolor) 74%, var(--risu-theme-primary));
+        outline-offset: -3px;
+    }
+
+    .prominent button.active::after {
+        display: none;
     }
 
     @media (max-width: 767px) {

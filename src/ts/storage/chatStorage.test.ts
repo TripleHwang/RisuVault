@@ -1,5 +1,8 @@
 import { describe, test, expect, vi } from 'vitest'
 
+const mocks = vi.hoisted(() => ({
+    fetchChatContent: vi.fn(),
+}))
 const activeStorage = vi.hoisted(() => ({ current: null as any }))
 const runtimeState = vi.hoisted(() => {
     const state = { database: { characters: [] as any[], selectedChatId: null as string | null }, selectedIndex: 0, generating: new Set<string>(), hydrating: new Set<string>(), listeners: [] as Array<(value: number) => void>, flush: vi.fn(async () => undefined) }
@@ -10,7 +13,11 @@ const runtimeState = vi.hoisted(() => {
 // unrelated $effect chains that fail in a stripped-down test environment.
 // Mirror the production isChatStub semantics including the hybrid guard so
 // the chat-data-loss tests below exercise the real intent.
-vi.mock('../globalApi.svelte', () => ({ forageStorage: { realStorage: null } }))
+vi.mock('../globalApi.svelte', () => ({
+    forageStorage: {
+        realStorage: { fetchChatContent: mocks.fetchChatContent },
+    },
+}))
 vi.mock('./database.svelte', () => ({
     getDatabase: () => runtimeState.database,
     isChatStub: (chat: any) => chat
@@ -23,7 +30,7 @@ vi.mock('../process/generationState', () => ({ isChatGenerating: (id: string) =>
 vi.mock('./hydrationState', () => ({ beginHydration: () => undefined, beginHydrationApply: () => undefined, endHydration: () => undefined, endHydrationApply: () => undefined, isHydrationActive: (key: string) => runtimeState.hydrating.has(key) }))
 vi.mock('../stores.svelte', () => ({ selectedCharID: { subscribe: (run: (value: number) => void) => { runtimeState.listeners.push(run); run(runtimeState.selectedIndex); return () => undefined } } }))
 
-const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders, classifyChat, ChatHydrationCache, hydrateRecentChatPage, touchHydratedChat, evictHydratedChats, resetChatHydrationCacheForTesting, chatNeedsServerFetch, isChatHistoryIncomplete } = await import('./chatStorage')
+const { chatToStub, stubToPlaceholder, convertStubsToPlaceholders, classifyChat, ChatHydrationCache, hydrateRecentChatPage, touchHydratedChat, evictHydratedChats, resetChatHydrationCacheForTesting, chatNeedsServerFetch, isChatHistoryIncomplete, ensureChatHydrated } = await import('./chatStorage')
 const { getSqlWindow, setSqlWindow } = await import('./sql/sqlRuntimeWindow')
 type Chat = any
 type ChatStub = any
@@ -643,5 +650,34 @@ describe('deciding whether a chat must be fetched before export or backup', () =
         } as any)).toBe(false)
         // A chat that never went through SQL hydration carries neither flag.
         expect(chatNeedsServerFetch({ id: 'chat-1', message: [] } as any)).toBe(false)
+    })
+})
+
+describe('ensureChatHydrated', () => {
+    test('applies the loaded chat when the browser never delivers the next animation frame', async () => {
+        // The paint wait sits on the whole-chat fetch path, which only runs
+        // when no server-SQL backend is active. Earlier suites leave one
+        // installed, so this test clears it rather than depending on order.
+        activeStorage.current = null
+        resetChatHydrationCacheForTesting()
+        vi.useFakeTimers()
+        vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
+        try {
+            const placeholder = stubToPlaceholder({ id: 'chat-1', name: 'Chat 1', _stub: true })
+            const full = blankChat({ id: 'chat-1', name: 'Chat 1', message: [
+                { role: 'char', data: 'loaded' },
+            ] })
+            const chats = [placeholder]
+            mocks.fetchChatContent.mockResolvedValueOnce(full)
+
+            const hydration = ensureChatHydrated(chats, 0, 'char-1')
+            await vi.advanceTimersByTimeAsync(1_000)
+
+            expect(chats[0]).toBe(full)
+            await expect(hydration).resolves.toBe(full)
+        } finally {
+            vi.useRealTimers()
+            vi.unstubAllGlobals()
+        }
     })
 })

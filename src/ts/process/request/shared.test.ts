@@ -8,7 +8,9 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => mocks.db,
 }))
 
-import { applyParameters, collectStreamingText } from './shared'
+import * as shared from './shared'
+
+const { applyParameters, collectStreamingText } = shared
 
 beforeEach(() => {
     mocks.db = {
@@ -81,5 +83,98 @@ describe('applyParameters reasoning capability modifiers', () => {
 
         expect(applyParameters({}, parameters as any, {}, 'model', { modelId: 'model' }))
             .toMatchObject({ reasoning_effort: expected })
+    })
+})
+
+describe('applyParameters request overrides', () => {
+    test('prefers an explicit request temperature over the global model temperature', () => {
+        mocks.db.temperature = 115
+
+        expect(applyParameters(
+            {},
+            ['temperature'] as any,
+            {},
+            'model',
+            { modelId: 'pluginmodel:::pagefold-gemini-3.7-flash', temperatureOverride: 0 },
+        )).toMatchObject({ temperature: 0 })
+    })
+
+    test('does not reintroduce a disabled temperature through a negative override', () => {
+        mocks.db.temperature = -1000
+
+        expect(applyParameters(
+            {},
+            ['temperature'] as any,
+            {},
+            'model',
+            { modelId: 'legacy-provider', temperatureOverride: -10 },
+        )).not.toHaveProperty('temperature')
+    })
+})
+
+describe('stored temperature conversion', () => {
+    test('maps the disabled sentinel to undefined and hundredths to API units', () => {
+        const resolveStoredTemperature = (shared as any).resolveStoredTemperature
+        expect(resolveStoredTemperature).toBeTypeOf('function')
+        expect(resolveStoredTemperature(-1000)).toBeUndefined()
+        expect(resolveStoredTemperature(-1)).toBeUndefined()
+        expect(resolveStoredTemperature(201)).toBeUndefined()
+        expect(resolveStoredTemperature(100)).toBe(1)
+        expect(resolveStoredTemperature(1)).toBe(0.01)
+    })
+})
+
+describe('stored sampling parameter validation', () => {
+    test('keeps valid values, including a temperature of 0.01 API units', () => {
+        const resolve = (shared as any).resolveStoredSamplingParameter
+        expect(resolve).toBeTypeOf('function')
+        expect(resolve('temperature', 1)).toBe(0.01)
+        expect(resolve('top_k', 40)).toBe(40)
+        expect(resolve('top_p', 0.95)).toBe(0.95)
+        expect(resolve('presence_penalty', 125)).toBe(1.25)
+    })
+
+    test('validates already-normalized request values without rescaling them', () => {
+        const resolveApi = (shared as any).resolveApiSamplingParameter
+        expect(resolveApi).toBeTypeOf('function')
+        expect(resolveApi('temperature', 0.01)).toBe(0.01)
+        expect(resolveApi('presence_penalty', 0)).toBe(0)
+        expect(resolveApi('temperature', 2.01)).toBeUndefined()
+    })
+
+    test.each([
+        ['temperature', 201],
+        ['top_k', 101],
+        ['top_k', 1.5],
+        ['top_p', 1.01],
+        ['min_p', -0.01],
+        ['top_a', Number.NaN],
+        ['repetition_penalty', 2.01],
+        ['frequency_penalty', 201],
+        ['presence_penalty', -1],
+    ])('omits invalid %s value %s', (parameter, value) => {
+        expect((shared as any).resolveStoredSamplingParameter(parameter, value)).toBeUndefined()
+    })
+
+    test('applyParameters omits invalid values without changing the database', () => {
+        Object.assign(mocks.db, {
+            temperature: 201,
+            top_k: 101,
+            top_p: 1.01,
+            min_p: -0.01,
+            top_a: Number.NaN,
+            repetition_penalty: 2.01,
+            frequencyPenalty: 201,
+            PresensePenalty: -1,
+        })
+        const before = { ...mocks.db }
+
+        const result = applyParameters({}, [
+            'temperature', 'top_k', 'top_p', 'min_p', 'top_a',
+            'repetition_penalty', 'frequency_penalty', 'presence_penalty',
+        ] as any, {}, 'model', { modelId: 'model' })
+
+        expect(result).toEqual({})
+        expect(mocks.db).toEqual(before)
     })
 })
