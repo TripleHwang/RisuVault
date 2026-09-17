@@ -26,6 +26,7 @@ COPY packages/risubard-core ./packages/risubard-core
 COPY src/ts/risubard ./src/ts/risubard
 COPY scripts/portable ./scripts/portable
 COPY scripts/updater.cjs ./scripts/updater.cjs
+COPY scripts/updater-recovery.cjs ./scripts/updater-recovery.cjs
 RUN node scripts/portable/gen-server-deps.cjs . /tmp/server-deps-check \
     && cmp /tmp/server-deps-check/package.json scripts/portable/server-deps/package.json \
     && mkdir server-deps \
