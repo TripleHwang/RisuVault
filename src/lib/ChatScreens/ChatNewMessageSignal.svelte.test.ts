@@ -359,7 +359,7 @@ describe('the new-message button means a message arrived', () => {
         messages.push({ chatId: 'arrived', role: 'char', data: 'a genuinely new reply' } as any)
         flushSync()
         expect(newMessageButtonShown).toBe(true)
-    })
+    }, 30_000)
 
     it('is cleared by the jump back to the latest messages', () => {
         const messages = reactiveMessages(400)

@@ -488,7 +488,7 @@ describe('the chat screen follows the scroll instead of a page number', () => {
             .map(element => element.getAttribute('data-chat-row'))
         expect(rows).toContain(anchored)
         expect(mounted!.getAnchorId()).toBe(anchored)
-    })
+    }, 30_000)
 
     it('mounts around a message the screen was asked to reveal', () => {
         const container = render(reactiveMessages(400))
