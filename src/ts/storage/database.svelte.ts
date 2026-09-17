@@ -111,9 +111,40 @@ export function normalizeTheme(theme: string | undefined | null): string {
 }
 
 
-export function setDatabase(data:Database){
+/**
+ * Every default a database is guaranteed to carry, applied in place, and
+ * nothing else: no store is touched and no language is switched. This is the
+ * whole of `setDatabase` minus its installation step, split out so a database
+ * can be given its shape before anything installs it.
+ *
+ * Standalone SQL made that ordering matter. A first launch has no save file,
+ * so bootstrap encodes `{}` as the legacy save, decodes it back to `{}`, and
+ * hands that to the SQL migration -- and `buildSqlReplaceCommit` walks
+ * `database.characters` unguarded, because on every other launch the object
+ * it receives has been through these defaults. `{}` has not. Every fresh
+ * install therefore failed its migration with `Cannot read properties of
+ * undefined (reading 'forEach')` and started in legacy mode, with the
+ * migration-failure banner on screen, before `setDatabase` had ever run.
+ * `createFreshDatabase` below is the fresh install's way in.
+ *
+ * Idempotent, and must stay so: it runs here on the legacy object and again
+ * in `setDatabase` on whatever the SQL store reads back.
+ */
+export function applyDatabaseDefaults(data:Database):Database{
     if(checkNullish(data.characters)){
         data.characters = []
+    }
+    // Defaulted here and not only in bootstrap's `checkNewFormat`, which runs
+    // solely on a legacy-source launch. A metadata-first launch skips it, so a
+    // SQL database whose root rows never carried `characterOrder` reached the
+    // character vault as `undefined` and its `characterOrder.flatMap` threw an
+    // error dialog over the main screen on the second launch of a fresh
+    // install: the first launch migrated the fresh database before
+    // `checkNewFormat` had given it an order, and the in-memory `[]` set
+    // afterwards was never committed. Observed on a built app; `checkCharOrder`
+    // is not a substitute for the same reason.
+    if(checkNullish(data.characterOrder)){
+        data.characterOrder = []
     }
     if(checkNullish(data.apiType)){
         data.apiType = 'gemini-3-flash-preview'
@@ -1080,6 +1111,22 @@ export function setDatabase(data:Database){
         }
     }
     applyModelPresetDefaults(data)
+    return data
+}
+
+/**
+ * The database a first launch starts from. `{}` was the fresh save before, and
+ * that shape is only safe when `setDatabase` is the first thing to read it.
+ * With standalone SQL the migration reads it first, so the fresh save carries
+ * its defaults from the moment it is built, and the object the encoder walks
+ * has the same shape as every other database the encoder ever sees.
+ */
+export function createFreshDatabase():Database{
+    return applyDatabaseDefaults({} as Database)
+}
+
+export function setDatabase(data:Database){
+    applyDatabaseDefaults(data)
     changeLanguage(data.language)
     setDatabaseLite(data)
 }

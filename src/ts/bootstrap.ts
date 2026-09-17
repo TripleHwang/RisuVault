@@ -2,7 +2,7 @@ import { changeFullscreen, checkNullish } from "./util"
 import { installDynamicViewportHeight } from "./viewportHeight"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
+import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset, createFreshDatabase, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
@@ -180,7 +180,12 @@ export async function loadData() {
                     LoadingStatusState.text = language.startupLoading.decodingLocalSave
                     if (checkNullish(gotStorage)) {
                         createdFreshDatabase = true
-                        gotStorage = encodeRisuSaveLegacy({})
+                        // Not `{}`. The decoded save goes into the SQL
+                        // migration below before `setDatabase` sees it, and
+                        // the replace-all encoder iterates `characters`
+                        // without a guard. An empty object failed every fresh
+                        // install's migration and left it in legacy mode.
+                        gotStorage = encodeRisuSaveLegacy(createFreshDatabase())
                         await forageStorage.setItem('database/database.bin', gotStorage)
                     }
                     try {
