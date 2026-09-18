@@ -297,19 +297,11 @@ export function markSqlMessageDeleted(chatId: string, messageId: string): void {
     })
 }
 
-export function markSqlMessageManifestDirty(chatId: string): void {
-    if (!chatId) return
-    whenMarkable(chatId, () => {
-        registry.markMessageManifest(chatId)
-        scheduleDirtyFlush(false)
-    })
-}
-
-export function markSqlChatDirty(characterId: string, chatId: string, manifest = false): void {
+export function markSqlChatDirty(characterId: string, chatId: string): void {
     if (!characterId || !chatId) return
     const key = `${characterId}/${chatId}`
     deferUntilHydrationApplied(() => isHydrationApplying(key), () => {
-        registry.markChat(characterId, chatId, manifest)
+        registry.markChat(characterId, chatId)
         scheduleDirtyFlush(false)
     })
 }
@@ -629,7 +621,6 @@ async function rebaseDirtyScopes(storage: ISqlStorage, dirty: DirtySnapshot): Pr
     }
     const messageChatIds = new Set([
         ...dirty.messages.map(({ chatId }) => chatId),
-        ...dirty.messageManifestChatIds,
         ...dirty.messageDeletes.map(({ chatId }) => chatId),
     ])
     for (const chatId of messageChatIds) {
@@ -929,17 +920,16 @@ function auditChangedScopes(previous: CompatibilityBaseline, next: Compatibility
     const changedChats = changedKeys(new Map([...previous.chats].map(([id, value]) => [id, `${value.characterId}\u0000${value.signature}`])), new Map([...next.chats].map(([id, value]) => [id, `${value.characterId}\u0000${value.signature}`])))
     for (const chatId of changedChats) {
         const info = next.chats.get(chatId) ?? previous.chats.get(chatId)
-        if (info) markSqlChatDirty(info.characterId, chatId, true)
+        if (info) markSqlChatDirty(info.characterId, chatId)
     }
     if (characterOrderChanged) for (const id of next.characterOrder) markSqlCharacterDirty(id)
     for (const [characterId, order] of next.chatOrders) if (previous.chatOrders.get(characterId)?.join('\u0000') !== order.join('\u0000')) {
-        for (const chatId of order) markSqlChatDirty(characterId, chatId, true)
+        for (const chatId of order) markSqlChatDirty(characterId, chatId)
     }
     for (const [chatId, current] of next.messages) {
         const prior = previous.messages.get(chatId)
         if (!prior) {
             for (const id of current.order) markSqlMessageDirty(chatId, id)
-            if (current.complete) markSqlMessageManifestDirty(chatId)
             continue
         }
         const currentPrior = current.order.filter(id => prior.values.has(id))
@@ -956,9 +946,13 @@ function auditChangedScopes(previous: CompatibilityBaseline, next: Compatibility
         }
         for (const id of current.order) if (prior.values.get(id) !== current.values.get(id)) markSqlMessageDirty(chatId, id)
         deleteMissing(chatId, prior, current)
+        // A reorder rewrites every row's position; the ids that left the array
+        // were already named by `deleteMissing`. Nothing else is marked: a
+        // manifest here deleted every row this tab had not loaded, which is
+        // how a chat continued on a phone lost its newest messages to a PC tab
+        // still holding the older copy.
         if (current.complete && prior.order.join('\u0000') !== current.order.join('\u0000')) {
             for (const id of current.order) markSqlMessageDirty(chatId, id)
-            markSqlMessageManifestDirty(chatId)
         }
     }
 }

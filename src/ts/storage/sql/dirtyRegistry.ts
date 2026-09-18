@@ -1,9 +1,8 @@
 export type DirtySnapshot = {
     rootKeys: string[]
     characterIds: string[]
-    chats: Array<{ characterId: string; chatId: string; manifest: boolean }>
+    chats: Array<{ characterId: string; chatId: string }>
     messages: Array<{ chatId: string; messageIds: string[] }>
-    messageManifestChatIds: string[]
     messageDeletes: Array<{ chatId: string; messageIds: string[] }>
     pluginStorageKeys: string[]
     presetIds: string[]
@@ -12,7 +11,6 @@ export type DirtySnapshot = {
 type DirtyChat = {
     characterId: string
     chatId: string
-    manifest: boolean
     generation: number
 }
 
@@ -24,7 +22,6 @@ export class DirtyRegistry {
     private readonly characterIds = new Map<string, number>()
     private readonly chats = new Map<string, DirtyChat>()
     private readonly messages = new Map<string, Map<string, number>>()
-    private readonly messageManifestChatIds = new Map<string, number>()
     private readonly messageDeletes = new Map<string, Map<string, number>>()
     private readonly pluginStorageKeys = new Map<string, number>()
     private readonly presetIds = new Map<string, number>()
@@ -44,13 +41,10 @@ export class DirtyRegistry {
         this.characterIds.set(characterId, this.nextGeneration())
     }
 
-    markChat(characterId: string, chatId: string, manifest = false): void {
-        const key = this.chatKey(characterId, chatId)
-        const previous = this.chats.get(key)
-        this.chats.set(key, {
+    markChat(characterId: string, chatId: string): void {
+        this.chats.set(this.chatKey(characterId, chatId), {
             characterId,
             chatId,
-            manifest: previous?.manifest === true || manifest,
             generation: this.nextGeneration(),
         })
     }
@@ -71,10 +65,6 @@ export class DirtyRegistry {
      */
     hasMessage(chatId: string, messageId: string): boolean {
         return this.messages.get(chatId)?.has(messageId) === true
-    }
-
-    markMessageManifest(chatId: string): void {
-        this.messageManifestChatIds.set(chatId, this.nextGeneration())
     }
 
     markMessageDeleted(chatId: string, messageId: string): void {
@@ -98,10 +88,9 @@ export class DirtyRegistry {
                 .sort((a, b) => this.chatKey(a.characterId, a.chatId).localeCompare(this.chatKey(b.characterId, b.chatId)))
                 .map(chat => {
                     generations.set(this.chatScope(chat.characterId, chat.chatId), chat.generation)
-                    return { characterId: chat.characterId, chatId: chat.chatId, manifest: chat.manifest }
+                    return { characterId: chat.characterId, chatId: chat.chatId }
                 }),
             messages: this.snapshotNested('message', this.messages, generations),
-            messageManifestChatIds: this.snapshotKeys('message-manifest', this.messageManifestChatIds, generations),
             messageDeletes: this.snapshotNested('message-delete', this.messageDeletes, generations),
             pluginStorageKeys: this.snapshotKeys('plugin-storage', this.pluginStorageKeys, generations),
             presetIds: this.snapshotKeys('preset', this.presetIds, generations),
@@ -122,7 +111,6 @@ export class DirtyRegistry {
             if (current?.generation === generations.get(this.chatScope(chat.characterId, chat.chatId))) this.chats.delete(key)
         }
         this.acknowledgeNested('message', snapshot.messages, this.messages, generations)
-        this.acknowledgeKeys('message-manifest', snapshot.messageManifestChatIds, this.messageManifestChatIds, generations)
         this.acknowledgeNested('message-delete', snapshot.messageDeletes, this.messageDeletes, generations)
         this.acknowledgeKeys('plugin-storage', snapshot.pluginStorageKeys, this.pluginStorageKeys, generations)
         this.acknowledgeKeys('preset', snapshot.presetIds, this.presetIds, generations)
@@ -251,7 +239,6 @@ export class DirtyRegistry {
             || this.characterIds.size > 0
             || this.chats.size > 0
             || this.messages.size > 0
-            || this.messageManifestChatIds.size > 0
             || this.messageDeletes.size > 0
             || this.pluginStorageKeys.size > 0
             || this.presetIds.size > 0

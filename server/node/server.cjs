@@ -1879,9 +1879,11 @@ async function checkDiskSpace(requiredBytes) {
 // same protection extends across devices. Lock rules live in session-lock.cjs:
 // page loads REGISTER but never steal the lock (an OS-restored phone tab must
 // not kick a PC mid-session); ownership moves on the first WRITE from a
-// freshly-booted session, and only stale sessions get 423.
+// freshly-booted session, and only stale sessions get 423. The holder and the
+// boot table are persisted so a server restart does not kick the device that
+// was writing (a free lock rejects every pre-restart tab).
 const { createSessionLock } = require('./session-lock.cjs');
-const sessionLock = createSessionLock();
+const sessionLock = createSessionLock({ statePath: path.join(savePath, '__session_lock') });
 
 function checkActiveSession(req, res) {
     const clientSessionId = req.headers['x-session-id']

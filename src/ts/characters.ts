@@ -23,7 +23,7 @@ import { clearCharacterVaultNew, pinCharacterVaultQuickAccess } from './characte
 import { resetImportedBardWikiState } from './risubard/chatImportMemory'
 import { completeMemoryWikiFork, forkMemoryWiki } from './risubard/memoryWikiFork'
 import { withSaverScope } from './performance/saverMode'
-import { markSqlCharacterDirty, markSqlChatDirty, markSqlMessageDirty, markSqlMessageManifestDirty } from './storage/sql/sqlPersistenceRuntime';
+import { markSqlCharacterDirty, markSqlChatDirty, markSqlMessageDirty } from './storage/sql/sqlPersistenceRuntime';
 import { runtimeMetrics } from './performance/runtimeMetrics'
 import { needsCharacterRuntimeNormalization } from './characterRuntime'
 
@@ -31,9 +31,8 @@ import { needsCharacterRuntimeNormalization } from './characterRuntime'
 function markImportedChat(characterId: string, chat: Chat): void {
     chat.id ||= uuidv4()
     for (const message of chat.message ?? []) message.chatId ||= uuidv4()
-    markSqlChatDirty(characterId, chat.id, true)
+    markSqlChatDirty(characterId, chat.id)
     for (const message of chat.message ?? []) markSqlMessageDirty(chat.id, message.chatId!, true)
-    if ((chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(chat.id)
 }
 
 /** An unshift changes every sibling's SQL position, not only the imported rows. */
@@ -699,7 +698,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character, arg:{
         cha.chats[cha.chatPage].message = []
     }
     cha.chats[cha.chatPage].id ||= uuidv4()
-    markSqlChatDirty(cha.chaId!, cha.chats[cha.chatPage].id!, true)
+    markSqlChatDirty(cha.chaId!, cha.chats[cha.chatPage].id!)
     if(!cha.type){
         cha.type = 'character'
     }

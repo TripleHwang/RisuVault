@@ -303,7 +303,38 @@ describe('SQL persistence runtime', () => {
         expect(storage.commit).not.toHaveBeenCalled()
         database.characters[0].chats[0].messagesFullyLoaded = true
         auditSqlCompatibilityDatabase(database); await flushSqlDirtyChanges()
-        expect(storage.commit).toHaveBeenCalledWith(expect.objectContaining({ messageManifests: [{ chatId: 'chat-a', ids: ['m-0', 'm-middle', 'm-1'] }] }))
+        // Every row at its new position, and nothing that could delete a row
+        // this tab does not hold: the reorder used to ride on a manifest.
+        const [commit] = (storage.commit as any).mock.calls[0]
+        expect(commit.messages.map(({ id, position }: any) => [id, position]).sort()).toEqual([
+            ['m-0', 0], ['m-1', 2], ['m-middle', 1],
+        ])
+        expect(commit.messageManifests).toEqual([])
+    })
+
+    it('never builds a manifest for a chat another device may have appended to', async () => {
+        // The multi-device loss: a phone wrote m-2 after this tab loaded the
+        // chat, so this tab's copy ends at m-1. Removing m-0 here must delete
+        // m-0 alone. A manifest of this tab's ids would also have deleted m-2.
+        const storage = fakeStorageAtRevision(3); const database = fixtureDatabaseWithMessages(2)
+        activateSqlPersistenceRuntime(storage, database); initializeSqlCompatibilityBaseline(database)
+        database.characters[0].chats[0].message.splice(0, 1)
+        auditSqlCompatibilityDatabase(database); await flushSqlDirtyChanges()
+        const [commit] = (storage.commit as any).mock.calls[0]
+        expect(commit.messageManifests).toEqual([])
+        expect(commit.chatManifests).toEqual([])
+        expect(commit.messageDeletes).toEqual([{ chatId: 'chat-a', ids: ['m-0'] }])
+    })
+
+    it('deletes a chat removed in this tab by id, never by a manifest of the survivors', async () => {
+        const storage = fakeStorageAtRevision(3); const database = fixtureDatabaseWithMessages(0)
+        database.characters[0].chats.push({ id: 'chat-b', message: [] })
+        activateSqlPersistenceRuntime(storage, database); initializeSqlCompatibilityBaseline(database)
+        database.characters[0].chats.splice(0, 1)
+        auditSqlCompatibilityDatabase(database); await flushSqlDirtyChanges()
+        const [commit] = (storage.commit as any).mock.calls[0]
+        expect(commit.chatDeletes).toEqual([{ characterId: 'character-a', id: 'chat-a' }])
+        expect(commit.chatManifests).toEqual([])
     })
 })
 

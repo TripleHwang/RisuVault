@@ -254,9 +254,8 @@ export class WebSqliteStorage implements ISqlStorage {
     if (commit.replaceAll) ids.clear();
     for (const id of commit.presets.deletes) ids.delete(id);
     for (const entry of commit.presets.upserts) ids.add(entry.id);
-    const manifest = commit.presets.manifest === true;
-    const desiredIds = manifest ? new Set(commit.presets.order ?? []) : ids;
-    if (desiredIds.size === 0 && !manifest) throw new Error("At least one bot preset must remain");
+    const desiredIds = ids;
+    if (desiredIds.size === 0) throw new Error("At least one bot preset must remain");
     if (
       commit.presets.order &&
       (commit.presets.order.length !== desiredIds.size ||

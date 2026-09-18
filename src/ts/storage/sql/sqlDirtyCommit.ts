@@ -230,16 +230,20 @@ export function buildSqlDirtyCommit(
 
   for (const dirtyChat of dirty.chats) {
     const found = findChat(database, dirtyChat.chatId);
-    if (!found || found[0].chaId !== dirtyChat.characterId) {
-      const parent = findCharacter(database, dirtyChat.characterId)?.[0];
-      if (dirtyChat.manifest && parent) {
-        commit.chatManifests.push({
-          characterId: dirtyChat.characterId,
-          ids: (parent.chats ?? []).map((item) => item.id).filter((id): id is string => Boolean(id)),
-        });
-      }
+    // A dirty chat that is nowhere in memory was deleted here, and only that
+    // chat is deleted in storage. This used to be a manifest of the parent's
+    // remaining chat ids -- "delete every chat of this character not in my
+    // list" -- and the list was only ever what THIS tab had loaded. A chat
+    // created on another device is not in it, so the manifest deleted that
+    // chat and, through the cascade, every message in it. Rows this tab never
+    // saw cannot be its to remove.
+    if (!found) {
+      commit.chatDeletes!.push({ characterId: dirtyChat.characterId, id: dirtyChat.chatId });
       continue;
     }
+    // Found under another character: the chat moved. Its new pairing is dirty
+    // too and writes the row with the new `character_id`; nothing is deleted.
+    if (found[0].chaId !== dirtyChat.characterId) continue;
     const [, chat, , position] = found;
     // The same refusal as the character loop above, for the same reason, and
     // for a longer list of fields.
@@ -269,16 +273,6 @@ export function buildSqlDirtyCommit(
         "as storage has it.",
       );
       onRefusedChat?.(dirtyChat.characterId, dirtyChat.chatId);
-      // The manifest is still pushed. It is the parent character's list of chat
-      // IDs -- a fact about the character, not about this chat's contents -- and
-      // withholding it would let a genuine creation, deletion or reorder go
-      // unrecorded because one unopened chat happened to be in the same flush.
-      if (dirtyChat.manifest) {
-        commit.chatManifests.push({
-          characterId: dirtyChat.characterId,
-          ids: (found[0].chats ?? []).map((item) => item.id).filter((id): id is string => Boolean(id)),
-        });
-      }
       continue;
     }
     commit.chats.push({
@@ -287,12 +281,6 @@ export function buildSqlDirtyCommit(
       position,
       data: sqlChatData(chat),
     });
-    if (dirtyChat.manifest) {
-      commit.chatManifests.push({
-        characterId: dirtyChat.characterId,
-        ids: (found[0].chats ?? []).map((item) => item.id).filter((id): id is string => Boolean(id)),
-      });
-    }
   }
 
   for (const group of dirty.messages) {
@@ -336,15 +324,11 @@ export function buildSqlDirtyCommit(
     }
   }
 
-  for (const chatId of dirty.messageManifestChatIds) {
-    const found = findChat(database, chatId);
-    if (!found || messageWindowIsIncomplete(found[1] as RuntimeChat)) continue;
-    commit.messageManifests.push({
-      chatId,
-      ids: (found[1].message ?? []).map((message) => message.chatId).filter((id): id is string => Boolean(id)),
-    });
-  }
-
+  // Removals travel only as the ids below. There is no message manifest on
+  // this path any more, for the reason given at the chat loop: every caller
+  // that removed a message already named it with `markSqlMessageDeleted`, so
+  // the manifest's "delete what is not in my array" added nothing except the
+  // deletion of rows another device wrote after this tab loaded the chat.
   for (const deletion of dirty.messageDeletes) {
     if (deletion.messageIds.length)
       commit.messageDeletes!.push({ chatId: deletion.chatId, ids: [...deletion.messageIds] });
@@ -426,10 +410,14 @@ export function buildSqlDirtyCommit(
     const ids = presets.map((preset) => preset.id).filter((id): id is string => Boolean(id));
     const activeIndex = Math.max(0, Math.min(Number(database.botPresetsId) || 0, ids.length - 1));
     const activeSelectionChanged = deletes.length > 0;
+    // A dirty list travels as its order, never as a manifest: the audit marks
+    // every preset that left the list as dirty, so removals are already in
+    // `deletes` above, and "delete what is not in my order" would only add the
+    // presets another device saved that this tab has not loaded.
     commit.presets = {
       upserts,
       deletes,
-      ...(presetListDirty ? { order: ids, manifest: true } : {}),
+      ...(presetListDirty ? { order: ids } : {}),
       ...(presetListDirty || presetActiveDirty || activeSelectionChanged
         ? { activeId: ids[activeIndex] ?? null }
         : {}),

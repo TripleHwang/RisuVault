@@ -20,12 +20,12 @@
     import { onDestroy, onMount } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
-    import { markSqlChatDirty, markSqlMessageDeleted, markSqlMessageDirty, markSqlMessageManifestDirty } from 'src/ts/storage/sql/sqlPersistenceRuntime'
+    import { markSqlChatDirty, markSqlMessageDeleted, markSqlMessageDirty } from 'src/ts/storage/sql/sqlPersistenceRuntime'
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertInput, alertRequestData, alertWait, notifyError, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, setCurrentChat, type Chat, type MessageGenerationInfo, type StreamingDisplayOptimizationMode } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, setCurrentChat, type MessageGenerationInfo, type StreamingDisplayOptimizationMode } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
@@ -201,7 +201,6 @@
         }
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
         for (const removed of removedMessages) if (removed?.chatId) markSqlMessageDeleted(currentChat.id!, removed.chatId)
-        if ((currentChat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(currentChat.id!)
     }
 
     async function edit(){

@@ -14,12 +14,11 @@ describe('DirtyRegistry', () => {
         registry.markCharacter('character-z')
         registry.markCharacter('character-a')
         registry.markChat('character-b', 'chat-z')
-        registry.markChat('character-a', 'chat-a', true)
+        registry.markChat('character-a', 'chat-a')
         registry.markChat('character-a', 'chat-a')
         registry.markMessage('chat-z', 'message-z')
         registry.markMessage('chat-z', 'message-a')
         registry.markMessage('chat-z', 'message-a')
-        registry.markMessageManifest('chat-z')
         registry.markMessageDeleted('chat-z', 'message-z')
         registry.markMessageDeleted('chat-z', 'message-a')
         registry.markPluginStorage('plugin-z')
@@ -31,11 +30,10 @@ describe('DirtyRegistry', () => {
             rootKeys: ['a', 'z'],
             characterIds: ['character-a', 'character-z'],
             chats: [
-                { characterId: 'character-a', chatId: 'chat-a', manifest: true },
-                { characterId: 'character-b', chatId: 'chat-z', manifest: false },
+                { characterId: 'character-a', chatId: 'chat-a' },
+                { characterId: 'character-b', chatId: 'chat-z' },
             ],
             messages: [{ chatId: 'chat-z', messageIds: ['message-a', 'message-z'] }],
-            messageManifestChatIds: ['chat-z'],
             messageDeletes: [{ chatId: 'chat-z', messageIds: ['message-a', 'message-z'] }],
             pluginStorageKeys: ['plugin-a', 'plugin-z'],
             presetIds: ['preset-a', 'preset-z'],

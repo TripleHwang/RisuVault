@@ -185,7 +185,7 @@ describe('cost of one revision conflict', () => {
             for (let index = 0; index < scopes.characters; index++) markSqlCharacterDirty(database.characters[index].chaId)
             for (let index = 0; index < scopes.chats; index++) {
                 const character = database.characters[index]
-                markSqlChatDirty(character.chaId, character.chats[0].id, true)
+                markSqlChatDirty(character.chaId, character.chats[0].id)
             }
             const openChat = database.characters
                 .flatMap((character: any) => character.chats).find((chat: any) => chat.message.length > 0)

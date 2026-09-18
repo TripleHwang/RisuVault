@@ -14,14 +14,17 @@ describe('SQL mutation persistence contracts', () => {
         expect(scripting).toMatch(/declareAPI\('setFullChatMain'[\s\S]*?chatId: v4\(\)[\s\S]*?markSqlMessageDeleted[\s\S]*?markSqlMessageDirty/)
     })
 
-    it('persists legacy and v2 trigger edits and cuts without a partial manifest', () => {
+    it('persists legacy and v2 trigger edits and cuts by explicit message id, never by manifest', () => {
         const triggers = source('src/ts/process/triggers.ts')
 
         expect(triggers).toMatch(/case 'modifychat':[\s\S]*?markSqlMessageDirty\(chat\.id!, chat\.message\[index\]\.chatId!\)/)
         expect(triggers).toMatch(/case 'v2ModifyChat':[\s\S]*?markSqlMessageDirty\(chat\.id!, chat\.message\[index\]\.chatId!\)/)
         expect(triggers).toMatch(/case 'cutchat':[\s\S]*?markSqlMessageDeleted/)
         expect(triggers).toMatch(/case 'v2CutChat':[\s\S]*?markSqlMessageDeleted/)
-        expect(triggers).toMatch(/messagesFullyLoaded[^\n]+!== false\) markSqlMessageManifestDirty/)
+        // A manifest is "delete every row not in my array", and the array is
+        // only what this tab has loaded; it deleted messages another device
+        // wrote. The removals above already name every id a cut drops.
+        expect(triggers).not.toMatch(/markSqlMessageManifestDirty/)
     })
 
     it('persists bookmark metadata through the owning chat row', () => {

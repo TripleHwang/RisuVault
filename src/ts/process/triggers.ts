@@ -16,7 +16,7 @@ import { generateAIImage } from "./stableDiff";
 import { writeInlayImage } from "./files/inlays";
 import { runScripted } from "./scriptings";
 import { calcString } from "./infunctions";
-import { markSqlMessageDeleted, markSqlMessageDirty, markSqlMessageManifestDirty } from '../storage/sql/sqlPersistenceRuntime';
+import { markSqlMessageDeleted, markSqlMessageDirty } from '../storage/sql/sqlPersistenceRuntime';
 import { v4 } from 'uuid';
 
 
@@ -1407,7 +1407,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const keptIds = new Set(kept.map(message => message.chatId).filter(Boolean))
                     for (const message of before) if (message.chatId && !keptIds.has(message.chatId)) markSqlMessageDeleted(chat.id!, message.chatId)
                     chat.message = kept
-                    if ((chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(chat.id!)
                     break
                 }
                 case 'modifychat':{
@@ -1831,7 +1830,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const keptIds = new Set(kept.map(message => message.chatId).filter(Boolean))
                     for (const message of before) if (message.chatId && !keptIds.has(message.chatId)) markSqlMessageDeleted(chat.id!, message.chatId)
                     chat.message = kept
-                    if ((chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(chat.id!)
                     break
                 }
                 case 'v2ModifyChat':{

@@ -23,7 +23,7 @@ import {
 
 const cleanDirty = (): DirtySnapshot => ({
     rootKeys: [], characterIds: [], chats: [], messages: [],
-    messageManifestChatIds: [], messageDeletes: [], pluginStorageKeys: [], presetIds: [],
+    messageDeletes: [], pluginStorageKeys: [], presetIds: [],
 })
 
 function fixtureDatabase(extra: Record<string, unknown> = {}) {

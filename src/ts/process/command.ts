@@ -9,7 +9,7 @@ import { chatGenKey, endGeneration } from "./generationState";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
 import { v4 as uuidv4 } from 'uuid';
-import { markSqlMessageDeleted, markSqlMessageDirty, markSqlMessageManifestDirty } from '../storage/sql/sqlPersistenceRuntime';
+import { markSqlMessageDeleted, markSqlMessageDirty } from '../storage/sql/sqlPersistenceRuntime';
 
 function markCommandMessage(message: { chatId?: string }, chatId: string, immediate = false) {
     message.chatId ||= uuidv4()
@@ -17,7 +17,6 @@ function markCommandMessage(message: { chatId?: string }, chatId: string, immedi
 }
 function markCommandRemoval(chat: any, removed: Array<{ chatId?: string }>) {
     for (const message of removed) if (message.chatId) markSqlMessageDeleted(chat.id, message.chatId)
-    if (chat.messagesFullyLoaded !== false) markSqlMessageManifestDirty(chat.id)
 }
 
 export async function processMultiCommand(command:string) {

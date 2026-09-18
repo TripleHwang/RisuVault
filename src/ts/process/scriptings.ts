@@ -12,7 +12,7 @@ import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
 import { v4 } from "uuid";
-import { markSqlMessageDeleted, markSqlMessageDirty, markSqlMessageManifestDirty } from '../storage/sql/sqlPersistenceRuntime';
+import { markSqlMessageDeleted, markSqlMessageDirty } from '../storage/sql/sqlPersistenceRuntime';
 import { getModuleLorebooks, getModuleTriggers } from "./modules";
 import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
@@ -278,7 +278,6 @@ export async function runScripted(code:string, arg:{
                 const keptIds = new Set(kept.map(message => message.chatId).filter(Boolean))
                 for (const message of before) if (message.chatId && !keptIds.has(message.chatId)) markSqlMessageDeleted(ScriptingEngineState.chat.id!, message.chatId)
                 ScriptingEngineState.chat.message = kept
-                if ((ScriptingEngineState.chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(ScriptingEngineState.chat.id!)
             })
             declareAPI('removeChat', (id:string, index:number) => {
                 if(!ScriptingSafeIds.has(id)){
@@ -286,7 +285,6 @@ export async function runScripted(code:string, arg:{
                 }
                 const [removed] = ScriptingEngineState.chat.message.splice(index, 1)
                 if (removed?.chatId) markSqlMessageDeleted(ScriptingEngineState.chat.id!, removed.chatId)
-                if ((ScriptingEngineState.chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded !== false) markSqlMessageManifestDirty(ScriptingEngineState.chat.id!)
             })
             declareAPI('addChat', (id:string, role:string, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
@@ -302,12 +300,11 @@ export async function runScripted(code:string, arg:{
                 }
                 let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
                 // Middle inserts would renumber a partial SQL history; defer to a
-                // complete history before changing its manifest.
+                // complete history before changing its order.
                 if ((ScriptingEngineState.chat as Chat & { messagesFullyLoaded?: boolean }).messagesFullyLoaded === false) throw new Error('Cannot insert into partial chat history')
                 const inserted = {role: roleData, data: value ?? '', chatId: v4()}
                 ScriptingEngineState.chat.message.splice(index, 0, inserted)
                 markSqlMessageDirty(ScriptingEngineState.chat.id!, inserted.chatId, true)
-                markSqlMessageManifestDirty(ScriptingEngineState.chat.id!)
             })
 
             declareAPI('getTokens', async (id:string, value:string) => {
@@ -365,7 +362,6 @@ export async function runScripted(code:string, arg:{
                 for (const message of before) if (message.chatId) markSqlMessageDeleted(ScriptingEngineState.chat.id!, message.chatId)
                 ScriptingEngineState.chat.message = next
                 for (const message of next) markSqlMessageDirty(ScriptingEngineState.chat.id!, message.chatId!, true)
-                markSqlMessageManifestDirty(ScriptingEngineState.chat.id!)
             })
 
             declareAPI('logMain', (value:string) => {

@@ -275,14 +275,6 @@ export async function applySqliteCommit(
         ],
       );
     }
-    if (commit.presets.manifest) {
-      const ids = commit.presets.order ?? [];
-      if (!ids.length) await execute("DELETE FROM bot_presets");
-      else await execute(
-        `DELETE FROM bot_presets WHERE preset_id NOT IN (${ids.map(() => "?").join(",")})`,
-        ids,
-      );
-    }
     if (commit.presets.order) {
       await execute("UPDATE bot_presets SET position = position + 1000000000");
       for (const [position, id] of commit.presets.order.entries()) {
@@ -405,6 +397,18 @@ export async function applySqliteCommit(
       ["chat_id"],
       [entry.id],
       data,
+    );
+  }
+  // After the upserts on purpose. The `character_id` guard is what keeps a
+  // delete from reaching a chat that moved to another character, and it only
+  // works once the upsert above has rewritten `character_id` in place. Run
+  // first, the delete would still match the old pairing, take the row and --
+  // through the cascade -- its messages, and the upsert would then recreate
+  // the chat empty.
+  for (const deletion of commit.chatDeletes ?? []) {
+    await execute(
+      "DELETE FROM chats WHERE id = ? AND character_id = ?",
+      [deletion.id, deletion.characterId],
     );
   }
   for (const manifest of commit.chatManifests) {

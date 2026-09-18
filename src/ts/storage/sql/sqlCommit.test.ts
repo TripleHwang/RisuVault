@@ -148,16 +148,55 @@ describe("RisuVault SQL row commits", () => {
     });
   });
 
-  it("uses a preset manifest to remove absent presets and clear the active setting", async () => {
+  it("deletes only the named chat row, guarded by its character", async () => {
     const commit = createEmptySqlCommit(1);
-    commit.presets = { upserts: [], deletes: [], order: [], activeId: null, manifest: true };
+    commit.chatDeletes = [{ characterId: "character-1", id: "chat-removed" }];
     const statements: { sql: string; bind: unknown[] }[] = [];
 
     await applySqliteCommit(commit, (sql, bind = []) => {
       statements.push({ sql, bind });
     });
 
-    expect(statements).toContainEqual({ sql: "DELETE FROM bot_presets", bind: [] });
+    expect(statements).toEqual([{
+      sql: "DELETE FROM chats WHERE id = ? AND character_id = ?",
+      bind: ["chat-removed", "character-1"],
+    }]);
+    expect(statements.some(({ sql }) => sql.includes("NOT IN"))).toBe(false);
+  });
+
+  it("runs chat deletes after chat upserts so a moved chat keeps its row", async () => {
+    // The delete is guarded by `character_id`. That guard only protects a chat
+    // that moved between characters if the upsert has already rewritten the
+    // column; run first, the delete would match the old pairing and the
+    // cascade would take the chat's messages with it.
+    const commit = createEmptySqlCommit(1);
+    commit.chats.push({ id: "chat-moved", characterId: "character-2", position: 0, data: { name: "moved" } });
+    commit.chatDeletes = [{ characterId: "character-1", id: "chat-moved" }];
+    const statements: string[] = [];
+
+    await applySqliteCommit(commit, (sql) => { statements.push(sql); });
+
+    const upsert = statements.findIndex((sql) => sql.includes("INSERT INTO chats"));
+    const deletion = statements.findIndex((sql) => sql.startsWith("DELETE FROM chats WHERE id = ?"));
+    expect(upsert).toBeGreaterThanOrEqual(0);
+    expect(deletion).toBeGreaterThan(upsert);
+  });
+
+  it("reorders presets without deleting the ones the order does not mention", async () => {
+    // The order is what this tab has in memory; a preset saved by another
+    // device is not in it and must keep its row.
+    const commit = createEmptySqlCommit(1);
+    commit.presets = { upserts: [], deletes: ["preset-removed"], order: ["preset-b", "preset-a"], activeId: null };
+    const statements: { sql: string; bind: unknown[] }[] = [];
+
+    await applySqliteCommit(commit, (sql, bind = []) => {
+      statements.push({ sql, bind });
+    });
+
+    const presetDeletes = statements.filter(({ sql }) => sql.startsWith("DELETE FROM bot_presets"));
+    expect(presetDeletes).toEqual([{ sql: "DELETE FROM bot_presets WHERE preset_id = ?", bind: ["preset-removed"] }]);
+    expect(statements.some(({ sql }) => /NOT IN/.test(sql))).toBe(false);
+    expect(statements).toContainEqual({ sql: "UPDATE bot_presets SET position = ? WHERE preset_id = ?", bind: [0, "preset-b"] });
     expect(statements).toContainEqual({ sql: "DELETE FROM system_settings WHERE key = ?", bind: ["activeBotPresetId"] });
   });
 

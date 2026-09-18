@@ -53,17 +53,35 @@ export interface SqlCommit {
   presets?: {
     upserts: SqlPresetUpsert[];
     deletes: string[];
+    /**
+     * Positions for the listed ids only. Rows the list does not mention keep
+     * their row and sort after it -- there is no manifest for presets, for the
+     * same reason there is none for chats (see `chatDeletes`).
+     */
     order?: string[];
-    /** Reconcile the stored list to order, including removal of absent IDs. */
-    manifest?: boolean;
     activeId?: string | null;
   };
   characters: SqlEntityUpsert[];
   characterDeletes?: string[];
   characterIds?: string[];
   chats: SqlChatUpsert[];
+  /**
+   * Chats deleted by id. The dirty path records a removal this way and never as
+   * a manifest: a manifest is "delete every chat of this character that is
+   * not in MY list", and the list is only what this tab has in memory. Another
+   * device's new chat is absent from that list, so the manifest wiped it --
+   * and its messages with it, through the cascade. An explicit id can only
+   * remove a row this tab actually saw.
+   */
+  chatDeletes?: { characterId: string; id: string }[];
+  /** Whole-list reconciliation; only import and migration build these. */
   chatManifests: { characterId: string; ids: string[] }[];
   messages: SqlMessageUpsert[];
+  /**
+   * Same rule as `chatManifests`: replace-all and the whole-database diff
+   * build these, the dirty path does not. A removal made in this tab is
+   * always an explicit `messageDeletes` entry.
+   */
   messageManifests: { chatId: string; ids: string[] }[];
   messageDeletes?: { chatId: string; ids: string[] }[];
 }
@@ -90,6 +108,7 @@ export function createEmptySqlCommit(
     characters: [],
     characterDeletes: [],
     chats: [],
+    chatDeletes: [],
     chatManifests: [],
     messages: [],
     messageManifests: [],
@@ -112,6 +131,7 @@ export function hasSqlCommitChanges(commit: SqlCommit): boolean {
       commit.characterDeletes?.length ||
       commit.characterIds ||
       commit.chats.length ||
+      commit.chatDeletes?.length ||
       commit.chatManifests.length ||
       commit.messages.length ||
       commit.messageManifests.length ||

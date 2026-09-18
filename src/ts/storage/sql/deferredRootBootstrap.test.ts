@@ -99,7 +99,6 @@ function emptyDirty(overrides: Partial<DirtySnapshot> = {}): DirtySnapshot {
     characterIds: [],
     chats: [],
     messages: [],
-    messageManifestChatIds: [],
     messageDeletes: [],
     pluginStorageKeys: [],
     presetIds: [],
