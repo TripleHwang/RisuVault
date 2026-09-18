@@ -13,7 +13,7 @@ export const PAGEFOLD_PROVIDER_NAME = "PageFold";
  * out of the initial application chunk without changing provider semantics.
  */
 export async function loadBuiltInPageFoldPlugin(): Promise<RisuPlugin> {
-  const { default: script } = await import("./pagefold-0.1.1-fix.js?raw");
+  const { default: script } = await import("./pagefold-0.2.5-fix.js?raw");
 
   return Object.freeze({
     name: PAGEFOLD_PLUGIN_NAME,
@@ -24,7 +24,7 @@ export async function loadBuiltInPageFoldPlugin(): Promise<RisuPlugin> {
     version: "3.0",
     customLink: [],
     argMeta: {},
-    versionOfPlugin: "0.1.1",
+    versionOfPlugin: "0.2.5",
     enabled: true,
     builtIn: true,
   });

@@ -98,6 +98,24 @@ describe('ModelPreset PageFold dispatch', () => {
         }
     )
 
+    test('flags structured output when a schema is injected as a prompt fallback', async () => {
+        // PageFold rewrites "\n" escapes in plain-text answers into real line
+        // breaks; a schema answer must stay verbatim or JSON.parse rejects it.
+        let received: PluginV2ProviderArgument | undefined
+        pluginV2.builtInProviders.set(PAGEFOLD_PROVIDER_NAME, vi.fn(async (arg) => {
+            received = arg
+            return { success: true, content: '{"summary":"a\\nb"}' }
+        }))
+
+        const schema = JSON.stringify({ type: 'object', properties: { summary: { type: 'string' } } })
+        await requestPageFoldPreset({ ...requestArg(), schema }, preset(), 'memory', null, { apiKey: 'preset-google-key' }, 2048)
+        expect(received?.structured_output).toBe(true)
+        expect(received?.prompt_chat[0]?.content).toContain('summary')
+
+        await requestPageFoldPreset(requestArg(), preset(), 'model', null, { apiKey: 'preset-google-key' }, 2048)
+        expect(received?.structured_output).toBe(false)
+    })
+
     test('collects a text stream returned by the provider', async () => {
         pluginV2.builtInProviders.set(PAGEFOLD_PROVIDER_NAME, vi.fn(async () => ({
             success: true,

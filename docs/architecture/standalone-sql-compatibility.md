@@ -48,7 +48,7 @@ deletion without serializing the whole database into a blob.
 
 ## PageFold
 
-PageFold 0.1.1 is loaded as a hidden, trusted built-in API v3 transport. It is
+PageFold 0.2.5 is loaded as a hidden, trusted built-in API v3 transport. It is
 not a selectable model. Each ModelPreset exposes an opt-in PageFold switch in
 Advanced settings; the shared ModelPreset dispatcher applies it consistently to
 main, sub/auxiliary, memory, emotion, translation and other model-bound requests.
@@ -58,8 +58,9 @@ Google AI Studio, Vertex Gemini Native, OpenRouter and LLM Gateway profiles are
 supported; incompatible profiles cannot enable the switch. Vertex service-account
 JSON is exchanged by the host and only the short-lived access token crosses the
 built-in plugin boundary. The ephemeral route is never written to PageFold
-storage or request logs. Save-backed PageFold storage holds only packaging and
-statistics preferences used across presets.
+storage or request logs. Save-backed PageFold storage holds PageFold's own
+settings (packaging options, model profiles and their keys); request logs,
+statistics and the per-device toast/logging switches stay in local storage.
 
 It is opt-in and defaults off, so imported Risu presets and existing requests are
 unchanged. PageFold requests intentionally disable streaming, tools, image input,

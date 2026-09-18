@@ -26,9 +26,14 @@ the origin and the changes made for this tree.
 
 ## Bundled PageFold provider
 
-`src/ts/builtin/pagefold-0.1.1-fix.js` is the user-supplied PageFold 0.1.1
+`src/ts/builtin/pagefold-0.2.5-fix.js` is the user-supplied PageFold 0.2.5
 provider bundle. The built-in wrapper preserves its version metadata and runs
-it through the existing Risu plugin API v3 sandbox.
+it through the existing Risu plugin API v3 sandbox. The blocks marked
+"RisuVault:" in that file are RisuVault's patch, not upstream code: the fixed
+"PageFold" provider registration, the per-request `pagefold_route` preset hook
+(`applyPresetRoute`), the Vertex `baseUrl`/`headers` pass-through it needs, and
+the migration of the config the bundled 0.1.1 build stored in save-backed
+plugin storage (which also removes the font cache blobs that build left there).
 
 ## Third-party icons
 

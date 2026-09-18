@@ -136,6 +136,13 @@ export async function requestPageFoldPreset(
         presence_penalty: resolvePageFoldPresetNumber(preset, ['presence_penalty', 'presencePenalty'], 0),
         repetition_penalty: resolvePageFoldPresetNumber(preset, ['repetition_penalty', 'repetitionPenalty'], 0),
         min_p: resolvePageFoldPresetNumber(preset, ['min_p', 'minP'], 0),
+        // The schema went in as a prompt fallback, so the model answers with
+        // JSON text. PageFold rewrites "\n" escapes in plain-text answers into
+        // real line breaks; that would put raw control characters inside the
+        // JSON strings and the strict parser upstream rejects them. Flagging
+        // structured output keeps the answer verbatim, as request.ts does for
+        // every other plugin provider.
+        structured_output: Boolean(arg.schema),
         pagefold_route: pagefoldRoute,
     }
     const response = await provider(providerArg, abortSignal ?? undefined)
