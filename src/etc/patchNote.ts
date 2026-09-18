@@ -1,5 +1,5 @@
 export const patchNote = {
-    version: "0.3.32",
+    version: "0.3.33",
     content: 
 `
 # RisuVault 0.3.33
