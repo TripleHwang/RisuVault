@@ -1432,16 +1432,29 @@ interface RisuaiPluginAPI {
      * Gets a chat by index
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
-     * @returns Chat object or null if not found
+     * @returns Chat object, or null when its settings are not loaded yet.
+     *   On a long conversation `message` may be a window of the history: the
+     *   returned object then carries `messagesFullyLoaded: false` and, when
+     *   the host knows it, `messageTotal` (the persisted message count).
      */
     getChatFromIndex(characterIndex: number, chatIndex: number): Promise<any|null>;
-    
+
 
     /**
      * Saves a chat at a specific index
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
-     * @param chat - Chat object to save
+     * @param chat - Chat object to save. Write back the object
+     *   `getChatFromIndex` returned, edited: it names the chat it came from,
+     *   and a chat with another id (or a copy of a chat that has since moved
+     *   to another index) is refused with an error. When the chat's history
+     *   is only partially loaded (`messagesFullyLoaded === false`), every
+     *   field except `message` is applied and the resident messages are kept;
+     *   a `message` array that was added to, reordered or given ids the chat
+     *   does not hold is refused with an error and nothing is written. On a
+     *   fully loaded chat `message` is replaced, except when the user sent a
+     *   message after the chat was read: the live messages are then kept and
+     *   the other fields are applied.
      */
     setChatToIndex(characterIndex: number, chatIndex: number, chat: any): Promise<void>;
 
@@ -2147,6 +2160,37 @@ interface RisuaiPluginAPI {
         mode: string;
         allowPlugins?: boolean;
     }): Promise<any>;
+
+    /**
+     * Lists the user's ModelPresets by id and name.
+     * @remarks Available only to the plugins RisuVault ships as built-ins;
+     *   any other plugin gets an error.
+     */
+    listModelPresets(): Promise<{ id: string; name: string }[]>;
+
+    /**
+     * Runs one request through a ModelPreset chosen by id, with that preset's
+     * credentials, parameters and retry policy, and returns the reply as text.
+     * @param options.presetId - Id from `listModelPresets`
+     * @param options.messages - Plain chat messages (system/user/assistant)
+     * @param options.mode - Only 'model' (the main slot) is offered
+     * @param options.chatId - Real chat id to associate the request log with
+     * @param abortSignal - Aborts the request; may also be passed as `options.abortSignal`
+     * @returns `{ success: true, content }`, or `{ success: false, content: '', error }`
+     *   for a model failure, an unknown preset, or a database locked to the
+     *   legacy model mode. Never rejects for a model error.
+     * @remarks Available only to the plugins RisuVault ships as built-ins;
+     *   any other plugin gets an error.
+     */
+    runModelPreset(options: {
+        presetId: string;
+        messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
+        mode?: 'model';
+        maxTokens?: number;
+        temperature?: number;
+        chatId?: string;
+        abortSignal?: AbortSignal;
+    }, abortSignal?: AbortSignal): Promise<{ success: boolean; content: string; error?: string }>;
 
     /**
      * Sends a chat message as if it were sent by the user, triggering the normal chat processing flow.

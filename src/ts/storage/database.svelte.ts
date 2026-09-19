@@ -880,6 +880,7 @@ export function applyDatabaseDefaults(data:Database):Database{
     data.nodeOnlyModelModeLock ??= 'none'
     data.moduleModelBindingsEnabled ??= false
     data.moduleModelBindings ??= {}
+    data.enabledOptionalBuiltInPlugins ??= []
     data.disableMobileDragDrop ??= false
     data.disableToggleBinding ??= false
     data.hideAllImages ??= false
@@ -2090,6 +2091,11 @@ export interface Database{
     // never auto-cleared, matching the P4 policy — a re-imported preset or
     // re-installed module reconnects on its own.
     //
+    // Names of the opt-in built-in plugins (src/ts/builtin) the user turned
+    // on. A bundled plugin that acts on its own -- writes personas, hooks
+    // requests, polls the chat -- runs only when named here, so a user who
+    // never installed it sees nothing change. Empty by default.
+    enabledOptionalBuiltInPlugins?: string[]
     // moduleModelBindingsEnabled is the master switch. Off (default) skips the
     // override branch entirely, so behaviour is byte-identical to before.
     moduleModelBindingsEnabled?: boolean

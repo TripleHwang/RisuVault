@@ -35,6 +35,24 @@ it through the existing Risu plugin API v3 sandbox. The blocks marked
 the migration of the config the bundled 0.1.1 build stored in save-backed
 plugin storage (which also removes the font cache blobs that build left there).
 
+## Bundled Persona Binder
+
+`src/ts/builtin/persona_binder-1.28-fix.js` is the user-supplied Persona
+Binder 1.28 plugin (API v3), shipped as a built-in the same way PageFold is:
+the wrapper in `src/ts/builtin/personaBinder.ts` preserves its version
+metadata and runs it through the Risu plugin API v3 sandbox. It is off until
+the user turns it on under Settings > Plugins > Built-in plugins.
+
+The file's own header, kept verbatim, states CC BY-NC-SA 4.0 and asks that the
+original author and source be named when it is shared outside the Arca.live AI
+chat channel, that it not be used commercially, and that derivatives carry the
+same license. This repository's maintainer distributes it under the
+[GNU General Public License v3.0](LICENSE) instead, on the position that a
+RisuAI plugin is a derivative of RisuAI's GPL-licensed plugin API and is
+therefore GPL-licensed regardless of the header. The attribution above is
+preserved in any case. The blocks marked "RisuVault:" in that file are
+RisuVault's patch, not upstream code.
+
 ## Third-party icons
 
 The workspace mode switch, character configuration navigation, and lorebook workspace use Solar Icons in the Bold style,

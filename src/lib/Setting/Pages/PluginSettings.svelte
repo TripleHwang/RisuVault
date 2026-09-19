@@ -23,6 +23,8 @@
     import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import { assignCollectionItem, normalizeCollectionOrganizerState } from "src/ts/collectionOrganizer";
+    import { OPT_IN_BUILT_IN_PLUGIN_NAMES } from "src/ts/builtin";
+    import { PERSONA_BINDER_PLUGIN_NAME } from "src/ts/builtin/personaBinder";
 
     let showParams = $state<string[]>([])
     let updatingPlugins = $state<string[]>([])
@@ -71,6 +73,23 @@
             plugins: assignCollectionItem(current, pluginName, folderId),
         }
         void requestImmediateSave()
+    }
+
+    // The opt-in built-ins (src/ts/builtin), each with the label and the
+    // description the toggle shows. Off by default: an active plugin is a
+    // change to what the application does, and the user turns it on.
+    const optionalBuiltIns = $derived([
+        { name: PERSONA_BINDER_PLUGIN_NAME, label: language.builtInPersonaBinder, description: language.builtInPersonaBinderDescription },
+    ].filter((entry) => OPT_IN_BUILT_IN_PLUGIN_NAMES.has(entry.name)))
+    const isOptionalBuiltInEnabled = (name: string) => (DBState.db.enabledOptionalBuiltInPlugins ?? []).includes(name)
+
+    async function setOptionalBuiltInEnabled(name: string, enabled: boolean) {
+        const current = (DBState.db.enabledOptionalBuiltInPlugins ?? []).filter((entry) => entry !== name)
+        DBState.db.enabledOptionalBuiltInPlugins = enabled ? [...current, name] : current
+        // Reload so the toggle takes effect now, the way enabling an installed
+        // plugin does, rather than on the next launch.
+        await requestImmediateSave()
+        await loadPlugins()
     }
 
     async function importPluginsToSelectedFolder(importer: () => Promise<unknown>) {
@@ -187,6 +206,22 @@
     {#snippet icon()}<TriangleAlert />{/snippet}
     {language.pluginWarn}
 </ShAlert>
+
+{#if optionalBuiltIns.length > 0}
+    <div class="mb-4 rounded-md border border-darkborderc bg-darkbg/50 p-3">
+        <span class="font-bold">{language.builtInPlugins}</span>
+        <span class="mt-1 block text-sm text-textcolor2">{language.builtInPluginsDescription}</span>
+        {#each optionalBuiltIns as builtIn (builtIn.name)}
+            <CheckInput
+                className="mt-3 min-w-0 w-full max-w-full"
+                name={builtIn.label}
+                check={isOptionalBuiltInEnabled(builtIn.name)}
+                onChange={(enabled) => void setOptionalBuiltInEnabled(builtIn.name, enabled)}
+            />
+            <span class="mt-1 block text-sm text-textcolor2">{builtIn.description}</span>
+        {/each}
+    </div>
+{/if}
 
 <CollectionOrganizerList
     managerLayout

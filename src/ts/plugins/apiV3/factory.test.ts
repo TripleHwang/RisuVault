@@ -96,6 +96,49 @@ describe('API v3 plugin sandbox document', () => {
         stop()
     })
 
+    test('bridges a bare AbortSignal argument and forwards its abort', async () => {
+        vi.stubGlobal('ImageBitmap', class ImageBitmap {})
+        const runModelPreset = vi.fn(async (_options: unknown, signal: AbortSignal) => {
+            return new Promise<string>((resolve) => {
+                signal.addEventListener('abort', () => resolve('aborted'), { once: true })
+            })
+        })
+        const iframe = document.createElement('iframe')
+        const host = new SandboxHost({ runModelPreset })
+        const stop = host.run(iframe, '')
+
+        // The guest serializes a top-level signal the same way as a nested one.
+        expect(iframe.srcdoc).toContain('arg instanceof AbortSignal')
+        expect(iframe.srcdoc).toContain('return abortSignalRef(arg);')
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: iframe.contentWindow,
+            data: {
+                type: 'CALL_ROOT',
+                reqId: 'run-preset',
+                method: 'runModelPreset',
+                args: [
+                    { presetId: 'p', messages: [] },
+                    { __type: 'ABORT_SIGNAL_REF', abortId: 'abort_bare', aborted: false },
+                ],
+            },
+        }))
+
+        await vi.waitFor(() => expect(runModelPreset).toHaveBeenCalledOnce())
+        const [, signal] = runModelPreset.mock.calls[0]
+        expect(signal).toBeInstanceOf(AbortSignal)
+        expect(signal.aborted).toBe(false)
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: iframe.contentWindow,
+            data: { type: 'ABORT_SIGNAL', abortId: 'abort_bare' },
+        }))
+        expect(signal.aborted).toBe(true)
+        await expect(runModelPreset.mock.results[0].value).resolves.toBe('aborted')
+
+        stop()
+    })
+
     test('ignores API calls from a different frame', () => {
         const registerSetting = vi.fn()
         const iframe = document.createElement('iframe')

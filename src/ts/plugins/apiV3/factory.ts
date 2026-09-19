@@ -43,6 +43,18 @@ await (async function() {
     const proxyRefRegistry = new Map();
     const abortControllers = new Map();
 
+    // An AbortSignal cannot be structured-cloned. Forward abort events by id
+    // instead, the way the host does for callback arguments.
+    function abortSignalRef(signal) {
+        const abortId = 'abort_' + Math.random().toString(36).substring(2);
+        if (!signal.aborted) {
+            signal.addEventListener('abort', () => {
+                send({ type: 'ABORT_SIGNAL', abortId });
+            }, { once: true });
+        }
+        return { __type: 'ABORT_SIGNAL_REF', abortId, aborted: signal.aborted };
+    }
+
     function serializeArg(arg) {
         if (typeof arg === 'function') {
             const existingId = callbackIdByFunction.get(arg);
@@ -53,6 +65,11 @@ await (async function() {
             callbackRegistry.set(id, arg);
             callbackIdByFunction.set(arg, id);
             return { __type: 'CALLBACK_REF', id: id };
+        }
+        // A bare signal argument (runModelPreset(options, signal)), which the
+        // object walk below would otherwise hand to postMessage as-is.
+        if (typeof AbortSignal !== 'undefined' && arg instanceof AbortSignal) {
+            return abortSignalRef(arg);
         }
         if (arg && typeof arg === 'object') {
             const refId = proxyRefRegistry.get(arg);
@@ -67,15 +84,7 @@ await (async function() {
                 for (const [key, val] of Object.entries(arg)) {
                     if (val instanceof AbortSignal) {
                         if (!out) out = { ...arg };
-                        const abortId = 'abort_' + Math.random().toString(36).substring(2);
-
-                        if (!val.aborted) {
-                            val.addEventListener('abort', () => {
-                                send({ type: 'ABORT_SIGNAL', abortId });
-                            }, { once: true });
-                        }
-
-                        out[key] = { __type: 'ABORT_SIGNAL_REF', abortId, aborted: val.aborted };
+                        out[key] = abortSignalRef(val);
                     } else {
                         const serialized = serializeArg(val);
                         if (serialized !== val) {
@@ -557,6 +566,16 @@ export class SandboxHost {
     }
 
 
+    // A signal the guest forwarded by id; the matching ABORT_SIGNAL message
+    // aborts it. Registered under the id only while it can still fire.
+    private receiveAbortSignal(abortRef: AbortSignalRef, usedAbortIds?: string[]): AbortSignal {
+        const controller = new AbortController();
+        if (abortRef.aborted) controller.abort();
+        else this.abortControllers.set(abortRef.abortId, controller);
+        usedAbortIds?.push(abortRef.abortId);
+        return controller.signal;
+    }
+
     private deserializeArgs(args: any[], usedAbortIds?: string[]) {
         const deserializeArg = (arg: any): any => {
             if (arg && arg.__type === 'CALLBACK_REF') {
@@ -616,6 +635,9 @@ export class SandboxHost {
                     return instance;
                 }
             }
+            if (arg && arg.__type === 'ABORT_SIGNAL_REF') {
+                return this.receiveAbortSignal(arg as AbortSignalRef, usedAbortIds);
+            }
             if (Array.isArray(arg)) {
                 return arg.map(deserializeArg);
             }
@@ -624,13 +646,7 @@ export class SandboxHost {
                 for (const [key, val] of Object.entries<any>(arg)) {
                     if (val && val.__type === 'ABORT_SIGNAL_REF') {
                         if (!out) out = { ...arg };
-                        const abortRef = val as AbortSignalRef, controller = new AbortController();
-
-                        if (abortRef.aborted) controller.abort();
-                        else this.abortControllers.set(abortRef.abortId, controller);
-
-                        usedAbortIds?.push(abortRef.abortId);
-                        out[key] = controller.signal;
+                        out[key] = this.receiveAbortSignal(val as AbortSignalRef, usedAbortIds);
                     } else {
                         const deserialized = deserializeArg(val);
                         if (deserialized !== val) {

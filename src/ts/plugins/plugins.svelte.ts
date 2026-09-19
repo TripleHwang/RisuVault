@@ -13,10 +13,10 @@ import { loadV3Plugins } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
 import { describePluginUpdateFailure, isPluginUpdateRefusal, runPluginUpdate, type PluginImportOutcome, type PluginUpdateResult } from "./pluginUpdate";
 import { v4 } from "uuid";
-import { loadBuiltInPageFoldPlugin, PAGEFOLD_PLUGIN_NAME } from "../builtin/pagefold";
+import { BUILT_IN_PLUGIN_NAMES, isBuiltInPluginActive as isBuiltInPluginActiveIn, loadBuiltInPlugins } from "../builtin";
 import { PluginChatOutputListeners, V2_CHAT_OUTPUT_OWNER, createV2ChatOutputApi } from "./pluginChatOutput";
 import { isRootKeyDeferred } from "../storage/sql/deferredRootKeys";
-import { isSqlWindowPartial } from "../storage/sql/sqlRuntimeWindow";
+import { isPluginCharacterComplete, isPluginChatComplete } from "./pluginChatAccess";
 import { markSqlPluginStorageDirty } from "../storage/sql/sqlPersistenceRuntime";
 import { planPluginStorageLoad, tryEnablePerKeyPluginStorage } from "./pluginStorageAccess";
 import type { PluginProviderStructuredOutput } from './providerStructuredOutput';
@@ -50,22 +50,14 @@ export function assertPluginStorageResident(action: string): void {
     )
 }
 
-export function isPluginChatComplete(chat: any): boolean {
-    // `detailsLoaded !== false` is the chat's own settings, and it is a separate
-    // fact from its messages. A bootstrap summary carries `name`, `note`,
-    // `folderId` and `lastDate` -- the four real columns on `chats` -- while
-    // `localLore`, `fmIndex`, the persona/preset bindings, the memory data and
-    // the script state live in `chat_extension_nodes` and arrive only when the
-    // chat is hydrated. Reporting such a chat as complete is the same "partial
-    // record read as a whole one" that every other flag here guards against: a
-    // plugin would see an empty `localLore` and no bindings on a chat that has
-    // them, and act on that.
-    return !!chat && chat._stub !== true && chat._placeholder !== true && chat.detailsLoaded !== false && Array.isArray(chat.message) && chat.messagesLoaded !== false && chat.messagesFullyLoaded !== false && !isSqlWindowPartial(chat)
-}
-
-export function isPluginCharacterComplete(character: any): boolean {
-    return !!character && character.detailsLoaded !== false && Array.isArray(character.chats) && character.chats.every(isPluginChatComplete)
-}
+// The chat/character gates live in `pluginChatAccess.ts` with the write-back
+// helper they pair with; re-exported so existing import sites are unchanged.
+export {
+    isPluginCharacterComplete,
+    isPluginCharacterDetailsLoaded,
+    isPluginChatComplete,
+    isPluginChatSettingsLoaded,
+} from "./pluginChatAccess";
 
 interface ProviderPlugin {
     /**
@@ -102,7 +94,15 @@ interface ProviderPluginCustomLink {
 export type RisuPlugin = ProviderPlugin
 
 export const isBuiltInPluginName = (name: string | undefined) =>
-    name?.trim().toLowerCase() === PAGEFOLD_PLUGIN_NAME
+    BUILT_IN_PLUGIN_NAMES.has(name?.trim().toLowerCase() ?? '')
+
+/**
+ * A built-in that runs for this user. An opt-in built-in the user has not
+ * turned on is not "built in" as far as installing or loading is concerned:
+ * their own copy of it, if they have one, keeps working exactly as before.
+ */
+export const isBuiltInPluginActive = (name: string | undefined) =>
+    isBuiltInPluginActiveIn(name, getDatabase()?.enabledOptionalBuiltInPlugins)
 
 export async function createBlankPlugin(){
     await importPlugin(
@@ -467,12 +467,13 @@ export async function importPlugin(code:string|null = null, argu:{
             return showError('plugin name not found, did you put it correctly?')
         }
 
-        // PageFold is an application asset. Importing another copy would make
-        // two sandbox instances compete for the same provider/model id. Keep
-        // legacy copies in the database untouched for reversibility, but do
-        // not install any new duplicate over the built-in provider.
-        if (isBuiltInPluginName(name)) {
-            return showError('PageFold is built in and cannot be installed as a separate plugin.')
+        // Built-ins are application assets. Importing another copy would make
+        // two sandbox instances compete for the same provider/model id, or for
+        // the same chat bindings. Keep legacy copies in the database untouched
+        // for reversibility, but do not install any new duplicate over the
+        // built-in one while it is active.
+        if (isBuiltInPluginActive(name)) {
+            return showError(`${name} is built in and cannot be installed as a separate plugin.`)
         }
 
         if(updateURL && versionOfPlugin.length === 0){
@@ -649,19 +650,22 @@ export async function loadPlugins() {
 
     // Built-ins are code assets, not mutable rows in the user database. This
     // keeps PageFold available in every model selector (main, sub/aux and
-    // module-bound plugin requests) without duplicating a 2 MB bundle in every
-    // save or SQL migration.
-    const builtInPageFoldPlugin = await loadBuiltInPageFoldPlugin()
-    const duplicatePageFold = db.plugins?.some((p: RisuPlugin) =>
-        p.enabled && isBuiltInPluginName(p.name)
-    )
-    if (duplicatePageFold) {
-        console.warn('[Plugin] Ignoring installed PageFold because the built-in provider is active.')
+    // module-bound plugin requests), and Persona Binder available to a user
+    // who turned it on, without duplicating a multi-megabyte bundle in every
+    // save or SQL migration. A built-in that fails to load is skipped, not
+    // fatal: the user's own plugins must not stay unloaded because of a
+    // bundled asset. An opt-in built-in the user has not turned on is not
+    // loaded, and an installed copy of it runs as it always did.
+    const builtInPlugins = await loadBuiltInPlugins(db.enabledOptionalBuiltInPlugins)
+    for (const installed of db.plugins ?? []) {
+        if (installed.enabled && isBuiltInPluginActive(installed.name)) {
+            console.warn(`[Plugin] Ignoring installed ${installed.name} because the built-in copy is active.`)
+        }
     }
     const enabledPlugins = [
-        builtInPageFoldPlugin,
+        ...builtInPlugins,
         ...safeStructuredClone(db.plugins ?? []).filter((p: RisuPlugin) =>
-            p.enabled && !isBuiltInPluginName(p.name)
+            p.enabled && !isBuiltInPluginActive(p.name)
         ),
     ]
     // Plugin storage is withheld from the SQL bootstrap, and this is the one

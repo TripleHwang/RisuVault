@@ -1,4 +1,7 @@
-import { allowedDbKeys, assertPluginStorageResident, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, hasMetadataOnlyCharacters, isPluginCharacterComplete, isPluginChatComplete, pluginProviderOwners, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
+import { allowedDbKeys, assertPluginStorageResident, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, hasMetadataOnlyCharacters, isPluginCharacterComplete, isPluginCharacterDetailsLoaded, isPluginChatSettingsLoaded, pluginProviderOwners, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
+import { markPluginCharacterSnapshot, markPluginChatSnapshot, pinPluginChatIdentity, writePluginChatToSlot } from "../pluginChatAccess";
+import { listPluginModelPresets, runPluginModelPreset, type PluginRunModelPresetOptions } from "./modelPresetApi";
+import { BUILT_IN_PLUGIN_NAMES } from "src/ts/builtin";
 import { SandboxHost } from "./factory";
 import { getDatabase, normalizeChat } from "src/ts/storage/database.svelte";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
@@ -6,6 +9,7 @@ import { bindPluginRequestStatusStorage } from "../providerRequestStatus";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import { isRootKeyDeferred } from "src/ts/storage/sql/deferredRootKeys";
 import { hasNewerSqlMessages, hasOlderSqlMessages } from "src/ts/storage/sql/sqlRuntimeWindow";
+import { markSqlChatDirty } from "src/ts/storage/sql/sqlPersistenceRuntime";
 import { resolveRisuBardChatSettings } from "src/ts/risubard/risuBardSettings";
 import {
     clearPluginStorageLazily,
@@ -35,7 +39,7 @@ import { endAllGenerations } from "src/ts/process/generationState";
 import { sendChat as processSendChat, doingChat } from "src/ts/process/index.svelte";
 import { getModelInfo } from "src/ts/model/modellist";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
-import { requestChatDataMain } from "src/ts/process/request/request";
+import { requestChatData, requestChatDataMain } from "src/ts/process/request/request";
 import type { OpenAIChat } from "src/ts/process/index.svelte";
 import { getModuleLorebooks } from "src/ts/process/modules";
 import { addOwnedChatOutputListener, readInlayWithPermission, removeOwnedChatOutputListener } from "../pluginChatOutput";
@@ -890,6 +894,11 @@ export const describeBardWikiScopeGap = (chat: any, globalSettings: any): string
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
+    const assertTrustedBuiltIn = (api: string) => {
+        if (!trustedBuiltInPlugins.has(plugin.name)) {
+            throw new Error(`${api} is not available: it is reserved for the built-in plugins RisuVault ships.`)
+        }
+    }
     const createBardWikiAuth = () => forageStorage.createAuth()
     const warnBardWikiCompatibilityFailure = (error: unknown) => {
         console.warn('[RisuVault] BardWiki plugin compatibility unavailable:', error)
@@ -916,8 +925,19 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             onError: warnBardWikiCompatibilityFailure,
         })
     }
+    // Read here rather than through the v2 `getChar`: that one refuses a
+    // character until every chat's whole history is resident, which on
+    // windowed loading is never for a long conversation. A plugin reading the
+    // character needs its record; the chats it carries say for themselves
+    // whether they are summaries or windows (`markPluginCharacterSnapshot`).
+    // Writing a character back still goes through the v2 gate, because that
+    // replaces every chat wholesale.
+    const readPluginCharacter = (character: any) => {
+        if (!isPluginCharacterDetailsLoaded(character)) return null
+        return markPluginCharacterSnapshot(character, $state.snapshot(character))
+    }
     const getPluginCharacter = async () =>
-        decoratePluginCharacter(oldApis.getChar())
+        decoratePluginCharacter(readPluginCharacter(DBState.db.characters[get(selectedCharID)]))
     const setPluginCharacter = (character: any) =>
         oldApis.setChar(stripBardWikiVirtualMemoryFromCharacter(character))
     const getCurrentBardWikiScope = () => {
@@ -1233,10 +1253,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
-                if (!isPluginCharacterComplete(db.characters[charId])) return null
-                return decoratePluginCharacter(
-                    $state.snapshot(db.characters[charId])
-                );
+                return decoratePluginCharacter(readPluginCharacter(db.characters[charId]));
             }
             return null;
         },
@@ -1258,10 +1275,14 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 const character = db.characters[charId]
                 const chats = character.chats;
                 if(chats && chats[chatIndex]){
-                    if (!isPluginChatComplete(chats[chatIndex])) return null
+                    // A chat whose settings are here is handed over even when
+                    // its messages are a window; the snapshot says so. The
+                    // window is a symbol-keyed mark the snapshot drops, so it
+                    // is read off the live chat before anything copies it.
+                    if (!isPluginChatSettingsLoaded(chats[chatIndex])) return null
                     return decoratePluginChat(
                         character,
-                        $state.snapshot(chats[chatIndex])
+                        markPluginChatSnapshot(chats[chatIndex], $state.snapshot(chats[chatIndex]))
                     );
                 }
             }
@@ -1272,12 +1293,18 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[characterIndex];
             if(charId){
-                const chats = db.characters[charId].chats;
+                const character = db.characters[charId]
+                const chats = character.chats;
                 if(chats && chats[chatIndex]){
-                    if (!isPluginChatComplete(chats[chatIndex])) throw new Error('Chat history is still loading')
-                    DBState.db.characters[charId].chats[chatIndex] = normalizeChat(
-                        stripBardWikiVirtualMemory(chat)
-                    )
+                    // Pinned before `normalizeChat`, which would otherwise
+                    // mint a new id for a copy that dropped its own.
+                    const live = writePluginChatToSlot(chats, chatIndex, normalizeChat(
+                        pinPluginChatIdentity(chats[chatIndex], stripBardWikiVirtualMemory(chat))
+                    ))
+                    // The same mark every host-side chat edit leaves, so the
+                    // SQL dirty commit picks the write up; a no-op under the
+                    // legacy save path, which diffs the database itself.
+                    markSqlChatDirty(character.chaId, live.id)
                 }
             }
         },
@@ -1287,17 +1314,20 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         getCurrentChatIndex: () => {
             const db = DBState.db
             const charId = get(selectedCharID)
-            if (!isPluginCharacterComplete(db.characters[charId])) return -1
+            // The open chat's index is a fact about the character, not about
+            // how much of its siblings' history is resident.
+            if (!isPluginCharacterDetailsLoaded(db.characters[charId])) return -1
             return db.characters[charId].chatPage
         },
         getCurrentLorebookEntries: () => {
             const charId = get(selectedCharID)
             const char = DBState.db.characters[charId]
-            if(!isPluginCharacterComplete(char)){
+            if(!isPluginCharacterDetailsLoaded(char)){
                 return []
             }
             const page = char.chatPage
-            if (!isPluginChatComplete(char.chats?.[page])) return []
+            // Lore is a chat setting; the message window has no bearing on it.
+            if (!isPluginChatSettingsLoaded(char.chats?.[page])) return []
             const characterLore = char.globalLore ?? []
             const chatLore = char.chats?.[page]?.localLore ?? []
             const moduleLore = getModuleLorebooks()
@@ -1797,6 +1827,24 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 blockPlugins: !options.allowPlugins,
             }, options.mode)
         },
+        // Host-only APIs. Naming a ModelPreset and running it with the user's
+        // stored credentials is more than a permission prompt can honestly
+        // cover, so these answer only a frozen built-in the host itself ships;
+        // an installed plugin gets a refusal, never a dialog.
+        listModelPresets: async () => {
+            assertTrustedBuiltIn('listModelPresets')
+            return listPluginModelPresets(DBState.db)
+        },
+        runModelPreset: async (options: PluginRunModelPresetOptions & { abortSignal?: AbortSignal }, abortSignal?: AbortSignal) => {
+            assertTrustedBuiltIn('runModelPreset')
+            return runPluginModelPreset(options, {
+                db: DBState.db,
+                request: requestChatData,
+                // Either position: the sandbox bridge carries a signal nested
+                // in an argument object as well as a bare one.
+                abortSignal: abortSignal ?? options?.abortSignal,
+            })
+        },
         sendChat: async (message: string) => {
             const conf = await getPluginPermission(plugin.name, 'sendChat');
             if(!conf){
@@ -1917,7 +1965,10 @@ export async function executePluginV3(plugin:RisuPlugin){
         return;
     }
 
-    if (plugin.builtIn && plugin.name === 'pagefold' && Object.isFrozen(plugin)) {
+    // Frozen and named in the registry: both, so a user-installed plugin that
+    // merely claims `builtIn` (the flag is a plain database field) is not
+    // handed the built-ins' auto-granted permissions and host-only APIs.
+    if (plugin.builtIn && BUILT_IN_PLUGIN_NAMES.has(plugin.name) && Object.isFrozen(plugin)) {
         trustedBuiltInPlugins.add(plugin.name)
     }
 

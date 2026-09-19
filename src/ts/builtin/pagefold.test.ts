@@ -60,8 +60,10 @@ describe("built-in PageFold provider", () => {
 
   test("is injected for per-preset dispatch without appearing as a standalone model", () => {
     const source = readFileSync("src/ts/plugins/plugins.svelte.ts", "utf8");
-    expect(source).toContain("loadBuiltInPageFoldPlugin");
-    expect(source).toContain("!isBuiltInPluginName(p.name)");
+    // Injected through the built-in registry, ahead of the user's own list.
+    expect(source).toContain("const builtInPlugins = await loadBuiltInPlugins(db.enabledOptionalBuiltInPlugins)");
+    expect(readFileSync("src/ts/builtin/index.ts", "utf8")).toContain("loadBuiltInPageFoldPlugin,");
+    expect(source).toContain("!isBuiltInPluginActive(p.name)");
     expect(source).toContain("const enabledPlugins = [");
     expect(source).toContain("await loadV3Plugins(pluginV3)");
 
