@@ -16,6 +16,8 @@ import { v4 } from "uuid";
 import { BUILT_IN_PLUGIN_NAMES, isBuiltInPluginActive as isBuiltInPluginActiveIn, loadBuiltInPlugins } from "../builtin";
 import { PluginChatOutputListeners, V2_CHAT_OUTPUT_OWNER, createV2ChatOutputApi } from "./pluginChatOutput";
 import { isRootKeyDeferred } from "../storage/sql/deferredRootKeys";
+import { isPluginStoragePerKeyMode } from "../storage/sql/pluginStorageOverlay";
+import { writePluginStorageKeyLazily } from "./pluginStorageAccess";
 import { isPluginCharacterComplete, isPluginChatComplete } from "./pluginChatAccess";
 import { markSqlPluginStorageDirty } from "../storage/sql/sqlPersistenceRuntime";
 import { planPluginStorageLoad, tryEnablePerKeyPluginStorage } from "./pluginStorageAccess";
@@ -1085,13 +1087,23 @@ export const getV2PluginAPIs = (pluginName = '') => {
         setDatabaseLite: (newDb: any) => {
             const db = getDatabase();
             if ('characters' in newDb && hasMetadataOnlyCharacters(db)) throw new Error('Character details are still loading')
-            assertPluginStorageResident('setDatabaseLite');
-            db.pluginCustomStorage ??= {}
+            // Only a key outside the allowed list lands in plugin storage, so
+            // only such a key needs the map -- or, in per-key mode, the lazy
+            // writer. A write of `personas` alone must not be refused because
+            // the map was never loaded; that is what stopped Persona Binder
+            // from saving a persona on every install where every plugin is v3.
+            const storageKeys = Object.keys(newDb).filter(key => !allowedDbKeys.includes(key))
+            const lazy = storageKeys.length > 0 && isPluginStoragePerKeyMode()
+            if (storageKeys.length > 0 && !lazy) assertPluginStorageResident('setDatabaseLite');
             for (const key of Object.keys(newDb)) {
                 if (allowedDbKeys.includes(key)) {
                     (db as any)[key] = newDb[key];
                 }
+                else if (lazy) {
+                    writePluginStorageKeyLazily(key, newDb[key])
+                }
                 else{
+                    db.pluginCustomStorage ??= {}
                     db.pluginCustomStorage[key] = newDb[key];
                     markSqlPluginStorageDirty(key)
                 }
@@ -1101,8 +1113,10 @@ export const getV2PluginAPIs = (pluginName = '') => {
         setDatabase: async (newDb: any) => {
             const db = getDatabase();
             if ('characters' in newDb && hasMetadataOnlyCharacters(db)) throw new Error('Character details are still loading')
-            assertPluginStorageResident('setDatabase');
-            db.pluginCustomStorage ??= {}
+            // Same rule as setDatabaseLite above.
+            const storageKeys = Object.keys(newDb).filter(key => !allowedDbKeys.includes(key))
+            const lazy = storageKeys.length > 0 && isPluginStoragePerKeyMode()
+            if (storageKeys.length > 0 && !lazy) assertPluginStorageResident('setDatabase');
             for (const key of Object.keys(newDb)) {
                 if (key === 'plugins') {
                     console.warn('[WARN] Plugin attempted to access plugin directly. this would be blocked in future versions. Instead, use the provided APIs to manage plugins. Attempting to handle plugin installation via plugin for new plugins in the provided database object.')
@@ -1112,7 +1126,11 @@ export const getV2PluginAPIs = (pluginName = '') => {
                 if (allowedDbKeys.includes(key)) {
                     (db as any)[key] = newDb[key];
                 }
+                else if (lazy) {
+                    writePluginStorageKeyLazily(key, newDb[key])
+                }
                 else{
+                    db.pluginCustomStorage ??= {}
                     db.pluginCustomStorage[key] = newDb[key];
                     markSqlPluginStorageDirty(key)
                 }

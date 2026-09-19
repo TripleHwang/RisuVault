@@ -6,6 +6,11 @@ import {
     markRootKeyDeferred,
     resetDeferredRootKeys,
 } from '../storage/sql/deferredRootKeys'
+import {
+    enablePluginStoragePerKeyMode,
+    readPluginStorageOverlay,
+    resetPluginStorageOverlay,
+} from '../storage/sql/pluginStorageOverlay'
 
 /**
  * The plugin storage APIs are synchronous, so when `pluginCustomStorage` has
@@ -37,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
     resetDeferredRootKeys()
+    resetPluginStorageOverlay()
     DBState.db = previousDatabase
 })
 
@@ -108,5 +114,30 @@ describe('plugin storage APIs while pluginCustomStorage is deferred', () => {
 
         expect(() => apis.setDatabaseLite({ 'some.plugin.key': 1 })).toThrow(/not loaded/)
         await expect(apis.setDatabase({ 'some.plugin.key': 1 })).rejects.toThrow(/not loaded/)
+    })
+
+    it('accepts a replacement that touches only allowlisted keys while the map is unloaded', async () => {
+        deferPluginStorage()
+        const apis = getV2PluginAPIs() as any
+
+        // Nothing here goes into plugin storage, so the unloaded map is not a
+        // reason to refuse: Persona Binder saves a persona through exactly this
+        // call, and every install where all plugins are v3 never loads the map.
+        const personas = [{ name: 'A', personaPrompt: 'p', icon: '', largePortrait: false }]
+        expect(() => apis.setDatabaseLite({ personas })).not.toThrow()
+        expect(DBState.db.personas).toEqual(personas)
+        await expect(apis.setDatabase({ selectedPersona: 0 })).resolves.toBeUndefined()
+    })
+
+    it('routes a storage key through the per-key writer when the map is served lazily', async () => {
+        deferPluginStorage()
+        enablePluginStoragePerKeyMode()
+        const apis = getV2PluginAPIs() as any
+
+        expect(() => apis.setDatabaseLite({ 'some.plugin.key': 1, personas: [] })).not.toThrow()
+        expect(readPluginStorageOverlay('some.plugin.key')?.value).toBe(1)
+        expect(DBState.db.personas).toEqual([])
+        await expect(apis.setDatabase({ 'other.plugin.key': 'x' })).resolves.toBeUndefined()
+        expect(readPluginStorageOverlay('other.plugin.key')?.value).toBe('x')
     })
 })
