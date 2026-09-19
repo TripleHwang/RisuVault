@@ -135,9 +135,9 @@ describe('plugin storage APIs while pluginCustomStorage is deferred', () => {
         const apis = getV2PluginAPIs() as any
 
         expect(() => apis.setDatabaseLite({ 'some.plugin.key': 1, personas: [] })).not.toThrow()
-        expect(readPluginStorageOverlay('some.plugin.key')?.value).toBe(1)
+        expect(readPluginStorageOverlay('some.plugin.key')).toEqual({ present: true, value: 1 })
         expect(DBState.db.personas).toEqual([])
         await expect(apis.setDatabase({ 'other.plugin.key': 'x' })).resolves.toBeUndefined()
-        expect(readPluginStorageOverlay('other.plugin.key')?.value).toBe('x')
+        expect(readPluginStorageOverlay('other.plugin.key')).toEqual({ present: true, value: 'x' })
     })
 })
