@@ -93,6 +93,20 @@ describe("built-in Persona Binder", () => {
     expect(runAutoAdaptationBody).not.toContain("withBindingMutation(");
     expect(runAutoAdaptationBody).toContain("state.autoAdaptWriteInProgress = true;");
     expect(script).toContain("자동 갱신 사용");
+    // The manual button runs the same refresh through the same in-flight guard
+    // and reports every outcome the function can return.
+    expect(script).toContain('<button id="pb-auto-adapt-now" type="button">지금 갱신</button>');
+    expect(script).toContain("async function requestManualRefresh()");
+    const manualBody = script.slice(
+      script.indexOf("async function requestManualRefresh()"),
+      script.indexOf("function describeRefreshOutcome(outcome)"),
+    );
+    expect(manualBody).toContain("state.autoAdaptInFlight.has(contextKey)");
+    expect(manualBody).toContain("return runAutoAdaptation(contextKey, controller);");
+    for (const outcome of ['"applied"', '"no-change"', '"discarded"', '"skipped"']) {
+      expect(runAutoAdaptationBody).toContain(`return ${outcome};`);
+    }
+    expect(runAutoAdaptationBody).toContain("return `failed:${error?.message || error}`;");
     // The adaptation and the refresh share one rewrite path.
     expect(script.match(/requestPersonaRewrite\(/g)).toHaveLength(3);
     // The LLM is never called from beforeRequest: the only model calls are the

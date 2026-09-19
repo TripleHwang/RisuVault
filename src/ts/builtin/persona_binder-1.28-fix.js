@@ -4513,6 +4513,8 @@
               <input id="pb-auto-adapt-interval" type="number" min="${AUTO_ADAPT_MIN_INTERVAL}" max="${AUTO_ADAPT_MAX_INTERVAL}" step="1" value="${escapeHtml(translationSettings.autoAdaptInterval)}" />
               <label for="pb-auto-adapt-instructions">갱신 지침</label>
               <textarea id="pb-auto-adapt-instructions" spellcheck="false" placeholder="예: 부상과 소지품 변화는 꼭 반영하고, 관계 변화는 대화에 분명히 드러난 것만 반영">${escapeHtml(translationSettings.autoAdaptInstructions)}</textarea>
+              <div class="pb-help">지금 갱신은 턴 수와 상관없이 현재 채팅의 바인딩된 페르소나를 바로 갱신합니다. 위 설정을 먼저 저장한 뒤 실행합니다.</div>
+              <button id="pb-auto-adapt-now" type="button">지금 갱신</button>
             </section>
             <section class="pb-settings-section" data-provider-section="risu">
               <h2>Risu 설정</h2>
@@ -5942,6 +5944,23 @@
         showLocalModal("설정을 저장했습니다.", { title: "설정 저장 완료", icon: saveIcon });
       } catch (error) {
         showLocalModal(error?.message || String(error));
+      }
+    });
+    // RisuVault: manual trigger for the automatic refresh, same path and same
+    // guards; the outcome is shown because the user asked for it, unlike the
+    // scheduled run which only logs.
+    document.getElementById("pb-auto-adapt-now")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "갱신 중…";
+      try {
+        const outcome = await requestManualRefresh();
+        showLocalModal(describeRefreshOutcome(outcome), { title: "페르소나 갱신" });
+      } catch (error) {
+        showLocalModal(error?.message || String(error));
+      } finally {
+        button.disabled = false;
+        button.textContent = "지금 갱신";
       }
     });
     document.getElementById("pb-settings-backdrop").addEventListener("click", (event) => {
@@ -7574,22 +7593,25 @@
     };
   }
 
+  // RisuVault: the manual button needs to know what happened, so every exit
+  // names its outcome: "applied", "no-change", "discarded", "skipped" (nothing
+  // to do) or "failed:<reason>". The scheduled caller ignores it.
   async function runAutoAdaptation(contextKey, controller) {
     try {
       if (controller.signal.aborted || state.statusUiUnloaded) {
-        return;
+        return "skipped";
       }
       const context = await getCurrentContextOrNull();
       if (!context || contextKeyFromContext(context) !== contextKey) {
-        return;
+        return "skipped";
       }
       const read = readBindingFromChat(context.chat);
       if (!read.ok || !read.binding) {
-        return;
+        return "failed:현재 채팅에 바인딩된 페르소나가 없습니다.";
       }
       const currentPrompt = asString(read.binding.boundPersona.personaPrompt, "");
       if (!hasText(currentPrompt)) {
-        return;
+        return "failed:바인딩된 페르소나 프롬프트가 비어 있습니다.";
       }
       const snapshotUpdatedAt = read.binding.updatedAt;
       const settings = normalizeTranslationSettings(state.translationSettings);
@@ -7600,7 +7622,7 @@
         instructions: settings.autoAdaptInstructions,
       });
       if (payload.recent_dialogue.length === 0) {
-        return;
+        return "failed:갱신에 쓸 최근 대화가 없습니다.";
       }
       const { adapted, changes } = await requestPersonaRewrite(
         PERSONA_REFRESH_PROMPT,
@@ -7608,14 +7630,14 @@
         { abortSignal: controller.signal, chatId: context.chat.id || "" },
       );
       if (controller.signal.aborted) {
-        return;
+        return "skipped";
       }
       const noChange =
         adapted === currentPrompt ||
         (changes.length === 1 && changes[0] === AUTO_ADAPT_NO_CHANGE_SUMMARY);
       if (noChange) {
         console.info(PLUGIN_LABEL, "Automatic persona refresh: no change", contextKey);
-        return;
+        return "no-change";
       }
       // Not withBindingMutation: that clears the prepared context, and a send
       // landing during this write would then be refused once. The flag is
@@ -7640,13 +7662,13 @@
           // The user (or the panel) edited the binding meanwhile; their edit
           // wins and this result is dropped.
           console.info(PLUGIN_LABEL, "Automatic persona refresh discarded: binding edited meanwhile", contextKey);
-          return;
+          return "discarded";
         }
         const binding = normalizeBinding(
           {
             ...latestRead.binding,
             boundPersona: { ...latestRead.binding.boundPersona, personaPrompt: adapted },
-            autoAdapt: { ...latestRead.binding.autoAdapt, lastAdaptedAt: now() },
+            autoAdapt: { ...latestRead.binding.autoAdapt, turnsSinceAdapt: 0, lastAdaptedAt: now() },
           },
           latest.chat.id || "",
         );
@@ -7656,19 +7678,52 @@
         markContextPrepared({ ...latest, chat: nextChat }, binding);
         invalidateCharacterSourceCache();
         console.info(PLUGIN_LABEL, "Automatic persona refresh applied", contextKey, changes);
+        return "applied";
       } finally {
         state.autoAdaptWriteInProgress = false;
         state.bindingMutationInProgress = false;
       }
     } catch (error) {
-      if (!controller.signal.aborted) {
-        console.warn(PLUGIN_LABEL, "Automatic persona refresh failed:", error?.message || error);
+      if (controller.signal.aborted) {
+        return "skipped";
       }
+      console.warn(PLUGIN_LABEL, "Automatic persona refresh failed:", error?.message || error);
+      return `failed:${error?.message || error}`;
     } finally {
       if (state.autoAdaptInFlight.get(contextKey) === controller) {
         state.autoAdaptInFlight.delete(contextKey);
       }
     }
+  }
+
+  // RisuVault: "지금 갱신" from the settings panel. Saves the panel's settings
+  // first so a preset or instruction typed just now is what runs, then goes
+  // through the scheduled path with its in-flight guard.
+  async function requestManualRefresh() {
+    await saveTranslationSettings(collectTranslationSettings());
+    const context = await getCurrentContextOrNull();
+    if (!context) {
+      throw new Error("현재 선택된 채팅이 없습니다.");
+    }
+    const read = readBindingFromChat(context.chat);
+    if (!read.ok || !read.binding) {
+      throw new Error("현재 채팅에 바인딩된 페르소나가 없습니다. 먼저 페르소나를 바인딩해 주세요.");
+    }
+    const contextKey = contextKeyFromContext(context);
+    if (state.autoAdaptInFlight.has(contextKey)) {
+      throw new Error("이 채팅의 페르소나 갱신이 이미 진행 중입니다.");
+    }
+    const controller = new AbortController();
+    state.autoAdaptInFlight.set(contextKey, controller);
+    return runAutoAdaptation(contextKey, controller);
+  }
+
+  function describeRefreshOutcome(outcome) {
+    if (outcome === "applied") return "최근 대화를 반영해 페르소나를 갱신했습니다.";
+    if (outcome === "no-change") return "모델이 바꿀 내용이 없다고 판단했습니다. 페르소나는 그대로입니다.";
+    if (outcome === "discarded") return "갱신 중에 페르소나가 직접 수정되어 결과를 버렸습니다.";
+    if (typeof outcome === "string" && outcome.startsWith("failed:")) return `갱신 실패: ${outcome.slice(7)}`;
+    return "갱신을 실행하지 못했습니다. 채팅이 바뀌었거나 플러그인이 내려갔습니다.";
   }
 
   async function initialize() {

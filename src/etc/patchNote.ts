@@ -1,7 +1,10 @@
 export const patchNote = {
-    version: "0.3.36",
+    version: "0.3.37",
     content: 
 `
+# RisuVault 0.3.37
+- Persona Binder 설정의 자동 페르소나 갱신 항목에 "지금 갱신" 버튼을 넣었습니다. 턴 수와 상관없이 현재 채팅의 바인딩된 페르소나를 최근 대화로 바로 갱신하고, 결과(갱신됨·변경 없음·버림·실패 이유)를 알려줍니다.
+
 # RisuVault 0.3.36
 - Persona Binder에서 페르소나를 저장하면 "Plugin storage is not loaded, so setDatabaseLite cannot be answered"로 실패하던 문제를 고쳤습니다. 활성 플러그인이 전부 v3면 플러그인 저장소를 키 단위로만 읽는데, 페르소나 목록만 바꾸는 저장까지 저장소 전체가 올라와 있어야 한다고 거부하고 있었습니다. 이제 플러그인 저장소로 가는 키가 있을 때만 확인하고, 키 단위 모드에서는 그 키를 키 단위로 씁니다.
 
